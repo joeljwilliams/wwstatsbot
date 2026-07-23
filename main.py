@@ -11,6 +11,7 @@
 # ptb v22 async rewrite + inline query support
 
 import os
+import asyncio
 import logging
 import datetime
 import html
@@ -342,12 +343,18 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(user.first_name)
 
     if not query:
-        # Empty query: 4 stat cards for the querying user.
+        # Empty query: 4 stat cards for the querying user, fetched in parallel.
+        stats_msg, kills_msg, killedby_msg, deaths_msg = await asyncio.gather(
+            build_stats_msg(user.id, name),
+            build_kills_msg(user.id, name),
+            build_killed_by_msg(user.id, name),
+            build_deaths_msg(user.id, name),
+        )
         results = [
-            _article("kills", "My Kills", await build_kills_msg(user.id, name)),
-            _article("killedby", "My Killed By", await build_killed_by_msg(user.id, name)),
-            _article("deaths", "My Deaths", await build_deaths_msg(user.id, name)),
-            _article("stats", "My Stats", await build_stats_msg(user.id, name)),
+            _article("stats", "My Stats", stats_msg),
+            _article("kills", "My Kills", kills_msg),
+            _article("killedby", "My Killed By", killedby_msg),
+            _article("deaths", "My Deaths", deaths_msg),
         ]
     else:
         # Typed text: achievement search, same behaviour as /info.
