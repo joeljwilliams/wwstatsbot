@@ -1,0 +1,72 @@
+# Example manifest for deploying wwstatsbot to Kubernetes.
+# The bot uses long-polling (no inbound traffic), so no Service/Ingress is
+# needed — the exposed port is only for the health probes.
+#
+# Create the secret first:
+#   kubectl create secret generic wwstatsbot \
+#     --from-literal=BOT_TOKEN='123456789:ABC...' \
+#     --from-literal=LOG_GROUP_ID='-1001234567890'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wwstatsbot
+  labels:
+    app: wwstatsbot
+spec:
+  replicas: 1            # polling bot — do NOT scale >1 (would double-process updates)
+  strategy:
+    type: Recreate       # avoid two pods polling at once during rollout
+  selector:
+    matchLabels:
+      app: wwstatsbot
+  template:
+    metadata:
+      labels:
+        app: wwstatsbot
+    spec:
+      containers:
+        - name: wwstatsbot
+          image: wwstatsbot:latest   # replace with your registry/image:tag
+          env:
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: wwstatsbot
+                  key: BOT_TOKEN
+            - name: LOG_GROUP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: wwstatsbot
+                  key: LOG_GROUP_ID
+            - name: HEALTH_PORT
+              value: "8080"
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,21 @@
+# Secrets & local config — supply via env vars instead
+config.py
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# VCS & editor
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Docs / deploy artifacts not needed in the image
+README.md
+LICENSE
+k8s-deployment.example.yaml
+Dockerfile
+.dockerignore
