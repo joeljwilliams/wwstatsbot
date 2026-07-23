@@ -1,4 +1,3 @@
-import requests
 from achvlist import ACHV
 
 achv_names = [y['name'] for y in ACHV]
@@ -11,9 +10,10 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def check(userid):
+async def check(userid, client):
     url = "http://tgwerewolf.com/stats/PlayerAchievements/?pid={}&json=true".format(userid)
-    stats = requests.get(url).json()
+    r = await client.get(url)
+    stats = r.json()
     attained_count = len(stats)
     attained_names = [each['name'] for each in stats]
     not_via_playing = [z for z in ACHV if z['name'] not in attained_names and "not_via_playing" in z]
