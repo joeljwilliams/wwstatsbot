@@ -54,7 +54,7 @@ HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
 
-BASE = "http://www.tgwerewolf.com/Stats"
+BASE = "https://www.tgwerewolf.com/Stats"
 
 # Shared async HTTP client, reused across all handlers. Created at startup,
 # closed on shutdown (see main()).

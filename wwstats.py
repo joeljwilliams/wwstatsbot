@@ -11,7 +11,7 @@ def chunks(l, n):
 
 
 async def check(userid, client):
-    url = "http://tgwerewolf.com/stats/PlayerAchievements/?pid={}&json=true".format(userid)
+    url = "https://tgwerewolf.com/stats/PlayerAchievements/?pid={}&json=true".format(userid)
     r = await client.get(url)
     stats = r.json()
     attained_count = len(stats)
