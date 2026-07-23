@@ -159,13 +159,13 @@ def build_info_results(search):
 
 
 def format_single_achv(achv):
-    """HTML block for one achievement, including the new type and notes fields."""
-    msg = "<b>Achievement info:</b>\n\n" \
-          "<b>{}</b>\n{}\n".format(html.escape(achv['name']), html.escape(achv['desc']))
-    msg += "Type: <code>{}</code>\n".format(achv.get('type', 'instantaneous'))
+    """HTML block for one achievement, including the type and notes fields."""
+    msg = "<b>{}</b>\n\n{}\n\n".format(html.escape(achv['name']), html.escape(achv['desc']))
+    msg += "Type: <code>{}</code>".format(achv.get('type', 'instantaneous'))
     notes = achv.get('notes', '')
     if notes:
-        msg += "Notes: {}\n".format(html.escape(notes))
+        # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
+        msg += "\n\nNotes:\n<blockquote expandable>{}</blockquote>".format(html.escape(notes))
     return msg
 
 
