@@ -1,3 +1,4 @@
 httpx
 python-telegram-bot==22.8
+asyncpg
 unidecode

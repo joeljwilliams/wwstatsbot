@@ -33,8 +33,9 @@ from telegram.ext import (
 )
 
 from unidecode import unidecode
-from achvlist import ACHV
+import db
 import health
+import templates as t
 
 import wwstats
 
@@ -44,16 +45,34 @@ logger = logging.getLogger(__name__)
 # Configuration is read from environment variables (for containers / k8s), with
 # a fallback to a local config.py module for development. Env vars win.
 try:
-    from config import BOT_TOKEN as _CFG_TOKEN, LOG_GROUP_ID as _CFG_LOG_GROUP
+    from config import (
+        BOT_TOKEN as _CFG_TOKEN,
+        LOG_GROUP_ID as _CFG_LOG_GROUP,
+    )
 except ImportError:
     _CFG_TOKEN, _CFG_LOG_GROUP = None, None
+
+try:
+    from config import DATABASE_URL as _CFG_DATABASE_URL
+except ImportError:
+    _CFG_DATABASE_URL = None
+
+try:
+    from config import SUPERUSER_ID as _CFG_SUPERUSER_ID
+except ImportError:
+    _CFG_SUPERUSER_ID = None
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", _CFG_TOKEN)
 LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", _CFG_LOG_GROUP or 0)) or None
 HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
+DATABASE_URL = os.environ.get("DATABASE_URL", _CFG_DATABASE_URL)
+SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or None
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
+
+if not DATABASE_URL:
+    raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
 
 BASE = "https://www.tgwerewolf.com/Stats"
 
@@ -98,30 +117,29 @@ async def get_achievements(user_id):
 
 async def build_kills_msg(user_id, name):
     kills = await get_kills(user_id)
-    msg = "Players <a href='tg://user?id={}'> {}</a> most killed:\n".format(user_id, name)
-    for n in range(len(kills)):
-        msg += "<code>{:<5}</code> <b>{}</b>\n".format(kills[n]['times'], html.escape(kills[n]['name']))
+    msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
+    for k in kills:
+        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
     return msg
 
 
 async def build_killed_by_msg(user_id, name):
     killedby = await get_killed_by(user_id)
-    msg = "Players who killed <a href='tg://user?id={}'>{}</a> most:\n".format(user_id, name)
-    for n in range(len(killedby)):
-        msg += "<code>{:<5}</code> <b>{}</b>\n".format(killedby[n]['times'], html.escape(killedby[n]['name']))
+    msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
+    for k in killedby:
+        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
     return msg
 
 
 async def build_deaths_msg(user_id, name):
     deaths = await get_deaths(user_id)
     stats = await get_stats(user_id)
-    msg = "Types of deaths that <a href='tg://user?id={}'>{}</a> most had:\n".format(user_id, name)
-    for n in range(len(deaths)):
-        """ The total of deaths for each kill method is calculated based on the percentage
-        gave by the JSON data. Because of that, the calculated value is not totally accurate."""
-        totalMethod = ((stats['gamesPlayed'] - stats['survived']['total']) * float(deaths[n]['percent']) / 100)
-        msg += "<code>{}%</code>   <b>{}</b>   <code>(approx. {})</code>\n".format(
-            deaths[n]['percent'], deaths[n]['method'], round(totalMethod))
+    msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
+    for d in deaths:
+        # The total per kill method is derived from the percentage in the JSON,
+        # so the value is approximate rather than exact.
+        total = round((stats['gamesPlayed'] - stats['survived']['total']) * float(d['percent']) / 100)
+        msg += t.DEATH_ROW.format(percent=d['percent'], method=d['method'], total=total)
     return msg
 
 
@@ -129,43 +147,46 @@ async def build_stats_msg(user_id, name, by_id=False):
     stats = await get_stats(user_id)
     achievements = await get_achievement_count(user_id)
 
-    if stats:
-        msg = "<a href='tg://user?id={}'>{} the {}</a>\n".format(user_id, name, stats['mostCommonRole']) if not by_id else "{} the {}\n".format(name, stats['mostCommonRole'])
-        msg += "<code>{:<5}</code> Achievements Unlocked!\n".format(achievements)
-        msg += "<code>{:<5}</code> Games Won <code>({}%)</code>\n".format(stats['won']['total'], stats['won']['percent'])
-        msg += "<code>{:<5}</code> Games Lost <code>({}%)</code>\n".format(stats['lost']['total'], stats['lost']['percent'])
-        msg += "<code>{:<5}</code> Games Survived <code>({}%)</code>\n".format(
-            stats['survived']['total'], stats['survived']['percent'])
-        msg += "<code>{:<5}</code> Total Games\n".format(stats['gamesPlayed'])
-        if stats['mostKilled']:
-            msg += "<code>{:<5}</code> times I've gleefully killed {}\n".format(
-                stats['mostKilled']['times'], html.escape(stats['mostKilled']['name']))
-        if stats['mostKilledBy']:
-            msg += "<code>{:<5}</code> times I've been slaughted by {}\n\n".format(
-                stats['mostKilledBy']['times'], html.escape(stats['mostKilledBy']['name']))
-    else:
-        msg = "<a href='tg://user?id={}'>{}</a> has not played any games.".format(user_id, name) if not by_id else "{} has not played any games.".format(name)
+    if not stats:
+        template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
+        return template.format(user_id=user_id, name=name)
+
+    name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
+    msg = name_template.format(user_id=user_id, name=name, role=stats['mostCommonRole'])
+    msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
+    msg += t.STATS_WON.format(total=stats['won']['total'], percent=stats['won']['percent'])
+    msg += t.STATS_LOST.format(total=stats['lost']['total'], percent=stats['lost']['percent'])
+    msg += t.STATS_SURVIVED.format(total=stats['survived']['total'], percent=stats['survived']['percent'])
+    msg += t.STATS_TOTAL.format(total=stats['gamesPlayed'])
+    if stats['mostKilled']:
+        msg += t.STATS_MOST_KILLED.format(
+            times=stats['mostKilled']['times'], name=html.escape(stats['mostKilled']['name']))
+    if stats['mostKilledBy']:
+        msg += t.STATS_MOST_KILLED_BY.format(
+            times=stats['mostKilledBy']['times'], name=html.escape(stats['mostKilledBy']['name']))
     return msg
 
 
 def build_info_results(search):
-    """Return the list of ACHV dicts whose name contains `search` (case-insensitive)."""
+    """Return the cached achievement dicts whose name contains `search` (case-insensitive)."""
     found = []
-    for item in range(len(ACHV)):
-        achv_name = "{}".format(ACHV[item]['name'])
-        if search.lower() in achv_name.lower():
-            found.append(ACHV[item])
+    for achv in db.get_achievements():
+        if search.lower() in achv['name'].lower():
+            found.append(achv)
     return found
 
 
 def format_single_achv(achv):
     """HTML block for one achievement, including the type and notes fields."""
-    msg = "<b>{}</b>\n\n{}\n\n".format(html.escape(achv['name']), html.escape(achv['desc']))
-    msg += "Type: <code>{}</code>".format(achv.get('type', 'instantaneous'))
+    msg = t.ACHV_CARD.format(
+        name=html.escape(achv['name']),
+        desc=html.escape(achv['desc']),
+        type=achv.get('type', 'instantaneous'),
+    )
     notes = achv.get('notes', '')
     if notes:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
-        msg += "\n\nNotes:\n<blockquote expandable>{}</blockquote>".format(html.escape(notes))
+        msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
     return msg
 
 
@@ -322,6 +343,107 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+# --- Admin roles & commands ------------------------------------------------
+
+def is_superuser(user_id):
+    return SUPERUSER_ID is not None and user_id == SUPERUSER_ID
+
+
+async def is_admin_user(user_id):
+    return is_superuser(user_id) or await db.is_admin(user_id)
+
+
+def _resolve_admin_target(update, context):
+    """Resolve (user_id, username, first_name) for admin management: the replied-to
+    user if present, else a numeric user id passed as the first arg. None if neither."""
+    if update.message.reply_to_message is not None:
+        u = update.message.reply_to_message.from_user
+        return u.id, u.username, u.first_name
+    if context.args:
+        try:
+            return int(context.args[0]), None, None
+        except ValueError:
+            return None
+    return None
+
+
+async def add_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superuser(update.message.from_user.id):
+        await update.message.reply_text("Only the superuser can add admins.")
+        return
+    target = _resolve_admin_target(update, context)
+    if target is None:
+        await update.message.reply_text(
+            "Usage: reply to a user with /addadmin, or /addadmin <user_id>.")
+        return
+    user_id, username, first_name = target
+    await db.add_admin(user_id, username, first_name, update.message.from_user.id)
+    label = html.escape(first_name) if first_name else str(user_id)
+    await update.message.reply_text(
+        "Added <a href='tg://user?id={}'>{}</a> as an admin.".format(user_id, label),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def del_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superuser(update.message.from_user.id):
+        await update.message.reply_text("Only the superuser can remove admins.")
+        return
+    target = _resolve_admin_target(update, context)
+    if target is None:
+        await update.message.reply_text(
+            "Usage: reply to a user with /deladmin, or /deladmin <user_id>.")
+        return
+    removed = await db.remove_admin(target[0])
+    await update.message.reply_text(
+        "Removed admin {}.".format(target[0]) if removed else "That user is not an admin.")
+
+
+async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superuser(update.message.from_user.id):
+        await update.message.reply_text("Only the superuser can list admins.")
+        return
+    rows = await db.list_admins()
+    if not rows:
+        await update.message.reply_text("No admins yet.")
+        return
+    lines = ["<b>Admins:</b>"]
+    for r in rows:
+        name = html.escape(r['first_name']) if r['first_name'] else "(unknown)"
+        uname = " @{}".format(html.escape(r['username'])) if r['username'] else ""
+        lines.append("<code>{}</code> {}{}".format(r['user_id'], name, uname))
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin_user(update.message.from_user.id):
+        await update.message.reply_text("Only admins can edit notes.")
+        return
+    replied = update.message.reply_to_message
+    if replied is None or not replied.text:
+        await update.message.reply_text(
+            "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+    note = ' '.join(context.args).strip()
+    if not note:
+        await update.message.reply_text("Please provide the note text: /setnote <note>.")
+        return
+    # The achievement name is the first non-empty line of the replied card's plain text.
+    title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
+    match = next((a for a in db.get_achievements() if a['name'] == title), None)
+    if match is None:
+        await update.message.reply_text(
+            "Could not identify the achievement from that message. "
+            "Reply to a single /info card.")
+        return
+    await db.update_notes(match['name'], note)
+    updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
+    await update.message.reply_text(
+        "Note updated.\n\n" + format_single_achv(updated),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 # --- Inline query ----------------------------------------------------------
 
 def _article(result_id, title, html_text, description=None):
@@ -387,13 +509,18 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(application: Application):
-    # Bot is initialised and about to start polling -> report ready to k8s.
+    # Bring up the database before reporting ready to k8s.
+    await db.init_pool(DATABASE_URL)
+    await db.ensure_schema()
+    await db.seed_achievements()
+    await db.load_cache()
     health.set_ready(True)
 
 
 async def _post_shutdown(application: Application):
     health.set_ready(False)
     await client.aclose()
+    await db.close_pool()
 
 
 def main():
@@ -416,6 +543,10 @@ def main():
     app.add_handler(CommandHandler('about', display_about))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
+    app.add_handler(CommandHandler('addadmin', add_admin_cmd))
+    app.add_handler(CommandHandler('deladmin', del_admin_cmd))
+    app.add_handler(CommandHandler('admins', list_admins_cmd))
+    app.add_handler(CommandHandler('setnote', set_note_cmd))
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)
 

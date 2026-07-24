@@ -20,9 +20,11 @@ ENV PYTHONUNBUFFERED=1 \
     HEALTH_PORT=8080
 
 # Required at runtime (no default for the token — must be supplied):
-#   BOT_TOKEN      Telegram bot token                (required)
-#   LOG_GROUP_ID   chat id for error reports         (optional)
-#   HEALTH_PORT    port for /healthz & /readyz probes (optional, default 8080)
+#   BOT_TOKEN      Telegram bot token                 (required)
+#   DATABASE_URL   postgresql://user:pass@host/db      (required)
+#   SUPERUSER_ID   Telegram id allowed to manage admins (optional)
+#   LOG_GROUP_ID   chat id for error reports           (optional)
+#   HEALTH_PORT    port for /healthz & /readyz probes  (optional, default 8080)
 
 # Copy the prebuilt virtualenv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv

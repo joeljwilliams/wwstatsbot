@@ -2,9 +2,11 @@
 # The bot uses long-polling (no inbound traffic), so no Service/Ingress is
 # needed — the exposed port is only for the health probes.
 #
-# Create the secret first:
+# Create the secret first (DATABASE_URL points at your external Postgres):
 #   kubectl create secret generic wwstatsbot \
 #     --from-literal=BOT_TOKEN='123456789:ABC...' \
+#     --from-literal=DATABASE_URL='postgresql://user:pass@host:5432/wwstatsbot' \
+#     --from-literal=SUPERUSER_ID='123456789' \
 #     --from-literal=LOG_GROUP_ID='-1001234567890'
 ---
 apiVersion: apps/v1
@@ -34,6 +36,16 @@ spec:
                 secretKeyRef:
                   name: wwstatsbot
                   key: BOT_TOKEN
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: wwstatsbot
+                  key: DATABASE_URL
+            - name: SUPERUSER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: wwstatsbot
+                  key: SUPERUSER_ID
             - name: LOG_GROUP_ID
               valueFrom:
                 secretKeyRef:
