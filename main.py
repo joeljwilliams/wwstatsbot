@@ -35,6 +35,7 @@ from telegram.ext import (
 from unidecode import unidecode
 import db
 import health
+import templates as t
 
 import wwstats
 
@@ -116,30 +117,29 @@ async def get_achievements(user_id):
 
 async def build_kills_msg(user_id, name):
     kills = await get_kills(user_id)
-    msg = "Players <a href='tg://user?id={}'> {}</a> most killed:\n".format(user_id, name)
-    for n in range(len(kills)):
-        msg += "<code>{:<5}</code> <b>{}</b>\n".format(kills[n]['times'], html.escape(kills[n]['name']))
+    msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
+    for k in kills:
+        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
     return msg
 
 
 async def build_killed_by_msg(user_id, name):
     killedby = await get_killed_by(user_id)
-    msg = "Players who killed <a href='tg://user?id={}'>{}</a> most:\n".format(user_id, name)
-    for n in range(len(killedby)):
-        msg += "<code>{:<5}</code> <b>{}</b>\n".format(killedby[n]['times'], html.escape(killedby[n]['name']))
+    msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
+    for k in killedby:
+        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
     return msg
 
 
 async def build_deaths_msg(user_id, name):
     deaths = await get_deaths(user_id)
     stats = await get_stats(user_id)
-    msg = "Types of deaths that <a href='tg://user?id={}'>{}</a> most had:\n".format(user_id, name)
-    for n in range(len(deaths)):
-        """ The total of deaths for each kill method is calculated based on the percentage
-        gave by the JSON data. Because of that, the calculated value is not totally accurate."""
-        totalMethod = ((stats['gamesPlayed'] - stats['survived']['total']) * float(deaths[n]['percent']) / 100)
-        msg += "<code>{}%</code>   <b>{}</b>   <code>(approx. {})</code>\n".format(
-            deaths[n]['percent'], deaths[n]['method'], round(totalMethod))
+    msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
+    for d in deaths:
+        # The total per kill method is derived from the percentage in the JSON,
+        # so the value is approximate rather than exact.
+        total = round((stats['gamesPlayed'] - stats['survived']['total']) * float(d['percent']) / 100)
+        msg += t.DEATH_ROW.format(percent=d['percent'], method=d['method'], total=total)
     return msg
 
 
@@ -147,22 +147,23 @@ async def build_stats_msg(user_id, name, by_id=False):
     stats = await get_stats(user_id)
     achievements = await get_achievement_count(user_id)
 
-    if stats:
-        msg = "<a href='tg://user?id={}'>{} the {}</a>\n".format(user_id, name, stats['mostCommonRole']) if not by_id else "{} the {}\n".format(name, stats['mostCommonRole'])
-        msg += "<code>{:<5}</code> Achievements Unlocked!\n".format(achievements)
-        msg += "<code>{:<5}</code> Games Won <code>({}%)</code>\n".format(stats['won']['total'], stats['won']['percent'])
-        msg += "<code>{:<5}</code> Games Lost <code>({}%)</code>\n".format(stats['lost']['total'], stats['lost']['percent'])
-        msg += "<code>{:<5}</code> Games Survived <code>({}%)</code>\n".format(
-            stats['survived']['total'], stats['survived']['percent'])
-        msg += "<code>{:<5}</code> Total Games\n".format(stats['gamesPlayed'])
-        if stats['mostKilled']:
-            msg += "<code>{:<5}</code> times I've gleefully killed {}\n".format(
-                stats['mostKilled']['times'], html.escape(stats['mostKilled']['name']))
-        if stats['mostKilledBy']:
-            msg += "<code>{:<5}</code> times I've been slaughted by {}\n\n".format(
-                stats['mostKilledBy']['times'], html.escape(stats['mostKilledBy']['name']))
-    else:
-        msg = "<a href='tg://user?id={}'>{}</a> has not played any games.".format(user_id, name) if not by_id else "{} has not played any games.".format(name)
+    if not stats:
+        template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
+        return template.format(user_id=user_id, name=name)
+
+    name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
+    msg = name_template.format(user_id=user_id, name=name, role=stats['mostCommonRole'])
+    msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
+    msg += t.STATS_WON.format(total=stats['won']['total'], percent=stats['won']['percent'])
+    msg += t.STATS_LOST.format(total=stats['lost']['total'], percent=stats['lost']['percent'])
+    msg += t.STATS_SURVIVED.format(total=stats['survived']['total'], percent=stats['survived']['percent'])
+    msg += t.STATS_TOTAL.format(total=stats['gamesPlayed'])
+    if stats['mostKilled']:
+        msg += t.STATS_MOST_KILLED.format(
+            times=stats['mostKilled']['times'], name=html.escape(stats['mostKilled']['name']))
+    if stats['mostKilledBy']:
+        msg += t.STATS_MOST_KILLED_BY.format(
+            times=stats['mostKilledBy']['times'], name=html.escape(stats['mostKilledBy']['name']))
     return msg
 
 
@@ -177,12 +178,15 @@ def build_info_results(search):
 
 def format_single_achv(achv):
     """HTML block for one achievement, including the type and notes fields."""
-    msg = "<b>{}</b>\n\n{}\n\n".format(html.escape(achv['name']), html.escape(achv['desc']))
-    msg += "Type: <code>{}</code>".format(achv.get('type', 'instantaneous'))
+    msg = t.ACHV_CARD.format(
+        name=html.escape(achv['name']),
+        desc=html.escape(achv['desc']),
+        type=achv.get('type', 'instantaneous'),
+    )
     notes = achv.get('notes', '')
     if notes:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
-        msg += "\n\nNotes:\n<blockquote expandable>{}</blockquote>".format(html.escape(notes))
+        msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
     return msg
 
 
