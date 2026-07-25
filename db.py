@@ -20,7 +20,7 @@ _pool: asyncpg.Pool = None
 # a dict shaped like the old achvlist.ACHV entries (name/desc/type/notes + flags).
 _ACHIEVEMENTS = []
 
-_SCHEMA = """
+_SCHEMA = r"""
 CREATE TABLE IF NOT EXISTS achievements (
     id              SERIAL PRIMARY KEY,
     name            TEXT UNIQUE NOT NULL,
@@ -38,6 +38,26 @@ CREATE TABLE IF NOT EXISTS admins (
     added_by    BIGINT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Full-text search vector over achievements. A generated STORED column, so
+-- Postgres recomputes it automatically on every insert/update (e.g. note edits)
+-- with no trigger. Weighted name (A) > name-initialism (B) > description (C).
+-- ADD COLUMN / CREATE INDEX IF NOT EXISTS keep this idempotent across restarts.
+ALTER TABLE achievements
+    ADD COLUMN IF NOT EXISTS search_tsv tsvector
+    GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
+        setweight(
+            to_tsvector('simple',
+                regexp_replace(
+                    regexp_replace(coalesce(name, ''), '(\w)\w*', '\1', 'g'),
+                    '[^a-zA-Z0-9]', '', 'g')),
+            'B') ||
+        setweight(to_tsvector('english', coalesce(description, '')), 'C')
+    ) STORED;
+
+CREATE INDEX IF NOT EXISTS achievements_search_tsv_idx
+    ON achievements USING GIN (search_tsv);
 """
 
 
@@ -135,6 +155,50 @@ async def update_notes(name, notes):
     if matched:
         await load_cache()
     return matched
+
+
+# --- Search -----------------------------------------------------------------
+
+# Full-text search. The query text is run through to_tsvector with the SAME
+# config as the indexed column, then each resulting lexeme is prefix-matched
+# (:*) so inline as-you-type works. Building the tsquery from lexemes (rather
+# than raw input) means punctuation in names ("O HAI DER!", "Spy vs Spy") can
+# never produce invalid tsquery syntax and needs no Python-side escaping.
+_SEARCH_SQL = """
+WITH q AS (
+    SELECT to_tsquery('english', string_agg(lexeme || ':*', ' & ')) AS tsq
+    FROM unnest(to_tsvector('english', $1))
+)
+SELECT a.name, a.description, a.type, a.notes, a.inactive, a.not_via_playing
+FROM achievements a, q
+WHERE q.tsq IS NOT NULL
+  AND a.search_tsv @@ q.tsq
+ORDER BY ts_rank(a.search_tsv, q.tsq) DESC, a.sort_order, a.id
+"""
+
+
+async def search_achievements(query):
+    """Full-text search: name (A) / name-initialism (B) / description (C).
+
+    Prefix-matches each lexeme (as-you-type) and ranks by ts_rank so name hits
+    sort first. Returns dicts shaped like get_achievements() entries.
+    """
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(_SEARCH_SQL, query)
+    results = []
+    for r in rows:
+        entry = {
+            "name": r["name"],
+            "desc": r["description"],
+            "type": r["type"],
+            "notes": r["notes"],
+        }
+        if r["inactive"]:
+            entry["inactive"] = True
+        if r["not_via_playing"]:
+            entry["not_via_playing"] = True
+        results.append(entry)
+    return results
 
 
 # --- Admins ----------------------------------------------------------------

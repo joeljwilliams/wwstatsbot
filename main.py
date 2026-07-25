@@ -167,13 +167,17 @@ async def build_stats_msg(user_id, name, by_id=False):
     return msg
 
 
-def build_info_results(search):
-    """Return the cached achievement dicts whose name contains `search` (case-insensitive)."""
-    found = []
-    for achv in db.get_achievements():
-        if search.lower() in achv['name'].lower():
-            found.append(achv)
-    return found
+async def build_info_results(search):
+    """Full-text achievement search (name / name-initialism / description), with
+    a substring-on-name fallback when FTS finds nothing."""
+    matches = await db.search_achievements(search)
+    if matches:
+        return matches
+    # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
+    # prefix matching can't catch). Fall back to the old case-insensitive
+    # substring-on-name scan over the in-memory cache.
+    s = search.lower()
+    return [a for a in db.get_achievements() if s in a['name'].lower()]
 
 
 def format_single_achv(achv):
@@ -331,7 +335,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif len(search) < 3:
         msg = "Please enter at least 3 letters to search for!\n"
     else:
-        found = build_info_results(search)
+        found = await build_info_results(search)
         if not found:
             msg = "No matching achievements found!\n"
         elif len(found) == 1:
@@ -480,7 +484,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     else:
         # Typed text: achievement search, same behaviour as /info.
-        matches = build_info_results(query)
+        matches = await build_info_results(query)
         if not matches:
             results = [_article("none", "No matching achievements", "No matching achievements found.")]
         else:
