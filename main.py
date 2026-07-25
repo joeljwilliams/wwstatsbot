@@ -448,6 +448,60 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+# Telegram caps messages at 4096 chars; keep the SQL result well under that.
+_DB_MAX_ROWS = 50
+_DB_MAX_CHARS = 3500
+
+
+def _format_sql_result(columns, rows, status):
+    """Render a run_sql result as an HTML <pre> block for Telegram."""
+    if not columns:
+        # Non-SELECT (UPDATE/INSERT/DDL/...): just the command tag.
+        return "<pre>{}</pre>".format(html.escape(status or "OK"))
+    shown = rows[:_DB_MAX_ROWS]
+    lines = [" | ".join(columns)]
+    lines += [" | ".join("NULL" if v is None else str(v) for v in r) for r in shown]
+    body = "\n".join(lines)
+    if len(body) > _DB_MAX_CHARS:
+        body = body[:_DB_MAX_CHARS] + "\n… (truncated)"
+    footer = "\n({} row{})".format(len(rows), "" if len(rows) == 1 else "s")
+    if len(rows) > len(shown):
+        footer += ", showing first {}".format(len(shown))
+    return "<pre>{}</pre>{}".format(html.escape(body), footer)
+
+
+async def db_console_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superuser(update.message.from_user.id):
+        await update.message.reply_text("Only the superuser can run raw SQL.")
+        return
+    # Take everything after the command verbatim (preserves newlines/whitespace),
+    # rather than context.args which collapses whitespace.
+    parts = update.message.text.split(None, 1)
+    sql = parts[1].strip() if len(parts) > 1 else ""
+    if not sql:
+        await update.message.reply_text(
+            "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.",
+            parse_mode=ParseMode.HTML)
+        return
+    print("%s - superuser (%d) - db %r" % (
+        str(datetime.datetime.now() + datetime.timedelta(hours=8)),
+        update.message.from_user.id, sql))
+    try:
+        columns, rows, status = await db.run_sql(sql)
+    except Exception as e:
+        await update.message.reply_text(
+            "<b>SQL error:</b>\n<pre>{}</pre>".format(html.escape(str(e))),
+            parse_mode=ParseMode.HTML)
+        return
+    # A statement that wasn't a plain SELECT may have changed the achievements
+    # table; refresh the in-memory cache so the bot stays consistent.
+    if not (status or "").upper().startswith("SELECT"):
+        await db.load_cache()
+    await update.message.reply_text(
+        _format_sql_result(columns, rows, status),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 # --- Inline query ----------------------------------------------------------
 
 def _article(result_id, title, html_text, description=None):
@@ -551,6 +605,7 @@ def main():
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
     app.add_handler(CommandHandler('setnote', set_note_cmd))
+    app.add_handler(CommandHandler('db', db_console_cmd))
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)
 

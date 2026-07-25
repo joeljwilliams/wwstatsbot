@@ -239,3 +239,20 @@ async def list_admins():
 async def _scalar(query, *args):
     async with _pool.acquire() as conn:
         return await conn.fetchval(query, *args)
+
+
+# --- Raw SQL console (superuser only) --------------------------------------
+
+async def run_sql(sql):
+    """Execute an arbitrary single SQL statement and return (columns, rows, status).
+
+    Prepared so we get both the result set (for SELECT/RETURNING) and the command
+    status tag (e.g. "UPDATE 3", "CREATE INDEX") from one execution. Callers must
+    gate this behind the superuser check — it runs whatever SQL it's given.
+    """
+    async with _pool.acquire() as conn:
+        stmt = await conn.prepare(sql)
+        columns = [a.name for a in stmt.get_attributes()]
+        rows = await stmt.fetch()
+        status = stmt.get_statusmsg()
+    return columns, [tuple(r) for r in rows], status
