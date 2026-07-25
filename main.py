@@ -19,6 +19,7 @@ import html
 import httpx
 from telegram import (
     Update,
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -566,12 +567,30 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Failed to report error to log group")
 
 
+# Public commands shown in Telegram's command menu (the "/" list and Menu
+# button). Admin/superuser commands (addadmin, deladmin, admins, setnote, db)
+# are intentionally omitted. Command aliases are omitted too — only the primary
+# verb is listed to keep the menu clean.
+PUBLIC_COMMANDS = [
+    BotCommand("stats", "Your game stats (or reply to another player)"),
+    BotCommand("kills", "Players you've killed the most"),
+    BotCommand("killedby", "Players who've killed you the most"),
+    BotCommand("deaths", "Your most common causes of death"),
+    BotCommand("search", "Search your attained achievements"),
+    BotCommand("achievements", "List all achievements"),
+    BotCommand("info", "Look up an achievement by name"),
+    BotCommand("about", "About this bot"),
+    BotCommand("start", "Start the bot in a private chat"),
+]
+
+
 async def _post_init(application: Application):
     # Bring up the database before reporting ready to k8s.
     await db.init_pool(DATABASE_URL)
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
+    await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
 
