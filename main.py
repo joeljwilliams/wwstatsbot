@@ -181,6 +181,49 @@ async def build_info_results(search):
     return [a for a in db.get_achievements() if s in a['name'].lower()]
 
 
+# Notes are stored in a single TEXT column but hold up to two sub-fields, each
+# on its own line prefixed by a marker emoji (added automatically on write):
+#   📝 <memo>        the main note (may span multiple lines)
+#   🎲 <probability> the odds of attaining the achievement
+# parse_notes/serialize_notes are the only encoders; storage stays schema-free
+# and human-readable in the /db console. Fields are emitted in this order.
+NOTE_MEMO = "\N{MEMO}"
+NOTE_DIE = "\N{GAME DIE}"
+_NOTE_MARKERS = [("memo", NOTE_MEMO), ("prob", NOTE_DIE)]
+_PROB_KEYWORDS = {"prob", "probability"}
+
+
+def parse_notes(raw):
+    """Split a stored notes blob into {'memo': ..., 'prob': ...}.
+
+    A line starting with a field marker begins that field; any text before the
+    first marker is treated as the memo (back-compat with old plain notes).
+    """
+    marker_to_key = {marker: key for key, marker in _NOTE_MARKERS}
+    buf = {key: [] for key, _ in _NOTE_MARKERS}
+    current = "memo"
+    for line in (raw or "").splitlines():
+        stripped = line.lstrip()
+        marker = next((m for m in marker_to_key if stripped.startswith(m)), None)
+        if marker:
+            current = marker_to_key[marker]
+            buf[current].append(stripped[len(marker):].lstrip())
+        else:
+            buf[current].append(line)
+    return {key: "\n".join(lines).strip() for key, lines in buf.items()}
+
+
+def serialize_notes(fields):
+    """Render a {'memo', 'prob'} dict back to the marker-prefixed storage form,
+    omitting empty fields. Returns '' when both are empty."""
+    parts = []
+    for key, marker in _NOTE_MARKERS:
+        value = fields.get(key, "").strip()
+        if value:
+            parts.append("{} {}".format(marker, value))
+    return "\n".join(parts)
+
+
 def format_single_achv(achv):
     """HTML block for one achievement, including the type and notes fields."""
     msg = t.ACHV_CARD.format(
@@ -188,7 +231,9 @@ def format_single_achv(achv):
         desc=html.escape(achv['desc']),
         type=achv.get('type', 'instantaneous'),
     )
-    notes = achv.get('notes', '')
+    # Normalise through parse/serialize so display is always canonical (markers
+    # present and ordered) even for legacy or /db-console-edited notes.
+    notes = serialize_notes(parse_notes(achv.get('notes', '')))
     if notes:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
         msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
@@ -420,6 +465,23 @@ async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+def _achv_from_reply(replied):
+    """Find the achievement whose /info card was replied to, by its title line
+    (the first non-empty line of the card's plain text). None if no match."""
+    title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
+    return next((a for a in db.get_achievements() if a['name'] == title), None)
+
+
+def _split_note_field(arg):
+    """Return (field_key, text) for a /setnote argument. A leading 'prob' /
+    'probability' keyword selects the probability field; otherwise it's the memo
+    and the whole argument is the text (line breaks preserved)."""
+    tokens = arg.split(None, 1)
+    if tokens and tokens[0].lower() in _PROB_KEYWORDS:
+        return "prob", (tokens[1].strip() if len(tokens) > 1 else "")
+    return "memo", arg
+
+
 async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin_user(update.message.from_user.id):
         await update.message.reply_text("Only admins can edit notes.")
@@ -427,22 +489,66 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replied = update.message.reply_to_message
     if replied is None or not replied.text:
         await update.message.reply_text(
-            "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code>.",
+            "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code> "
+            "or <code>/setnote prob &lt;probability&gt;</code>.",
             parse_mode=ParseMode.HTML)
         return
-    note = ' '.join(context.args).strip()
-    if not note:
-        await update.message.reply_text("Please provide the note text: /setnote <note>.")
+    # Take the text after the command verbatim so line breaks in the note are
+    # preserved (context.args tokenises on whitespace and would flatten them).
+    parts = update.message.text.split(None, 1)
+    arg = parts[1].strip() if len(parts) > 1 else ""
+    field, text = _split_note_field(arg)
+    if not text:
+        await update.message.reply_text(
+            "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
+            "<code>/setnote prob &lt;probability&gt;</code>. "
+            "Use /clearnote to remove a field.",
+            parse_mode=ParseMode.HTML)
         return
-    # The achievement name is the first non-empty line of the replied card's plain text.
-    title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
-    match = next((a for a in db.get_achievements() if a['name'] == title), None)
+    match = _achv_from_reply(replied)
     if match is None:
         await update.message.reply_text(
             "Could not identify the achievement from that message. "
             "Reply to a single /info card.")
         return
-    await db.update_notes(match['name'], note)
+    # Merge into the existing fields so the other field is preserved.
+    fields = parse_notes(match.get('notes', ''))
+    fields[field] = text
+    await db.update_notes(match['name'], serialize_notes(fields))
+    updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
+    await update.message.reply_text(
+        "Note updated.\n\n" + format_single_achv(updated),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin_user(update.message.from_user.id):
+        await update.message.reply_text("Only admins can edit notes.")
+        return
+    replied = update.message.reply_to_message
+    if replied is None or not replied.text:
+        await update.message.reply_text(
+            "Reply to an achievement /info card with <code>/clearnote</code> "
+            "(memo), <code>/clearnote prob</code>, or <code>/clearnote all</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+    match = _achv_from_reply(replied)
+    if match is None:
+        await update.message.reply_text(
+            "Could not identify the achievement from that message. "
+            "Reply to a single /info card.")
+        return
+    which = (context.args[0].lower() if context.args else "")
+    if which == "all":
+        targets = ["memo", "prob"]
+    elif which in _PROB_KEYWORDS:
+        targets = ["prob"]
+    else:
+        targets = ["memo"]
+    fields = parse_notes(match.get('notes', ''))
+    for key in targets:
+        fields[key] = ""
+    await db.update_notes(match['name'], serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
     await update.message.reply_text(
         "Note updated.\n\n" + format_single_achv(updated),
@@ -624,6 +730,7 @@ def main():
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
     app.add_handler(CommandHandler('setnote', set_note_cmd))
+    app.add_handler(CommandHandler('clearnote', clear_note_cmd))
     app.add_handler(CommandHandler('db', db_console_cmd))
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)

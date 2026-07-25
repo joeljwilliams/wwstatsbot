@@ -36,7 +36,7 @@ NO_GAMES_BY_ID = "{name} has not played any games."
 # --- HTML: achievement info card (main.py) ---------------------------------
 
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
-ACHV_CARD_NOTES = "\n\nNotes:\n<blockquote expandable>{notes}</blockquote>"
+ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
