@@ -19,6 +19,7 @@ import html
 import httpx
 from telegram import (
     Update,
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -167,13 +168,60 @@ async def build_stats_msg(user_id, name, by_id=False):
     return msg
 
 
-def build_info_results(search):
-    """Return the cached achievement dicts whose name contains `search` (case-insensitive)."""
-    found = []
-    for achv in db.get_achievements():
-        if search.lower() in achv['name'].lower():
-            found.append(achv)
-    return found
+async def build_info_results(search):
+    """Full-text achievement search (name / name-initialism / description), with
+    a substring-on-name fallback when FTS finds nothing."""
+    matches = await db.search_achievements(search)
+    if matches:
+        return matches
+    # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
+    # prefix matching can't catch). Fall back to the old case-insensitive
+    # substring-on-name scan over the in-memory cache.
+    s = search.lower()
+    return [a for a in db.get_achievements() if s in a['name'].lower()]
+
+
+# Notes are stored in a single TEXT column but hold up to two sub-fields, each
+# on its own line prefixed by a marker emoji (added automatically on write):
+#   📝 <memo>        the main note (may span multiple lines)
+#   🎲 <probability> the odds of attaining the achievement
+# parse_notes/serialize_notes are the only encoders; storage stays schema-free
+# and human-readable in the /db console. Fields are emitted in this order.
+NOTE_MEMO = "\N{MEMO}"
+NOTE_DIE = "\N{GAME DIE}"
+_NOTE_MARKERS = [("memo", NOTE_MEMO), ("prob", NOTE_DIE)]
+_PROB_KEYWORDS = {"prob", "probability"}
+
+
+def parse_notes(raw):
+    """Split a stored notes blob into {'memo': ..., 'prob': ...}.
+
+    A line starting with a field marker begins that field; any text before the
+    first marker is treated as the memo (back-compat with old plain notes).
+    """
+    marker_to_key = {marker: key for key, marker in _NOTE_MARKERS}
+    buf = {key: [] for key, _ in _NOTE_MARKERS}
+    current = "memo"
+    for line in (raw or "").splitlines():
+        stripped = line.lstrip()
+        marker = next((m for m in marker_to_key if stripped.startswith(m)), None)
+        if marker:
+            current = marker_to_key[marker]
+            buf[current].append(stripped[len(marker):].lstrip())
+        else:
+            buf[current].append(line)
+    return {key: "\n".join(lines).strip() for key, lines in buf.items()}
+
+
+def serialize_notes(fields):
+    """Render a {'memo', 'prob'} dict back to the marker-prefixed storage form,
+    omitting empty fields. Returns '' when both are empty."""
+    parts = []
+    for key, marker in _NOTE_MARKERS:
+        value = fields.get(key, "").strip()
+        if value:
+            parts.append("{} {}".format(marker, value))
+    return "\n".join(parts)
 
 
 def format_single_achv(achv):
@@ -183,7 +231,9 @@ def format_single_achv(achv):
         desc=html.escape(achv['desc']),
         type=achv.get('type', 'instantaneous'),
     )
-    notes = achv.get('notes', '')
+    # Normalise through parse/serialize so display is always canonical (markers
+    # present and ordered) even for legacy or /db-console-edited notes.
+    notes = serialize_notes(parse_notes(achv.get('notes', '')))
     if notes:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
         msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
@@ -331,7 +381,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif len(search) < 3:
         msg = "Please enter at least 3 letters to search for!\n"
     else:
-        found = build_info_results(search)
+        found = await build_info_results(search)
         if not found:
             msg = "No matching achievements found!\n"
         elif len(found) == 1:
@@ -415,6 +465,23 @@ async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+def _achv_from_reply(replied):
+    """Find the achievement whose /info card was replied to, by its title line
+    (the first non-empty line of the card's plain text). None if no match."""
+    title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
+    return next((a for a in db.get_achievements() if a['name'] == title), None)
+
+
+def _split_note_field(arg):
+    """Return (field_key, text) for a /setnote argument. A leading 'prob' /
+    'probability' keyword selects the probability field; otherwise it's the memo
+    and the whole argument is the text (line breaks preserved)."""
+    tokens = arg.split(None, 1)
+    if tokens and tokens[0].lower() in _PROB_KEYWORDS:
+        return "prob", (tokens[1].strip() if len(tokens) > 1 else "")
+    return "memo", arg
+
+
 async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin_user(update.message.from_user.id):
         await update.message.reply_text("Only admins can edit notes.")
@@ -422,25 +489,123 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replied = update.message.reply_to_message
     if replied is None or not replied.text:
         await update.message.reply_text(
-            "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code>.",
+            "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code> "
+            "or <code>/setnote prob &lt;probability&gt;</code>.",
             parse_mode=ParseMode.HTML)
         return
-    note = ' '.join(context.args).strip()
-    if not note:
-        await update.message.reply_text("Please provide the note text: /setnote <note>.")
+    # Take the text after the command verbatim so line breaks in the note are
+    # preserved (context.args tokenises on whitespace and would flatten them).
+    parts = update.message.text.split(None, 1)
+    arg = parts[1].strip() if len(parts) > 1 else ""
+    field, text = _split_note_field(arg)
+    if not text:
+        await update.message.reply_text(
+            "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
+            "<code>/setnote prob &lt;probability&gt;</code>. "
+            "Use /clearnote to remove a field.",
+            parse_mode=ParseMode.HTML)
         return
-    # The achievement name is the first non-empty line of the replied card's plain text.
-    title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
-    match = next((a for a in db.get_achievements() if a['name'] == title), None)
+    match = _achv_from_reply(replied)
     if match is None:
         await update.message.reply_text(
             "Could not identify the achievement from that message. "
             "Reply to a single /info card.")
         return
-    await db.update_notes(match['name'], note)
+    # Merge into the existing fields so the other field is preserved.
+    fields = parse_notes(match.get('notes', ''))
+    fields[field] = text
+    await db.update_notes(match['name'], serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
     await update.message.reply_text(
         "Note updated.\n\n" + format_single_achv(updated),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin_user(update.message.from_user.id):
+        await update.message.reply_text("Only admins can edit notes.")
+        return
+    replied = update.message.reply_to_message
+    if replied is None or not replied.text:
+        await update.message.reply_text(
+            "Reply to an achievement /info card with <code>/clearnote</code> "
+            "(memo), <code>/clearnote prob</code>, or <code>/clearnote all</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+    match = _achv_from_reply(replied)
+    if match is None:
+        await update.message.reply_text(
+            "Could not identify the achievement from that message. "
+            "Reply to a single /info card.")
+        return
+    which = (context.args[0].lower() if context.args else "")
+    if which == "all":
+        targets = ["memo", "prob"]
+    elif which in _PROB_KEYWORDS:
+        targets = ["prob"]
+    else:
+        targets = ["memo"]
+    fields = parse_notes(match.get('notes', ''))
+    for key in targets:
+        fields[key] = ""
+    await db.update_notes(match['name'], serialize_notes(fields))
+    updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
+    await update.message.reply_text(
+        "Note updated.\n\n" + format_single_achv(updated),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+# Telegram caps messages at 4096 chars; keep the SQL result well under that.
+_DB_MAX_ROWS = 50
+_DB_MAX_CHARS = 3500
+
+
+def _format_sql_result(columns, rows, status):
+    """Render a run_sql result as an HTML <pre> block for Telegram."""
+    if not columns:
+        # Non-SELECT (UPDATE/INSERT/DDL/...): just the command tag.
+        return "<pre>{}</pre>".format(html.escape(status or "OK"))
+    shown = rows[:_DB_MAX_ROWS]
+    lines = [" | ".join(columns)]
+    lines += [" | ".join("NULL" if v is None else str(v) for v in r) for r in shown]
+    body = "\n".join(lines)
+    if len(body) > _DB_MAX_CHARS:
+        body = body[:_DB_MAX_CHARS] + "\n… (truncated)"
+    footer = "\n({} row{})".format(len(rows), "" if len(rows) == 1 else "s")
+    if len(rows) > len(shown):
+        footer += ", showing first {}".format(len(shown))
+    return "<pre>{}</pre>{}".format(html.escape(body), footer)
+
+
+async def db_console_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_superuser(update.message.from_user.id):
+        await update.message.reply_text("Only the superuser can run raw SQL.")
+        return
+    # Take everything after the command verbatim (preserves newlines/whitespace),
+    # rather than context.args which collapses whitespace.
+    parts = update.message.text.split(None, 1)
+    sql = parts[1].strip() if len(parts) > 1 else ""
+    if not sql:
+        await update.message.reply_text(
+            "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.",
+            parse_mode=ParseMode.HTML)
+        return
+    print("%s - superuser (%d) - db %r" % (
+        str(datetime.datetime.now() + datetime.timedelta(hours=8)),
+        update.message.from_user.id, sql))
+    try:
+        columns, rows, status = await db.run_sql(sql)
+    except Exception as e:
+        await update.message.reply_text(
+            "<b>SQL error:</b>\n<pre>{}</pre>".format(html.escape(str(e))),
+            parse_mode=ParseMode.HTML)
+        return
+    # A statement that wasn't a plain SELECT may have changed the achievements
+    # table; refresh the in-memory cache so the bot stays consistent.
+    if not (status or "").upper().startswith("SELECT"):
+        await db.load_cache()
+    await update.message.reply_text(
+        _format_sql_result(columns, rows, status),
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
@@ -480,7 +645,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     else:
         # Typed text: achievement search, same behaviour as /info.
-        matches = build_info_results(query)
+        matches = await build_info_results(query)
         if not matches:
             results = [_article("none", "No matching achievements", "No matching achievements found.")]
         else:
@@ -508,12 +673,30 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Failed to report error to log group")
 
 
+# Public commands shown in Telegram's command menu (the "/" list and Menu
+# button). Admin/superuser commands (addadmin, deladmin, admins, setnote, db)
+# are intentionally omitted. Command aliases are omitted too — only the primary
+# verb is listed to keep the menu clean.
+PUBLIC_COMMANDS = [
+    BotCommand("stats", "Your game stats (or reply to another player)"),
+    BotCommand("kills", "Players you've killed the most"),
+    BotCommand("killedby", "Players who've killed you the most"),
+    BotCommand("deaths", "Your most common causes of death"),
+    BotCommand("search", "Search your attained achievements"),
+    BotCommand("achievements", "List all achievements"),
+    BotCommand("info", "Look up an achievement by name"),
+    BotCommand("about", "About this bot"),
+    BotCommand("start", "Start the bot in a private chat"),
+]
+
+
 async def _post_init(application: Application):
     # Bring up the database before reporting ready to k8s.
     await db.init_pool(DATABASE_URL)
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
+    await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
 
@@ -547,6 +730,8 @@ def main():
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
     app.add_handler(CommandHandler('setnote', set_note_cmd))
+    app.add_handler(CommandHandler('clearnote', clear_note_cmd))
+    app.add_handler(CommandHandler('db', db_console_cmd))
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)
 
