@@ -47,8 +47,12 @@ ALTER TABLE achievements
     ADD COLUMN IF NOT EXISTS search_tsv tsvector
     GENERATED ALWAYS AS (
         setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
+        -- Same 'english' config as the query (search_achievements) so the
+        -- initialism is stemmed identically on both sides. Using 'simple' here
+        -- broke queries whose initialism the english stemmer rewrites (e.g. a
+        -- trailing y -> i: "dygy" indexed as dygy, queried as dygi).
         setweight(
-            to_tsvector('simple',
+            to_tsvector('english',
                 regexp_replace(
                     regexp_replace(coalesce(name, ''), '(\w)\w*', '\1', 'g'),
                     '[^a-zA-Z0-9]', '', 'g')),
