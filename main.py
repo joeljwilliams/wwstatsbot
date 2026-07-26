@@ -384,11 +384,10 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         found = await build_info_results(search)
         if not found:
             msg = "No matching achievements found!\n"
-        elif len(found) == 1:
-            msg = format_single_achv(found[0])
         else:
-            msg = "<b>Multiple achievements found!</b>\nTry one of these:\n"
-            msg += "\n".join("<code>/info {}</code>".format(achv['name']) for achv in found) + "\n"
+            # Results are rank-ordered (name hits first), so the top match is the
+            # best answer — show it rather than making the user pick from a list.
+            msg = format_single_achv(found[0])
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
