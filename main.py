@@ -481,6 +481,53 @@ def _split_note_field(arg):
     return "memo", arg
 
 
+def _extract_possible_achievements(text):
+    """Extract unique achievement names from a Possible Achievements message.
+
+    Expected lines are bullet-like rows, e.g. "- Strongest Alpha".
+    Returns names in first-seen order, de-duplicated case-insensitively.
+    """
+    seen = set()
+    names = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("-"):
+            continue
+        candidate = stripped.lstrip("-").strip()
+        if not candidate:
+            continue
+        key = candidate.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(candidate)
+    return names
+
+
+def _best_achievement_match(name):
+    """Find an achievement by exact case-insensitive name, then fuzzy fallback."""
+    key = name.casefold()
+    exact = next((a for a in db.get_achievements() if a['name'].casefold() == key), None)
+    return exact
+
+
+async def _resolve_achievement_cards(names):
+    """Resolve achievement names to info cards. Returns (cards, not_found_names)."""
+    cards = []
+    not_found = []
+    for name in names:
+        match = _best_achievement_match(name)
+        if match is None:
+            fuzzy = await build_info_results(name)
+            if fuzzy:
+                match = fuzzy[0]
+        if match is None:
+            not_found.append(name)
+            continue
+        cards.append(format_single_achv(match))
+    return cards, not_found
+
+
 async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin_user(update.message.from_user.id):
         await update.message.reply_text("Only admins can edit notes.")
@@ -552,6 +599,56 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Note updated.\n\n" + format_single_achv(updated),
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    name = html.escape(update.message.from_user.first_name)
+    replied = update.message.reply_to_message
+
+    print("%s - %s (%d) - allinfo" % (
+        str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+
+    if replied is None:
+        await update.message.reply_text(
+            "Reply to a 'Possible Achievements' message with <code>/allinfo</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    source_text = replied.text or replied.caption or ""
+    achv_names = _extract_possible_achievements(source_text)
+    if not achv_names:
+        await update.message.reply_text(
+            "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    cards, not_found = await _resolve_achievement_cards(achv_names)
+    if not cards:
+        await update.message.reply_text("No matching achievements found.")
+        return
+
+    try:
+        for card in cards:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=card,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+        summary = "I sent {} achievement info card{} in PM.".format(
+            len(cards), "" if len(cards) == 1 else "s")
+        if not_found:
+            summary += "\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
+            if len(not_found) > 10:
+                summary += ", ..."
+        if update.message.chat.type != 'private':
+            await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+    except Exception:
+        url = "telegram.me/{}".format(context.bot.username)
+        keyboard = [[InlineKeyboardButton("Start Me!", url=url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("You have to start me in PM first.", reply_markup=reply_markup)
 
 
 # Telegram caps messages at 4096 chars; keep the SQL result well under that.
@@ -684,6 +781,7 @@ PUBLIC_COMMANDS = [
     BotCommand("search", "Search your attained achievements"),
     BotCommand("achievements", "List all achievements"),
     BotCommand("info", "Look up an achievement by name"),
+    BotCommand("allinfo", "Reply: get info cards for listed achievements"),
     BotCommand("about", "About this bot"),
     BotCommand("start", "Start the bot in a private chat"),
 ]
@@ -725,6 +823,7 @@ def main():
     app.add_handler(CommandHandler('about', display_about))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
+    app.add_handler(CommandHandler('allinfo', all_info_cmd))
     app.add_handler(CommandHandler('addadmin', add_admin_cmd))
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
