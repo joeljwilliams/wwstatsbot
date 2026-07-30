@@ -177,7 +177,14 @@ SELECT a.name, a.description, a.type, a.notes, a.inactive, a.not_via_playing
 FROM achievements a, q
 WHERE q.tsq IS NOT NULL
   AND a.search_tsv @@ q.tsq
-ORDER BY ts_rank(a.search_tsv, q.tsq) DESC, a.sort_order, a.id
+ORDER BY
+    -- Exact match on the raw, un-stemmed text wins first. ts_rank can't tell a
+    -- real hit from a stemmer collision (the 'english' config folds both "busy"
+    -- and "business" to the lexeme "busi"), so searching "business" would rank
+    -- "Busy Night" alongside "Liquid Business". Boosting rows whose literal text
+    -- contains the query pushes those genuine full-word matches to the top.
+    (a.name ILIKE '%' || $1 || '%' OR a.description ILIKE '%' || $1 || '%') DESC,
+    ts_rank(a.search_tsv, q.tsq) DESC, a.sort_order, a.id
 """
 
 
