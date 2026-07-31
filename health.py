@@ -9,11 +9,12 @@ The bot flips readiness on/off via ``set_ready()`` (see main.py lifecycle hooks)
 Using only the standard library keeps the container image minimal.
 """
 
-import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 # Toggled by the application lifecycle. Liveness does not depend on it.
 _ready = threading.Event()
@@ -54,5 +55,5 @@ def start_health_server(port: int) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("0.0.0.0", port), _Handler)
     thread = threading.Thread(target=server.serve_forever, name="health", daemon=True)
     thread.start()
-    logger.info("Health server listening on :%d (/healthz, /readyz)", port)
+    logger.info("health_server_started", port=port, endpoints=["/healthz", "/readyz"])
     return server

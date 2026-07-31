@@ -2,3 +2,4 @@ httpx
 python-telegram-bot==22.8
 asyncpg
 unidecode
+structlog>=24.1
