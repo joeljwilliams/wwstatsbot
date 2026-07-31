@@ -11,3 +11,4 @@
 ## Credits
 - Originally made by Carson True
 - Edited by @jeffffc ([Telegram profile here](http://t.me/jeffffc))
+- Actively maintained fork by [@jjw91](https://t.me/jjw91): <https://github.com/joeljwilliams/wwstatsbot>

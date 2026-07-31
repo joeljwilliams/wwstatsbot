@@ -36,6 +36,7 @@ from unidecode import unidecode
 import db
 import health
 import templates as t
+import version
 from logging_config import configure_logging
 
 import wwstats
@@ -331,9 +332,20 @@ async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def display_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "Use /stats for stats. Use /achievements or /achv for achivement list."
-    msg += "\n\nThis is an edited version to the old `@wolfcardbot`.\n"
-    msg += "Click [here](https://github.com/jeffffc/wwstatsbot) for the source code of the current project."
+    msg += "\n\nThis is an actively maintained fork of the original `@wolfcardbot` "
+    msg += "(originally by Carson True, later edited by @jeffffc)."
+    msg += "\nSource for this maintained version: [{repo}]({repo})".format(repo=version.GITHUB_REPO)
+    msg += "\nUse /version to see the exact running build."
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+
+
+async def display_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    info = version.get_version_info()
+    logger.info("command", command="version", user_id=update.message.from_user.id,
+                commit=info["short_commit"], branch=info["branch"], source=info["source"])
+    tmpl = t.VERSION_INFO_LINKED if info["commit_url"] else t.VERSION_INFO_PLAIN
+    await update.message.reply_text(
+        tmpl.format(**info), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def startme(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -781,6 +793,7 @@ PUBLIC_COMMANDS = [
     BotCommand("info", "Look up an achievement by name"),
     BotCommand("allinfo", "Reply: get info cards for listed achievements"),
     BotCommand("about", "About this bot"),
+    BotCommand("version", "Show the running bot version"),
     BotCommand("start", "Start the bot in a private chat"),
 ]
 
@@ -819,6 +832,7 @@ def main():
     app.add_handler(CommandHandler('deaths', display_deaths))
     app.add_handler(CommandHandler(['search', 'sch'], display_search))
     app.add_handler(CommandHandler('about', display_about))
+    app.add_handler(CommandHandler('version', display_version))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
     app.add_handler(CommandHandler('allinfo', all_info_cmd))

@@ -38,6 +38,21 @@ NO_GAMES_BY_ID = "{name} has not played any games."
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
 ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
+# --- HTML: /version build info (main.py) -----------------------------------
+
+# Two variants (linked / plain) mirror the STATS_NAME split so no conditional
+# lives inside the string. The handler picks LINKED when a commit_url exists.
+VERSION_INFO_LINKED = (
+    "<b>wwstatsbot</b>\n"
+    "Branch: <code>{branch}</code>\n"
+    "Commit: <a href=\"{commit_url}\">{short_commit}</a> <code>{commit}</code>"
+)
+VERSION_INFO_PLAIN = (
+    "<b>wwstatsbot</b>\n"
+    "Branch: <code>{branch}</code>\n"
+    "Commit: <code>{short_commit}</code>"
+)
+
 # --- HTML: /search achievement match list (main.py) ------------------------
 
 # Each matching achievement is tagged with whether the target user has it.
