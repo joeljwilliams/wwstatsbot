@@ -272,33 +272,35 @@ async def display_deaths(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+# Cap the /search result list so a broad query can't approach Telegram's 4096
+# char message limit; excess matches are summarised by a "…and N more" line.
+_SEARCH_MAX_RESULTS = 10
+
+
 async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     user_id, name = resolve_target(update)
     logger.info("command", command="search", user_id=user_id, user=unidecode(name), args=args)
 
-    if len(args) == 0:
+    # Search the full achievement list the same way /info does, then annotate
+    # each match with whether the target user has already attained it.
+    search = ' '.join(args)
+    if not search:
         msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
+    elif len(search) < 3:
+        msg = "Please enter at least 3 letters to search for!\n"
     else:
-        found_counter = 0
-        achv = await get_achievements(user_id)
-        msg = "Attained achievements of <a href='tg://user?id={}'>{}</a> found:\n".format(user_id, name)
-        for item in range(len(achv)):
-            achv_name = "{}".format(achv[item]['name'])
-            found_this = False
-
-            for n in range(len(achv_name.split())):
-                for word in range(len(args)):
-                    if achv_name.split()[n].lower().startswith(args[word].lower()):
-                        msg += "<code>{}</code>\n".format(achv_name)
-                        found_this = True
-                        found_counter += 1
-                        break
-                if found_this:
-                    break
-
-        if found_counter == 0:
-            msg += "<b>No matching achievements found!</b>\n"
+        matches = await build_info_results(search)
+        if not matches:
+            msg = "No matching achievements found!\n"
+        else:
+            attained_names = {a['name'] for a in await get_achievements(user_id)}
+            msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
+            for m in matches[:_SEARCH_MAX_RESULTS]:
+                mark = t.SEARCH_ATTAINED if m['name'] in attained_names else t.SEARCH_NOT_ATTAINED
+                msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m['name']))
+            if len(matches) > _SEARCH_MAX_RESULTS:
+                msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 

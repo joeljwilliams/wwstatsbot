@@ -38,6 +38,20 @@ NO_GAMES_BY_ID = "{name} has not played any games."
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
 ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
+# --- HTML: /search achievement match list (main.py) ------------------------
+
+# Each matching achievement is tagged with whether the target user has it.
+SEARCH_HEADER = (
+    "Achievements matching <b>{query}</b> for "
+    "<a href='tg://user?id={user_id}'>{name}</a>:\n"
+    "(✅ attained · ☑️ not yet)\n\n"
+)
+SEARCH_ROW = "{mark} <code>{name}</code>\n"
+SEARCH_ATTAINED = "✅"
+SEARCH_NOT_ATTAINED = "☑️"
+# Shown when more matches exist than the display cap; nudges toward a narrower query.
+SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i>\n"
+
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
 ATTAINED_HEADER = "*ATTAINED ({attained}/{total}):*\n"
