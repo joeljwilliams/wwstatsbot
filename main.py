@@ -12,11 +12,10 @@
 
 import os
 import asyncio
-import logging
-import datetime
 import html
 
 import httpx
+import structlog
 from telegram import (
     Update,
     BotCommand,
@@ -37,11 +36,12 @@ from unidecode import unidecode
 import db
 import health
 import templates as t
+from logging_config import configure_logging
 
 import wwstats
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = structlog.get_logger(__name__)
 
 # Configuration is read from environment variables (for containers / k8s), with
 # a fallback to a local config.py module for development. Env vars win.
@@ -253,21 +253,21 @@ def resolve_target(update):
 
 async def display_kills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - kills" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="kills", user_id=user_id, user=unidecode(name))
     msg = await build_kills_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_killed_by(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - killed by" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="killedby", user_id=user_id, user=unidecode(name))
     msg = await build_killed_by_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_deaths(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - deaths" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="deaths", user_id=user_id, user=unidecode(name))
     msg = await build_deaths_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
@@ -275,7 +275,7 @@ async def display_deaths(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - search %s" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id, args))
+    logger.info("command", command="search", user_id=user_id, user=unidecode(name), args=args)
 
     if len(args) == 0:
         msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
@@ -321,7 +321,7 @@ async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = update.message.from_user.id
             name = html.escape(update.message.from_user.first_name)
 
-    print("%s - %s (%s) - stats" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(str(name)), user_id))
+    logger.info("command", command="stats", user_id=user_id, user=unidecode(str(name)), by_id=by_id)
 
     msg = await build_stats_msg(user_id, name, by_id=by_id)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -346,7 +346,7 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
 
-    print("%s - %s (%d) - achv" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="achievements", user_id=user_id, user=unidecode(name))
 
     msgs = await wwstats.check(user_id, client)
 
@@ -373,8 +373,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.message.reply_to_message and update.message.reply_to_message.text:
         search = update.message.reply_to_message.text
 
-    print("%s - %s (%d) - info %s" % (
-        str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id, args))
+    logger.info("command", command="info", user_id=user_id, user=unidecode(name), args=args)
 
     if len(search) == 0:
         msg = "Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n"
@@ -606,8 +605,7 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(update.message.from_user.first_name)
     replied = update.message.reply_to_message
 
-    print("%s - %s (%d) - allinfo" % (
-        str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="allinfo", user_id=user_id, user=unidecode(name))
 
     if replied is None:
         await update.message.reply_text(
@@ -686,9 +684,7 @@ async def db_console_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.",
             parse_mode=ParseMode.HTML)
         return
-    print("%s - superuser (%d) - db %r" % (
-        str(datetime.datetime.now() + datetime.timedelta(hours=8)),
-        update.message.from_user.id, sql))
+    logger.info("command", command="db", user_id=update.message.from_user.id, sql=sql)
     try:
         columns, rows, status = await db.run_sql(sql)
     except Exception as e:
@@ -760,13 +756,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     e = str(error).lower()
     if "timed out" in e or "not modified" in e or "query_id_invalid" in e:
         return
-    logger.error("Update caused error: %s", error)
+    logger.error("update_error", exc_info=error)
     if not LOG_GROUP_ID:
         return
     try:
         await context.bot.send_message(LOG_GROUP_ID, str(error), parse_mode=ParseMode.MARKDOWN)
     except Exception:
-        logger.exception("Failed to report error to log group")
+        logger.exception("log_group_report_failed")
 
 
 # Public commands shown in Telegram's command menu (the "/" list and Menu
