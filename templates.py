@@ -58,8 +58,7 @@ VERSION_INFO_PLAIN = (
 # Each matching achievement is tagged with whether the target user has it.
 SEARCH_HEADER = (
     "Achievements matching <b>{query}</b> for "
-    "<a href='tg://user?id={user_id}'>{name}</a>:\n"
-    "(✅ attained · ☑️ not yet)\n\n"
+    "<a href='tg://user?id={user_id}'>{name}</a>:\n\n"
 )
 SEARCH_ROW = "{mark} <code>{name}</code>\n"
 SEARCH_ATTAINED = "✅"
