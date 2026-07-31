@@ -25,6 +25,8 @@ ENV PYTHONUNBUFFERED=1 \
 #   SUPERUSER_ID   Telegram id allowed to manage admins (optional)
 #   LOG_GROUP_ID   chat id for error reports           (optional)
 #   HEALTH_PORT    port for /healthz & /readyz probes  (optional, default 8080)
+#   LOG_LEVEL      DEBUG/INFO/WARNING/...               (optional, default INFO)
+#   LOG_FORMAT     json | console                       (optional, default json off a TTY)
 
 # Copy the prebuilt virtualenv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv

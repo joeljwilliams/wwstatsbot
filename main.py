@@ -12,11 +12,10 @@
 
 import os
 import asyncio
-import logging
-import datetime
 import html
 
 import httpx
+import structlog
 from telegram import (
     Update,
     BotCommand,
@@ -37,11 +36,13 @@ from unidecode import unidecode
 import db
 import health
 import templates as t
+import version
+from logging_config import configure_logging
 
 import wwstats
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = structlog.get_logger(__name__)
 
 # Configuration is read from environment variables (for containers / k8s), with
 # a fallback to a local config.py module for development. Env vars win.
@@ -253,52 +254,59 @@ def resolve_target(update):
 
 async def display_kills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - kills" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="kills", user_id=user_id, user=unidecode(name))
     msg = await build_kills_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_killed_by(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - killed by" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="killedby", user_id=user_id, user=unidecode(name))
     msg = await build_killed_by_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_deaths(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - deaths" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="deaths", user_id=user_id, user=unidecode(name))
     msg = await build_deaths_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+# Cap the /search result list so a broad query can't approach Telegram's 4096
+# char message limit; excess matches are summarised by a "…and N more" line.
+_SEARCH_MAX_RESULTS = 10
 
 
 async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     user_id, name = resolve_target(update)
-    print("%s - %s (%d) - search %s" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id, args))
+    logger.info("command", command="search", user_id=user_id, user=unidecode(name), args=args)
 
-    if len(args) == 0:
+    # Search the full achievement list the same way /info does, then annotate
+    # each match with whether the target user has already attained it.
+    search = ' '.join(args)
+    if not search:
         msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
+    elif len(search) < 3:
+        msg = "Please enter at least 3 letters to search for!\n"
     else:
-        found_counter = 0
-        achv = await get_achievements(user_id)
-        msg = "Attained achievements of <a href='tg://user?id={}'>{}</a> found:\n".format(user_id, name)
-        for item in range(len(achv)):
-            achv_name = "{}".format(achv[item]['name'])
-            found_this = False
-
-            for n in range(len(achv_name.split())):
-                for word in range(len(args)):
-                    if achv_name.split()[n].lower().startswith(args[word].lower()):
-                        msg += "<code>{}</code>\n".format(achv_name)
-                        found_this = True
-                        found_counter += 1
-                        break
-                if found_this:
-                    break
-
-        if found_counter == 0:
-            msg += "<b>No matching achievements found!</b>\n"
+        matches = await build_info_results(search)
+        attained_names = {a['name'] for a in await get_achievements(user_id)} if matches else set()
+        # Drop inactive achievements the user hasn't obtained: they can no longer
+        # be earned, so listing them as "not yet" would be misleading. (Inactive
+        # ones the user already has are kept, so their collection stays complete.)
+        matches = [m for m in matches
+                   if not (m.get('inactive') and m['name'] not in attained_names)]
+        if not matches:
+            msg = "No matching achievements found!\n"
+        else:
+            msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
+            for m in matches[:_SEARCH_MAX_RESULTS]:
+                mark = t.SEARCH_ATTAINED if m['name'] in attained_names else t.SEARCH_NOT_ATTAINED
+                msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m['name']))
+            if len(matches) > _SEARCH_MAX_RESULTS:
+                msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
@@ -321,7 +329,7 @@ async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = update.message.from_user.id
             name = html.escape(update.message.from_user.first_name)
 
-    print("%s - %s (%s) - stats" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(str(name)), user_id))
+    logger.info("command", command="stats", user_id=user_id, user=unidecode(str(name)), by_id=by_id)
 
     msg = await build_stats_msg(user_id, name, by_id=by_id)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -329,9 +337,20 @@ async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def display_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "Use /stats for stats. Use /achievements or /achv for achivement list."
-    msg += "\n\nThis is an edited version to the old `@wolfcardbot`.\n"
-    msg += "Click [here](https://github.com/jeffffc/wwstatsbot) for the source code of the current project."
+    msg += "\n\nThis is an actively maintained fork of the original `@wolfcardbot` "
+    msg += "(originally by Carson True, later edited by @jeffffc)."
+    msg += "\nSource for this maintained version: [{repo}]({repo})".format(repo=version.GITHUB_REPO)
+    msg += "\nUse /version to see the exact running build."
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+
+
+async def display_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    info = version.get_version_info()
+    logger.info("command", command="version", user_id=update.message.from_user.id,
+                commit=info["short_commit"], branch=info["branch"], source=info["source"])
+    tmpl = t.VERSION_INFO_LINKED if info["commit_url"] else t.VERSION_INFO_PLAIN
+    await update.message.reply_text(
+        tmpl.format(**info), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def startme(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -346,7 +365,7 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
 
-    print("%s - %s (%d) - achv" % (str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id))
+    logger.info("command", command="achievements", user_id=user_id, user=unidecode(name))
 
     msgs = await wwstats.check(user_id, client)
 
@@ -373,8 +392,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.message.reply_to_message and update.message.reply_to_message.text:
         search = update.message.reply_to_message.text
 
-    print("%s - %s (%d) - info %s" % (
-        str(datetime.datetime.now() + datetime.timedelta(hours=8)), unidecode(name), user_id, args))
+    logger.info("command", command="info", user_id=user_id, user=unidecode(name), args=args)
 
     if len(search) == 0:
         msg = "Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n"
@@ -481,6 +499,53 @@ def _split_note_field(arg):
     return "memo", arg
 
 
+def _extract_possible_achievements(text):
+    """Extract unique achievement names from a Possible Achievements message.
+
+    Expected lines are bullet-like rows, e.g. "- Strongest Alpha".
+    Returns names in first-seen order, de-duplicated case-insensitively.
+    """
+    seen = set()
+    names = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("-"):
+            continue
+        candidate = stripped.lstrip("-").strip()
+        if not candidate:
+            continue
+        key = candidate.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(candidate)
+    return names
+
+
+def _best_achievement_match(name):
+    """Find an achievement by exact case-insensitive name, then fuzzy fallback."""
+    key = name.casefold()
+    exact = next((a for a in db.get_achievements() if a['name'].casefold() == key), None)
+    return exact
+
+
+async def _resolve_achievement_cards(names):
+    """Resolve achievement names to info cards. Returns (cards, not_found_names)."""
+    cards = []
+    not_found = []
+    for name in names:
+        match = _best_achievement_match(name)
+        if match is None:
+            fuzzy = await build_info_results(name)
+            if fuzzy:
+                match = fuzzy[0]
+        if match is None:
+            not_found.append(name)
+            continue
+        cards.append(format_single_achv(match))
+    return cards, not_found
+
+
 async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin_user(update.message.from_user.id):
         await update.message.reply_text("Only admins can edit notes.")
@@ -554,6 +619,55 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    name = html.escape(update.message.from_user.first_name)
+    replied = update.message.reply_to_message
+
+    logger.info("command", command="allinfo", user_id=user_id, user=unidecode(name))
+
+    if replied is None:
+        await update.message.reply_text(
+            "Reply to a 'Possible Achievements' message with <code>/allinfo</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    source_text = replied.text or replied.caption or ""
+    achv_names = _extract_possible_achievements(source_text)
+    if not achv_names:
+        await update.message.reply_text(
+            "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    cards, not_found = await _resolve_achievement_cards(achv_names)
+    if not cards:
+        await update.message.reply_text("No matching achievements found.")
+        return
+
+    try:
+        for card in cards:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=card,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+        summary = "I sent {} achievement info card{} in PM.".format(
+            len(cards), "" if len(cards) == 1 else "s")
+        if not_found:
+            summary += "\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
+            if len(not_found) > 10:
+                summary += ", ..."
+        if update.message.chat.type != 'private':
+            await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+    except Exception:
+        url = "telegram.me/{}".format(context.bot.username)
+        keyboard = [[InlineKeyboardButton("Start Me!", url=url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("You have to start me in PM first.", reply_markup=reply_markup)
+
+
 # Telegram caps messages at 4096 chars; keep the SQL result well under that.
 _DB_MAX_ROWS = 50
 _DB_MAX_CHARS = 3500
@@ -589,9 +703,7 @@ async def db_console_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.",
             parse_mode=ParseMode.HTML)
         return
-    print("%s - superuser (%d) - db %r" % (
-        str(datetime.datetime.now() + datetime.timedelta(hours=8)),
-        update.message.from_user.id, sql))
+    logger.info("command", command="db", user_id=update.message.from_user.id, sql=sql)
     try:
         columns, rows, status = await db.run_sql(sql)
     except Exception as e:
@@ -663,13 +775,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     e = str(error).lower()
     if "timed out" in e or "not modified" in e or "query_id_invalid" in e:
         return
-    logger.error("Update caused error: %s", error)
+    logger.error("update_error", exc_info=error)
     if not LOG_GROUP_ID:
         return
     try:
         await context.bot.send_message(LOG_GROUP_ID, str(error), parse_mode=ParseMode.MARKDOWN)
     except Exception:
-        logger.exception("Failed to report error to log group")
+        logger.exception("log_group_report_failed")
 
 
 # Public commands shown in Telegram's command menu (the "/" list and Menu
@@ -684,7 +796,9 @@ PUBLIC_COMMANDS = [
     BotCommand("search", "Search your attained achievements"),
     BotCommand("achievements", "List all achievements"),
     BotCommand("info", "Look up an achievement by name"),
+    BotCommand("allinfo", "Reply: get info cards for listed achievements"),
     BotCommand("about", "About this bot"),
+    BotCommand("version", "Show the running bot version"),
     BotCommand("start", "Start the bot in a private chat"),
 ]
 
@@ -723,8 +837,10 @@ def main():
     app.add_handler(CommandHandler('deaths', display_deaths))
     app.add_handler(CommandHandler(['search', 'sch'], display_search))
     app.add_handler(CommandHandler('about', display_about))
+    app.add_handler(CommandHandler('version', display_version))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
+    app.add_handler(CommandHandler('allinfo', all_info_cmd))
     app.add_handler(CommandHandler('addadmin', add_admin_cmd))
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))

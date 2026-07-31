@@ -38,6 +38,34 @@ NO_GAMES_BY_ID = "{name} has not played any games."
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
 ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
+# --- HTML: /version build info (main.py) -----------------------------------
+
+# Two variants (linked / plain) mirror the STATS_NAME split so no conditional
+# lives inside the string. The handler picks LINKED when a commit_url exists.
+VERSION_INFO_LINKED = (
+    "<b>wwstatsbot</b>\n"
+    "Branch: <code>{branch}</code>\n"
+    "Commit: <a href=\"{commit_url}\">{short_commit}</a> <code>{commit}</code>"
+)
+VERSION_INFO_PLAIN = (
+    "<b>wwstatsbot</b>\n"
+    "Branch: <code>{branch}</code>\n"
+    "Commit: <code>{short_commit}</code>"
+)
+
+# --- HTML: /search achievement match list (main.py) ------------------------
+
+# Each matching achievement is tagged with whether the target user has it.
+SEARCH_HEADER = (
+    "Achievements matching <b>{query}</b> for "
+    "<a href='tg://user?id={user_id}'>{name}</a>:\n\n"
+)
+SEARCH_ROW = "{mark} <code>{name}</code>\n"
+SEARCH_ATTAINED = "✅"
+SEARCH_NOT_ATTAINED = "☑️"
+# Shown when more matches exist than the display cap; nudges toward a narrower query.
+SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i>\n"
+
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
 ATTAINED_HEADER = "*ATTAINED ({attained}/{total}):*\n"

@@ -6,13 +6,13 @@ the achievements table. The achievement list is small and read on hot paths
 refreshed after every edit; callers read it synchronously via get_achievements().
 """
 
-import logging
+import structlog
 
 import asyncpg
 
 from achvlist import ACHV
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _pool: asyncpg.Pool = None
 
@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS achievements_search_tsv_idx
 async def init_pool(dsn):
     global _pool
     _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
-    logger.info("Postgres pool created")
+    logger.info("postgres_pool_created", min_size=1, max_size=5)
 
 
 async def close_pool():
@@ -81,7 +81,7 @@ async def close_pool():
 async def ensure_schema():
     async with _pool.acquire() as conn:
         await conn.execute(_SCHEMA)
-    logger.info("Schema ensured")
+    logger.info("schema_ensured")
 
 
 async def seed_achievements():
@@ -112,7 +112,7 @@ async def seed_achievements():
             ],
         )
     count = await _scalar("SELECT count(*) FROM achievements")
-    logger.info("Achievements seeded (table now has %s rows)", count)
+    logger.info("achievements_seeded", rows=count)
 
 
 async def load_cache():
@@ -141,7 +141,7 @@ async def load_cache():
             entry["not_via_playing"] = True
         achievements.append(entry)
     _ACHIEVEMENTS = achievements
-    logger.info("Achievement cache loaded (%d entries)", len(_ACHIEVEMENTS))
+    logger.info("achievement_cache_loaded", entries=len(_ACHIEVEMENTS))
 
 
 def get_achievements():
