@@ -292,10 +292,15 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "Please enter at least 3 letters to search for!\n"
     else:
         matches = await build_info_results(search)
+        attained_names = {a['name'] for a in await get_achievements(user_id)} if matches else set()
+        # Drop inactive achievements the user hasn't obtained: they can no longer
+        # be earned, so listing them as "not yet" would be misleading. (Inactive
+        # ones the user already has are kept, so their collection stays complete.)
+        matches = [m for m in matches
+                   if not (m.get('inactive') and m['name'] not in attained_names)]
         if not matches:
             msg = "No matching achievements found!\n"
         else:
-            attained_names = {a['name'] for a in await get_achievements(user_id)}
             msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
             for m in matches[:_SEARCH_MAX_RESULTS]:
                 mark = t.SEARCH_ATTAINED if m['name'] in attained_names else t.SEARCH_NOT_ATTAINED
