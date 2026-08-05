@@ -27,6 +27,7 @@ from telegram import (
     MessageEntity,
 )
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -358,11 +359,61 @@ async def _user_has_achievement(user_id, achv_name):
     return achv_name in attained
 
 
+# The two player lists are kept in bot_data so the toggle button can re-render
+# either view without re-querying the stats API. Same fixed-size, token-keyed
+# store as /allinfo: callback_data is capped at 64 bytes, so only a token fits.
+_SCHALL_MAX = 200
+_SCHALL_PREFIX = "schall:"
+_SCHALL_HAVE = "have"
+_SCHALL_MISSING = "missing"
+
+
+def _store_schall_result(context, payload):
+    """Stash a /schall result under a fresh token in bot_data; return the token."""
+    store = context.bot_data.setdefault("schall", {})
+    token = secrets.token_urlsafe(8)
+    store[token] = payload
+    while len(store) > _SCHALL_MAX:
+        store.pop(next(iter(store)))  # evict oldest (dict preserves insertion order)
+    return token
+
+
+def _render_schall(payload, token, show_have):
+    """Render one view of a /schall result: (message_html, toggle_keyboard).
+
+    Only one bucket is listed at a time — the missing players by default — with a
+    button that swaps to the other. Names are stored unescaped and escaped here,
+    so a re-render after a persistence round-trip escapes exactly once.
+    """
+    missing, have = payload['missing'], payload['have']
+    shown, other = (have, missing) if show_have else (missing, have)
+
+    checked = len(missing) + len(have)
+    msg = t.SCHALL_HEADER.format(
+        name=html.escape(payload['name']), desc=html.escape(payload['desc']),
+        count=checked, plural="" if checked == 1 else "s")
+    section = t.SCHALL_HAVE_HEADER if show_have else t.SCHALL_MISSING_HEADER
+    msg += section.format(count=len(shown))
+    msg += "".join(
+        t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname))
+        for uid, uname in shown) or t.SCHALL_NONE_ROW
+    if payload['unresolved']:
+        msg += t.SCHALL_UNRESOLVED.format(
+            names=", ".join(html.escape(n) for n in payload['unresolved']))
+
+    label = t.SCHALL_TOGGLE_TO_MISSING if show_have else t.SCHALL_TOGGLE_TO_HAVE
+    view = _SCHALL_MISSING if show_have else _SCHALL_HAVE
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(
+        label.format(count=len(other)),
+        callback_data="{}{}:{}".format(_SCHALL_PREFIX, token, view))]])
+    return msg, keyboard
+
+
 async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/schall <achievement> in reply to a message that mentions players.
 
-    Matches a single achievement the same way /info does, then splits the
-    mentioned players into those who have not obtained it and those who have.
+    Matches a single achievement the same way /info does, then lists the mentioned
+    players who have *not* obtained it, with a button to toggle to those who have.
     """
     args = context.args
     requester_id = update.message.from_user.id
@@ -420,25 +471,47 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             missing.append((uid, uname))
 
-    def _rows(bucket):
-        if not bucket:
-            return t.SCHALL_NONE_ROW
-        return "".join(
-            t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname))
-            for uid, uname in bucket)
-
-    checked = len(have) + len(missing)
-    msg = t.SCHALL_HEADER.format(
-        name=html.escape(achv['name']), desc=html.escape(achv['desc']),
-        count=checked, plural="" if checked == 1 else "s")
-    msg += t.SCHALL_MISSING_HEADER.format(count=len(missing)) + _rows(missing)
-    msg += t.SCHALL_HAVE_HEADER.format(count=len(have)) + _rows(have)
-    if unresolved:
-        msg += t.SCHALL_UNRESOLVED.format(
-            names=", ".join(html.escape(n) for n in unresolved))
+    # Both buckets are stored so the toggle can render either view; JSON-backed
+    # persistence turns the (id, name) tuples into lists, which unpack the same.
+    payload = {
+        'name': achv['name'], 'desc': achv['desc'],
+        'missing': missing, 'have': have, 'unresolved': unresolved,
+    }
+    token = _store_schall_result(context, payload)
+    msg, keyboard = _render_schall(payload, token, show_have=False)
 
     await update.message.reply_text(
-        msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True)
+
+
+async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Swap a /schall message between the not-obtained and obtained lists."""
+    query = update.callback_query
+    user = query.from_user
+    token, _, view = query.data[len(_SCHALL_PREFIX):].partition(":")
+    show_have = view == _SCHALL_HAVE
+    payload = context.bot_data.get("schall", {}).get(token)
+
+    logger.info("callback", command="schall", user_id=user.id,
+                user=unidecode(html.escape(user.first_name)),
+                view=view, expired=payload is None)
+
+    if payload is None:
+        await query.answer(
+            "This list has expired. Please run /schall again.", show_alert=True)
+        return
+
+    msg, keyboard = _render_schall(payload, token, show_have)
+    try:
+        await query.edit_message_text(
+            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True)
+    except BadRequest:
+        # Two people tapped the same button at once, so the message already shows
+        # this view. Nothing to update — just acknowledge the tap.
+        pass
+    await query.answer()
 
 
 async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -980,7 +1053,7 @@ PUBLIC_COMMANDS = [
     BotCommand("killedby", "Players who've killed you the most"),
     BotCommand("deaths", "Your most common causes of death"),
     BotCommand("search", "Search your attained achievements"),
-    BotCommand("schall", "Reply: who among mentioned players has an achievement"),
+    BotCommand("schall", "Reply: who among mentioned players lacks an achievement"),
     BotCommand("achievements", "List all achievements"),
     BotCommand("info", "Look up an achievement by name"),
     BotCommand("allinfo", "Reply: get info cards for listed achievements"),
@@ -1038,6 +1111,7 @@ def main():
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
     app.add_handler(CommandHandler('allinfo', all_info_cmd))
     app.add_handler(CallbackQueryHandler(all_info_callback, pattern=r"^allinfo:"))
+    app.add_handler(CallbackQueryHandler(schall_callback, pattern=r"^schall:"))
     app.add_handler(CommandHandler('addadmin', add_admin_cmd))
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
