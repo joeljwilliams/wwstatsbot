@@ -3,3 +3,4 @@ python-telegram-bot==22.8
 asyncpg
 unidecode
 structlog>=24.1
+redis>=5.0

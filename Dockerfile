@@ -27,6 +27,8 @@ ENV PYTHONUNBUFFERED=1 \
 #   HEALTH_PORT    port for /healthz & /readyz probes  (optional, default 8080)
 #   LOG_LEVEL      DEBUG/INFO/WARNING/...               (optional, default INFO)
 #   LOG_FORMAT     json | console                       (optional, default json off a TTY)
+#   REDIS_URL      redis://host:port/db for persistence (optional; /allinfo buttons
+#                                                        survive restarts when set)
 
 # Copy the prebuilt virtualenv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv

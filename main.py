@@ -13,6 +13,7 @@
 import os
 import asyncio
 import html
+import secrets
 
 import httpx
 import structlog
@@ -23,11 +24,13 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    MessageEntity,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     InlineQueryHandler,
     ContextTypes,
 )
@@ -64,11 +67,19 @@ try:
 except ImportError:
     _CFG_SUPERUSER_ID = None
 
+try:
+    from config import REDIS_URL as _CFG_REDIS_URL
+except ImportError:
+    _CFG_REDIS_URL = None
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", _CFG_TOKEN)
 LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", _CFG_LOG_GROUP or 0)) or None
 HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
 DATABASE_URL = os.environ.get("DATABASE_URL", _CFG_DATABASE_URL)
 SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or None
+# Optional: enables durable /allinfo buttons (and any other bot_data) across
+# restarts. Unset -> in-memory only.
+REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
@@ -309,6 +320,125 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+def _mentioned_users(message):
+    """Extract (user_id, first_name) for every user directly mentioned in a message.
+
+    Only text_mention entities are usable: they carry a full User (id + name).
+    Plain @username mentions have no id, so the stats API (keyed by user id) can't
+    be queried for them — those are returned separately as unresolvable names so
+    the caller can report them rather than silently drop them.
+
+    Returns (users, unresolved) where users is a de-duplicated, first-seen-ordered
+    list of (id, name) and unresolved is a list of @username strings.
+    """
+    seen = set()
+    users = []
+    unresolved = []
+    # Media messages carry their text in `caption` with caption_entities; plain
+    # text messages use `text` with entities. Check both so either kind works.
+    entities = list(message.entities or ()) + list(message.caption_entities or ())
+    body = message.text if message.text is not None else (message.caption or "")
+    for ent in entities:
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
+            u = ent.user
+            if u.id in seen:
+                continue
+            seen.add(u.id)
+            users.append((u.id, u.first_name))
+        elif ent.type == MessageEntity.MENTION:
+            unresolved.append(body[ent.offset:ent.offset + ent.length])
+    return users, unresolved
+
+
+async def _user_has_achievement(user_id, achv_name):
+    """True if the player holds the named achievement per the stats API."""
+    attained = {a['name'] for a in await get_achievements(user_id)}
+    return achv_name in attained
+
+
+async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/schall <achievement> in reply to a message that mentions players.
+
+    Matches a single achievement the same way /info does, then splits the
+    mentioned players into those who have not obtained it and those who have.
+    """
+    args = context.args
+    requester_id = update.message.from_user.id
+    requester_name = html.escape(update.message.from_user.first_name)
+    replied = update.message.reply_to_message
+    search = ' '.join(args)
+
+    logger.info("command", command="schall", user_id=requester_id,
+                user=unidecode(requester_name), args=args)
+
+    if replied is None:
+        await update.message.reply_text(
+            "Reply to a message that mentions players with "
+            "<code>/schall &lt;achievement&gt;</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+    if not search:
+        await update.message.reply_text(
+            "Invalid parameter! Syntax:\n<code>/schall [achievement_to_search]</code>\n"
+            "(reply to a message that mentions players)",
+            parse_mode=ParseMode.HTML)
+        return
+    if len(search) < 3:
+        await update.message.reply_text("Please enter at least 3 letters to search for!\n")
+        return
+
+    # Single best match, exactly like /info (results are rank-ordered).
+    found = await build_info_results(search)
+    if not found:
+        await update.message.reply_text("No matching achievements found!\n")
+        return
+    achv = found[0]
+
+    users, unresolved = _mentioned_users(replied)
+    if not users:
+        note = ("Reply to a message that mentions players directly. "
+                "I can't check plain @username mentions (they carry no user id).")
+        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
+        return
+
+    # Look up every mentioned player's achievements concurrently. A failed lookup
+    # (network/API) shouldn't sink the whole command, so those users are reported
+    # as uncheckable alongside any @username mentions.
+    results = await asyncio.gather(
+        *[_user_has_achievement(uid, achv['name']) for uid, _ in users],
+        return_exceptions=True,
+    )
+    have, missing = [], []
+    for (uid, uname), result in zip(users, results):
+        if isinstance(result, Exception):
+            logger.warning("schall_lookup_failed", user_id=uid, error=str(result))
+            unresolved.append(uname)
+        elif result:
+            have.append((uid, uname))
+        else:
+            missing.append((uid, uname))
+
+    def _rows(bucket):
+        if not bucket:
+            return t.SCHALL_NONE_ROW
+        return "".join(
+            t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname))
+            for uid, uname in bucket)
+
+    checked = len(have) + len(missing)
+    msg = t.SCHALL_HEADER.format(
+        name=html.escape(achv['name']), desc=html.escape(achv['desc']),
+        count=checked, plural="" if checked == 1 else "s")
+    msg += t.SCHALL_MISSING_HEADER.format(count=len(missing)) + _rows(missing)
+    msg += t.SCHALL_HAVE_HEADER.format(count=len(have)) + _rows(have)
+    if unresolved:
+        msg += t.SCHALL_UNRESOLVED.format(
+            names=", ".join(html.escape(n) for n in unresolved))
+
+    await update.message.reply_text(
+        msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -619,6 +749,28 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+# Pending /allinfo requests: token -> list of achievement names. Populated when
+# /allinfo runs, consumed when a user taps the inline button so each interested user
+# gets the cards in their own PM (no need to re-run the command). We store names (not
+# rendered cards) and re-render on tap, so notes stay fresh and the payload is tiny.
+#
+# The store lives in application.bot_data, so with a persistence backend configured
+# (see REDIS_URL) it survives restarts; without one it's in-memory and a stale button
+# just reports "expired". The dict is bounded (insertion-ordered eviction).
+_ALLINFO_MAX = 200
+_ALLINFO_PREFIX = "allinfo:"
+
+
+def _store_allinfo_names(context, names):
+    """Stash achievement names under a fresh token in bot_data; return the token."""
+    store = context.bot_data.setdefault("allinfo", {})
+    token = secrets.token_urlsafe(8)
+    store[token] = names
+    while len(store) > _ALLINFO_MAX:
+        store.pop(next(iter(store)))  # evict oldest (dict preserves insertion order)
+    return token
+
+
 async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
@@ -645,27 +797,61 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No matching achievements found.")
         return
 
+    # Post one message with a button. Anyone in the chat can tap it to receive the
+    # cards in their own PM, so multiple people don't have to each run /allinfo.
+    token = _store_allinfo_names(context, achv_names)
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📥 Send me the info in PM", callback_data=_ALLINFO_PREFIX + token)]])
+    prompt = "Found info for <b>{}</b> achievement{} from that list.\nTap the button to get the info cards in your PM.".format(
+        len(cards), "" if len(cards) == 1 else "s")
+    if not_found:
+        prompt += "\n\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
+        if len(not_found) > 10:
+            prompt += ", ..."
+    await update.message.reply_text(
+        prompt, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deliver the stored /allinfo cards to whichever user tapped the button."""
+    query = update.callback_query
+    user = query.from_user
+    token = query.data[len(_ALLINFO_PREFIX):] if query.data.startswith(_ALLINFO_PREFIX) else ""
+    names = context.bot_data.get("allinfo", {}).get(token)
+
+    logger.info("callback", command="allinfo", user_id=user.id,
+                user=unidecode(html.escape(user.first_name)),
+                count=len(names) if names else 0, expired=names is None)
+
+    if names is None:
+        await query.answer(
+            "This request has expired. Please run /allinfo again.", show_alert=True)
+        return
+
+    # Re-render now so notes reflect the latest edits.
+    cards, _ = await _resolve_achievement_cards(names)
+    if not cards:
+        await query.answer(
+            "Those achievements are no longer available.", show_alert=True)
+        return
+
     try:
         for card in cards:
             await context.bot.send_message(
-                chat_id=user_id,
-                text=card,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-        summary = "I sent {} achievement info card{} in PM.".format(
-            len(cards), "" if len(cards) == 1 else "s")
-        if not_found:
-            summary += "\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
-            if len(not_found) > 10:
-                summary += ", ..."
-        if update.message.chat.type != 'private':
-            await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+                chat_id=user.id, text=card,
+                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception:
-        url = "telegram.me/{}".format(context.bot.username)
-        keyboard = [[InlineKeyboardButton("Start Me!", url=url)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("You have to start me in PM first.", reply_markup=reply_markup)
+        # Almost always: the user has never started the bot in PM, so we can't
+        # message them. A callback answer can't carry a button, so point them at
+        # the fix and let them tap again once they've started the chat.
+        await query.answer(
+            "I can't message you yet. Start a private chat with me first "
+            "(tap my name, then Start), then tap the button again.",
+            show_alert=True)
+        return
+
+    await query.answer("Sent {} card{} to your PM ✅".format(
+        len(cards), "" if len(cards) == 1 else "s"))
 
 
 # Telegram caps messages at 4096 chars; keep the SQL result well under that.
@@ -794,6 +980,7 @@ PUBLIC_COMMANDS = [
     BotCommand("killedby", "Players who've killed you the most"),
     BotCommand("deaths", "Your most common causes of death"),
     BotCommand("search", "Search your attained achievements"),
+    BotCommand("schall", "Reply: who among mentioned players has an achievement"),
     BotCommand("achievements", "List all achievements"),
     BotCommand("info", "Look up an achievement by name"),
     BotCommand("allinfo", "Reply: get info cards for listed achievements"),
@@ -822,13 +1009,21 @@ async def _post_shutdown(application: Application):
 def main():
     health.start_health_server(HEALTH_PORT)
 
-    app = (
+    builder = (
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
-        .build()
     )
+    # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
+    # a Redis backend is configured; otherwise state is in-memory only.
+    if REDIS_URL:
+        from redis_persistence import RedisPersistence
+        builder = builder.persistence(RedisPersistence(url=REDIS_URL))
+        logger.info("persistence_enabled", backend="redis")
+    else:
+        logger.info("persistence_disabled")
+    app = builder.build()
 
     app.add_handler(CommandHandler('start', startme))
     app.add_handler(CommandHandler('stats', display_stats))
@@ -836,11 +1031,13 @@ def main():
     app.add_handler(CommandHandler('killedby', display_killed_by))
     app.add_handler(CommandHandler('deaths', display_deaths))
     app.add_handler(CommandHandler(['search', 'sch'], display_search))
+    app.add_handler(CommandHandler('schall', display_search_all))
     app.add_handler(CommandHandler('about', display_about))
     app.add_handler(CommandHandler('version', display_version))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
     app.add_handler(CommandHandler('allinfo', all_info_cmd))
+    app.add_handler(CallbackQueryHandler(all_info_callback, pattern=r"^allinfo:"))
     app.add_handler(CommandHandler('addadmin', add_admin_cmd))
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))

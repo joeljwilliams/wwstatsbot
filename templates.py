@@ -66,6 +66,25 @@ SEARCH_NOT_ATTAINED = "☑️"
 # Shown when more matches exist than the display cap; nudges toward a narrower query.
 SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i>\n"
 
+# --- HTML: /schall — who among mentioned players has an achievement --------
+
+# Head of the reply: the single achievement the query matched (shown clearly so
+# it's obvious what everyone is being checked against), then the two lists.
+SCHALL_HEADER = (
+    "Achievement: <b>{name}</b>\n"
+    "<i>{desc}</i>\n\n"
+    "Checked {count} player{plural} for it:\n"
+)
+# Section headers for the two lists. Not-yet-obtained is shown first, then
+# obtained (marks mirror /search: ☑️ not attained, ✅ attained).
+SCHALL_MISSING_HEADER = "\n☑️ <b>Not obtained ({count})</b>\n"
+SCHALL_HAVE_HEADER = "\n✅ <b>Obtained ({count})</b>\n"
+SCHALL_USER_ROW = "<a href='tg://user?id={user_id}'>{name}</a>\n"
+SCHALL_NONE_ROW = "<i>none</i>\n"
+# Footer noting players that couldn't be checked: @username mentions carry no
+# user id (so no stats lookup is possible) and any that errored out.
+SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
+
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
 ATTAINED_HEADER = "*ATTAINED ({attained}/{total}):*\n"
