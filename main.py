@@ -24,6 +24,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    MessageEntity,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -319,6 +320,125 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+def _mentioned_users(message):
+    """Extract (user_id, first_name) for every user directly mentioned in a message.
+
+    Only text_mention entities are usable: they carry a full User (id + name).
+    Plain @username mentions have no id, so the stats API (keyed by user id) can't
+    be queried for them — those are returned separately as unresolvable names so
+    the caller can report them rather than silently drop them.
+
+    Returns (users, unresolved) where users is a de-duplicated, first-seen-ordered
+    list of (id, name) and unresolved is a list of @username strings.
+    """
+    seen = set()
+    users = []
+    unresolved = []
+    # Media messages carry their text in `caption` with caption_entities; plain
+    # text messages use `text` with entities. Check both so either kind works.
+    entities = list(message.entities or ()) + list(message.caption_entities or ())
+    body = message.text if message.text is not None else (message.caption or "")
+    for ent in entities:
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
+            u = ent.user
+            if u.id in seen:
+                continue
+            seen.add(u.id)
+            users.append((u.id, u.first_name))
+        elif ent.type == MessageEntity.MENTION:
+            unresolved.append(body[ent.offset:ent.offset + ent.length])
+    return users, unresolved
+
+
+async def _user_has_achievement(user_id, achv_name):
+    """True if the player holds the named achievement per the stats API."""
+    attained = {a['name'] for a in await get_achievements(user_id)}
+    return achv_name in attained
+
+
+async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/schall <achievement> in reply to a message that mentions players.
+
+    Matches a single achievement the same way /info does, then splits the
+    mentioned players into those who have not obtained it and those who have.
+    """
+    args = context.args
+    requester_id = update.message.from_user.id
+    requester_name = html.escape(update.message.from_user.first_name)
+    replied = update.message.reply_to_message
+    search = ' '.join(args)
+
+    logger.info("command", command="schall", user_id=requester_id,
+                user=unidecode(requester_name), args=args)
+
+    if replied is None:
+        await update.message.reply_text(
+            "Reply to a message that mentions players with "
+            "<code>/schall &lt;achievement&gt;</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+    if not search:
+        await update.message.reply_text(
+            "Invalid parameter! Syntax:\n<code>/schall [achievement_to_search]</code>\n"
+            "(reply to a message that mentions players)",
+            parse_mode=ParseMode.HTML)
+        return
+    if len(search) < 3:
+        await update.message.reply_text("Please enter at least 3 letters to search for!\n")
+        return
+
+    # Single best match, exactly like /info (results are rank-ordered).
+    found = await build_info_results(search)
+    if not found:
+        await update.message.reply_text("No matching achievements found!\n")
+        return
+    achv = found[0]
+
+    users, unresolved = _mentioned_users(replied)
+    if not users:
+        note = ("Reply to a message that mentions players directly. "
+                "I can't check plain @username mentions (they carry no user id).")
+        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
+        return
+
+    # Look up every mentioned player's achievements concurrently. A failed lookup
+    # (network/API) shouldn't sink the whole command, so those users are reported
+    # as uncheckable alongside any @username mentions.
+    results = await asyncio.gather(
+        *[_user_has_achievement(uid, achv['name']) for uid, _ in users],
+        return_exceptions=True,
+    )
+    have, missing = [], []
+    for (uid, uname), result in zip(users, results):
+        if isinstance(result, Exception):
+            logger.warning("schall_lookup_failed", user_id=uid, error=str(result))
+            unresolved.append(uname)
+        elif result:
+            have.append((uid, uname))
+        else:
+            missing.append((uid, uname))
+
+    def _rows(bucket):
+        if not bucket:
+            return t.SCHALL_NONE_ROW
+        return "".join(
+            t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname))
+            for uid, uname in bucket)
+
+    checked = len(have) + len(missing)
+    msg = t.SCHALL_HEADER.format(
+        name=html.escape(achv['name']), desc=html.escape(achv['desc']),
+        count=checked, plural="" if checked == 1 else "s")
+    msg += t.SCHALL_MISSING_HEADER.format(count=len(missing)) + _rows(missing)
+    msg += t.SCHALL_HAVE_HEADER.format(count=len(have)) + _rows(have)
+    if unresolved:
+        msg += t.SCHALL_UNRESOLVED.format(
+            names=", ".join(html.escape(n) for n in unresolved))
+
+    await update.message.reply_text(
+        msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -860,6 +980,7 @@ PUBLIC_COMMANDS = [
     BotCommand("killedby", "Players who've killed you the most"),
     BotCommand("deaths", "Your most common causes of death"),
     BotCommand("search", "Search your attained achievements"),
+    BotCommand("schall", "Reply: who among mentioned players has an achievement"),
     BotCommand("achievements", "List all achievements"),
     BotCommand("info", "Look up an achievement by name"),
     BotCommand("allinfo", "Reply: get info cards for listed achievements"),
@@ -910,6 +1031,7 @@ def main():
     app.add_handler(CommandHandler('killedby', display_killed_by))
     app.add_handler(CommandHandler('deaths', display_deaths))
     app.add_handler(CommandHandler(['search', 'sch'], display_search))
+    app.add_handler(CommandHandler('schall', display_search_all))
     app.add_handler(CommandHandler('about', display_about))
     app.add_handler(CommandHandler('version', display_version))
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
