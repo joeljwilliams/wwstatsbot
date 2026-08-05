@@ -13,6 +13,7 @@
 import os
 import asyncio
 import html
+import secrets
 
 import httpx
 import structlog
@@ -28,6 +29,7 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     InlineQueryHandler,
     ContextTypes,
 )
@@ -64,11 +66,19 @@ try:
 except ImportError:
     _CFG_SUPERUSER_ID = None
 
+try:
+    from config import REDIS_URL as _CFG_REDIS_URL
+except ImportError:
+    _CFG_REDIS_URL = None
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", _CFG_TOKEN)
 LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", _CFG_LOG_GROUP or 0)) or None
 HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
 DATABASE_URL = os.environ.get("DATABASE_URL", _CFG_DATABASE_URL)
 SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or None
+# Optional: enables durable /allinfo buttons (and any other bot_data) across
+# restarts. Unset -> in-memory only.
+REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
@@ -619,6 +629,28 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+# Pending /allinfo requests: token -> list of achievement names. Populated when
+# /allinfo runs, consumed when a user taps the inline button so each interested user
+# gets the cards in their own PM (no need to re-run the command). We store names (not
+# rendered cards) and re-render on tap, so notes stay fresh and the payload is tiny.
+#
+# The store lives in application.bot_data, so with a persistence backend configured
+# (see REDIS_URL) it survives restarts; without one it's in-memory and a stale button
+# just reports "expired". The dict is bounded (insertion-ordered eviction).
+_ALLINFO_MAX = 200
+_ALLINFO_PREFIX = "allinfo:"
+
+
+def _store_allinfo_names(context, names):
+    """Stash achievement names under a fresh token in bot_data; return the token."""
+    store = context.bot_data.setdefault("allinfo", {})
+    token = secrets.token_urlsafe(8)
+    store[token] = names
+    while len(store) > _ALLINFO_MAX:
+        store.pop(next(iter(store)))  # evict oldest (dict preserves insertion order)
+    return token
+
+
 async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
@@ -645,27 +677,61 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No matching achievements found.")
         return
 
+    # Post one message with a button. Anyone in the chat can tap it to receive the
+    # cards in their own PM, so multiple people don't have to each run /allinfo.
+    token = _store_allinfo_names(context, achv_names)
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📥 Send me the info in PM", callback_data=_ALLINFO_PREFIX + token)]])
+    prompt = "Found info for <b>{}</b> achievement{} from that list.\nTap the button to get the info cards in your PM.".format(
+        len(cards), "" if len(cards) == 1 else "s")
+    if not_found:
+        prompt += "\n\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
+        if len(not_found) > 10:
+            prompt += ", ..."
+    await update.message.reply_text(
+        prompt, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deliver the stored /allinfo cards to whichever user tapped the button."""
+    query = update.callback_query
+    user = query.from_user
+    token = query.data[len(_ALLINFO_PREFIX):] if query.data.startswith(_ALLINFO_PREFIX) else ""
+    names = context.bot_data.get("allinfo", {}).get(token)
+
+    logger.info("callback", command="allinfo", user_id=user.id,
+                user=unidecode(html.escape(user.first_name)),
+                count=len(names) if names else 0, expired=names is None)
+
+    if names is None:
+        await query.answer(
+            "This request has expired. Please run /allinfo again.", show_alert=True)
+        return
+
+    # Re-render now so notes reflect the latest edits.
+    cards, _ = await _resolve_achievement_cards(names)
+    if not cards:
+        await query.answer(
+            "Those achievements are no longer available.", show_alert=True)
+        return
+
     try:
         for card in cards:
             await context.bot.send_message(
-                chat_id=user_id,
-                text=card,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-        summary = "I sent {} achievement info card{} in PM.".format(
-            len(cards), "" if len(cards) == 1 else "s")
-        if not_found:
-            summary += "\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
-            if len(not_found) > 10:
-                summary += ", ..."
-        if update.message.chat.type != 'private':
-            await update.message.reply_text(summary, parse_mode=ParseMode.HTML)
+                chat_id=user.id, text=card,
+                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception:
-        url = "telegram.me/{}".format(context.bot.username)
-        keyboard = [[InlineKeyboardButton("Start Me!", url=url)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("You have to start me in PM first.", reply_markup=reply_markup)
+        # Almost always: the user has never started the bot in PM, so we can't
+        # message them. A callback answer can't carry a button, so point them at
+        # the fix and let them tap again once they've started the chat.
+        await query.answer(
+            "I can't message you yet. Start a private chat with me first "
+            "(tap my name, then Start), then tap the button again.",
+            show_alert=True)
+        return
+
+    await query.answer("Sent {} card{} to your PM ✅".format(
+        len(cards), "" if len(cards) == 1 else "s"))
 
 
 # Telegram caps messages at 4096 chars; keep the SQL result well under that.
@@ -822,13 +888,21 @@ async def _post_shutdown(application: Application):
 def main():
     health.start_health_server(HEALTH_PORT)
 
-    app = (
+    builder = (
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
-        .build()
     )
+    # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
+    # a Redis backend is configured; otherwise state is in-memory only.
+    if REDIS_URL:
+        from redis_persistence import RedisPersistence
+        builder = builder.persistence(RedisPersistence(url=REDIS_URL))
+        logger.info("persistence_enabled", backend="redis")
+    else:
+        logger.info("persistence_disabled")
+    app = builder.build()
 
     app.add_handler(CommandHandler('start', startme))
     app.add_handler(CommandHandler('stats', display_stats))
@@ -841,6 +915,7 @@ def main():
     app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
     app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
     app.add_handler(CommandHandler('allinfo', all_info_cmd))
+    app.add_handler(CallbackQueryHandler(all_info_callback, pattern=r"^allinfo:"))
     app.add_handler(CommandHandler('addadmin', add_admin_cmd))
     app.add_handler(CommandHandler('deladmin', del_admin_cmd))
     app.add_handler(CommandHandler('admins', list_admins_cmd))
