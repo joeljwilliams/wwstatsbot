@@ -66,11 +66,19 @@ try:
 except ImportError:
     _CFG_SUPERUSER_ID = None
 
+try:
+    from config import REDIS_URL as _CFG_REDIS_URL
+except ImportError:
+    _CFG_REDIS_URL = None
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", _CFG_TOKEN)
 LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", _CFG_LOG_GROUP or 0)) or None
 HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
 DATABASE_URL = os.environ.get("DATABASE_URL", _CFG_DATABASE_URL)
 SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or None
+# Optional: enables durable /allinfo buttons (and any other bot_data) across
+# restarts. Unset -> in-memory only.
+REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
@@ -626,8 +634,9 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # gets the cards in their own PM (no need to re-run the command). We store names (not
 # rendered cards) and re-render on tap, so notes stay fresh and the payload is tiny.
 #
-# The store lives in application.bot_data; the dict is bounded (insertion-ordered
-# eviction) and in-memory, so a stale button after a restart just reports "expired".
+# The store lives in application.bot_data, so with a persistence backend configured
+# (see REDIS_URL) it survives restarts; without one it's in-memory and a stale button
+# just reports "expired". The dict is bounded (insertion-ordered eviction).
 _ALLINFO_MAX = 200
 _ALLINFO_PREFIX = "allinfo:"
 
@@ -879,13 +888,21 @@ async def _post_shutdown(application: Application):
 def main():
     health.start_health_server(HEALTH_PORT)
 
-    app = (
+    builder = (
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
-        .build()
     )
+    # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
+    # a Redis backend is configured; otherwise state is in-memory only.
+    if REDIS_URL:
+        from redis_persistence import RedisPersistence
+        builder = builder.persistence(RedisPersistence(url=REDIS_URL))
+        logger.info("persistence_enabled", backend="redis")
+    else:
+        logger.info("persistence_disabled")
+    app = builder.build()
 
     app.add_handler(CommandHandler('start', startme))
     app.add_handler(CommandHandler('stats', display_stats))
