@@ -69,18 +69,22 @@ SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i
 # --- HTML: /schall — who among mentioned players has an achievement --------
 
 # Head of the reply: the single achievement the query matched (shown clearly so
-# it's obvious what everyone is being checked against), then the two lists.
+# it's obvious what everyone is being checked against), then one of the lists.
 SCHALL_HEADER = (
     "Achievement: <b>{name}</b>\n"
     "<i>{desc}</i>\n\n"
     "Checked {count} player{plural} for it:\n"
 )
-# Section headers for the two lists. Not-yet-obtained is shown first, then
-# obtained (marks mirror /search: ☑️ not attained, ✅ attained).
+# Section header for whichever list is on screen; only one shows at a time and
+# the button below swaps them (marks mirror /search: ☑️ not attained, ✅ attained).
 SCHALL_MISSING_HEADER = "\n☑️ <b>Not obtained ({count})</b>\n"
 SCHALL_HAVE_HEADER = "\n✅ <b>Obtained ({count})</b>\n"
 SCHALL_USER_ROW = "<a href='tg://user?id={user_id}'>{name}</a>\n"
 SCHALL_NONE_ROW = "<i>none</i>\n"
+# Toggle button labels — each names the list you'd switch *to*, with its size so
+# the count is visible without tapping.
+SCHALL_TOGGLE_TO_HAVE = "✅ Show who has it ({count})"
+SCHALL_TOGGLE_TO_MISSING = "☑️ Show who hasn't ({count})"
 # Footer noting players that couldn't be checked: @username mentions carry no
 # user id (so no stats lookup is possible) and any that errored out.
 SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
