@@ -37,6 +37,7 @@ from telegram.ext import (
 from unidecode import unidecode
 
 import api
+import builders
 import db
 import health
 import notes
@@ -47,93 +48,6 @@ import wwstats
 from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
-
-# --- Message builders (reused by commands and inline query) ----------------
-
-
-async def build_kills_msg(user_id, name):
-    kills = await api.get_kills(user_id)
-    msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
-    for k in kills:
-        msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
-    return msg
-
-
-async def build_killed_by_msg(user_id, name):
-    killedby = await api.get_killed_by(user_id)
-    msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
-    for k in killedby:
-        msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
-    return msg
-
-
-async def build_deaths_msg(user_id, name):
-    deaths = await api.get_deaths(user_id)
-    stats = await api.get_stats(user_id)
-    msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
-    for d in deaths:
-        # The total per kill method is derived from the percentage in the JSON,
-        # so the value is approximate rather than exact.
-        total = round((stats["gamesPlayed"] - stats["survived"]["total"]) * float(d["percent"]) / 100)
-        msg += t.DEATH_ROW.format(percent=d["percent"], method=d["method"], total=total)
-    return msg
-
-
-async def build_stats_msg(user_id, name, by_id=False):
-    stats = await api.get_stats(user_id)
-    achievements = await api.get_achievement_count(user_id)
-
-    if not stats:
-        template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
-        return template.format(user_id=user_id, name=name)
-
-    name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
-    msg = name_template.format(user_id=user_id, name=name, role=stats["mostCommonRole"])
-    msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
-    msg += t.STATS_WON.format(total=stats["won"]["total"], percent=stats["won"]["percent"])
-    msg += t.STATS_LOST.format(total=stats["lost"]["total"], percent=stats["lost"]["percent"])
-    msg += t.STATS_SURVIVED.format(total=stats["survived"]["total"], percent=stats["survived"]["percent"])
-    msg += t.STATS_TOTAL.format(total=stats["gamesPlayed"])
-    if stats["mostKilled"]:
-        msg += t.STATS_MOST_KILLED.format(
-            times=stats["mostKilled"]["times"], name=html.escape(stats["mostKilled"]["name"])
-        )
-    if stats["mostKilledBy"]:
-        msg += t.STATS_MOST_KILLED_BY.format(
-            times=stats["mostKilledBy"]["times"], name=html.escape(stats["mostKilledBy"]["name"])
-        )
-    return msg
-
-
-async def build_info_results(search):
-    """Full-text achievement search (name / name-initialism / description), with
-    a substring-on-name fallback when FTS finds nothing."""
-    matches = await db.search_achievements(search)
-    if matches:
-        return matches
-    # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
-    # prefix matching can't catch). Fall back to the old case-insensitive
-    # substring-on-name scan over the in-memory cache.
-    s = search.lower()
-    return [a for a in db.get_achievements() if s in a["name"].lower()]
-
-
-def format_single_achv(achv):
-    """HTML block for one achievement, including the type and notes fields."""
-    msg = t.ACHV_CARD.format(
-        name=html.escape(achv["name"]),
-        desc=html.escape(achv["desc"]),
-        type=achv.get("type", "instantaneous"),
-    )
-    # Normalise through parse/serialize so display is always canonical (markers
-    # present and ordered) even for legacy or /db-console-edited notes.
-    # Named `rendered`, not `notes`: assigning to `notes` anywhere in this function
-    # would shadow the module import and make the call below an UnboundLocalError.
-    rendered = notes.serialize_notes(notes.parse_notes(achv.get("notes", "")))
-    if rendered:
-        # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
-        msg += t.ACHV_CARD_NOTES.format(notes=html.escape(rendered))
-    return msg
 
 
 def resolve_target(update):
@@ -151,21 +65,21 @@ def resolve_target(update):
 async def display_kills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
     logger.info("command", command="kills", user_id=user_id, user=unidecode(name))
-    msg = await build_kills_msg(user_id, name)
+    msg = await builders.build_kills_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_killed_by(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
     logger.info("command", command="killedby", user_id=user_id, user=unidecode(name))
-    msg = await build_killed_by_msg(user_id, name)
+    msg = await builders.build_killed_by_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_deaths(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
     logger.info("command", command="deaths", user_id=user_id, user=unidecode(name))
-    msg = await build_deaths_msg(user_id, name)
+    msg = await builders.build_deaths_msg(user_id, name)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
@@ -194,7 +108,7 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif len(search) < 3:
         msg = "Please enter at least 3 letters to search for!\n"
     else:
-        matches = await build_info_results(search)
+        matches = await builders.build_info_results(search)
         attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
         # Drop inactive achievements the user hasn't obtained: they can no longer
         # be earned, so listing them as "not yet" would be misleading. (Inactive
@@ -352,7 +266,7 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # Single best match, exactly like /info (results are rank-ordered).
-    found = await build_info_results(search)
+    found = await builders.build_info_results(search)
     if not found:
         await update.message.reply_text("No matching achievements found!\n")
         return
@@ -456,7 +370,7 @@ async def display_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("command", command="stats", user_id=user_id, user=unidecode(str(name)), by_id=by_id)
 
-    msg = await build_stats_msg(user_id, name, by_id=by_id)
+    msg = await builders.build_stats_msg(user_id, name, by_id=by_id)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
@@ -539,13 +453,13 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif len(search) < 3:
         msg = "Please enter at least 3 letters to search for!\n"
     else:
-        found = await build_info_results(search)
+        found = await builders.build_info_results(search)
         if not found:
             msg = "No matching achievements found!\n"
         else:
             # Results are rank-ordered (name hits first), so the top match is the
             # best answer — show it rather than making the user pick from a list.
-            msg = format_single_achv(found[0])
+            msg = builders.format_single_achv(found[0])
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
@@ -685,13 +599,13 @@ async def _resolve_achievement_cards(names):
     for name in names:
         match = _best_achievement_match(name)
         if match is None:
-            fuzzy = await build_info_results(name)
+            fuzzy = await builders.build_info_results(name)
             if fuzzy:
                 match = fuzzy[0]
         if match is None:
             not_found.append(name)
             continue
-        cards.append(format_single_achv(match))
+        cards.append(builders.format_single_achv(match))
     return cards, not_found
 
 
@@ -732,7 +646,9 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.update_notes(match["name"], notes.serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
-        "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        "Note updated.\n\n" + builders.format_single_achv(updated),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
     )
 
 
@@ -767,7 +683,9 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.update_notes(match["name"], notes.serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
-        "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        "Note updated.\n\n" + builders.format_single_achv(updated),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
     )
 
 
@@ -1053,10 +971,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query:
         # Empty query: 4 stat cards for the querying user, fetched in parallel.
         stats_msg, kills_msg, killedby_msg, deaths_msg = await asyncio.gather(
-            build_stats_msg(user.id, name),
-            build_kills_msg(user.id, name),
-            build_killed_by_msg(user.id, name),
-            build_deaths_msg(user.id, name),
+            builders.build_stats_msg(user.id, name),
+            builders.build_kills_msg(user.id, name),
+            builders.build_killed_by_msg(user.id, name),
+            builders.build_deaths_msg(user.id, name),
         )
         results = [
             _article("stats", "My Stats", stats_msg),
@@ -1066,12 +984,13 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     else:
         # Typed text: achievement search, same behaviour as /info.
-        matches = await build_info_results(query)
+        matches = await builders.build_info_results(query)
         if not matches:
             results = [_article("none", "No matching achievements", "No matching achievements found.")]
         else:
             results = [
-                _article(m["name"], m["name"], format_single_achv(m), description=m["desc"]) for m in matches[:50]
+                _article(m["name"], m["name"], builders.format_single_achv(m), description=m["desc"])
+                for m in matches[:50]
             ]
 
     await update.inline_query.answer(results, cache_time=30, is_personal=True)

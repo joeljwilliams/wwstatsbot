@@ -20,6 +20,7 @@ ambiguous in a diff.
 
 from conftest import assert_json_roundtrips
 
+import builders
 import main
 
 # --- Achievement cards -----------------------------------------------------------
@@ -27,20 +28,20 @@ import main
 
 def test_card_plain(achievements):
     achv = next(a for a in achievements if a["name"] == "Welcome to Hell")
-    assert main.format_single_achv(achv) == ("<b>Welcome to Hell</b>\n\nPlay a game\n\nType: <code>game-end</code>")
+    assert builders.format_single_achv(achv) == ("<b>Welcome to Hell</b>\n\nPlay a game\n\nType: <code>game-end</code>")
 
 
 def test_card_escapes_apostrophe_and_leaves_at_mentions(achievements):
     """The description holds an apostrophe and an @handle; only the former is escaped."""
     achv = next(a for a in achievements if a["name"] == "O HAI DER!")
-    assert main.format_single_achv(achv) == (
+    assert builders.format_single_achv(achv) == (
         "<b>O HAI DER!</b>\n\nPlay a game with Para&#x27;s secret account (not @para949)\n\nType: <code>game-end</code>"
     )
 
 
 def test_card_with_both_note_fields_uses_expandable_blockquote(achievements):
     achv = next(a for a in achievements if a["name"] == "Liquid Business")
-    assert main.format_single_achv(achv) == (
+    assert builders.format_single_achv(achv) == (
         "<b>Liquid Business</b>\n\n"
         "Drink the potion &amp; survive\n\n"
         "Type: <code>instantaneous</code>\n\n"
@@ -52,7 +53,7 @@ def test_card_with_both_note_fields_uses_expandable_blockquote(achievements):
 def test_card_normalises_legacy_unmarked_notes():
     """A note stored before the marker scheme existed gains its memo marker on display."""
     achv = {"name": "X", "desc": "d", "type": "game-end", "notes": "just some old text"}
-    assert main.format_single_achv(achv) == (
+    assert builders.format_single_achv(achv) == (
         "<b>X</b>\n\nd\n\nType: <code>game-end</code>\n\n"
         "<blockquote expandable>\N{MEMO} just some old text</blockquote>"
     )
@@ -60,7 +61,7 @@ def test_card_normalises_legacy_unmarked_notes():
 
 def test_card_defaults_missing_type_to_instantaneous():
     achv = {"name": "X", "desc": "d", "notes": ""}
-    assert main.format_single_achv(achv).endswith("Type: <code>instantaneous</code>")
+    assert builders.format_single_achv(achv).endswith("Type: <code>instantaneous</code>")
 
 
 # --- /schall renderer ------------------------------------------------------------
@@ -195,7 +196,7 @@ def test_sql_result_escapes_html_in_values():
 
 
 async def test_stats_msg(stats_api):
-    assert await main.build_stats_msg(7, "Alice") == (
+    assert await builders.build_stats_msg(7, "Alice") == (
         "<a href='tg://user?id=7'>Alice the Villager</a>\n"
         "<code>2    </code> Achievements Unlocked!\n"
         "<code>60   </code> Games Won <code>(60%)</code>\n"
@@ -208,28 +209,30 @@ async def test_stats_msg(stats_api):
 
 
 async def test_stats_msg_by_id_omits_the_user_link(stats_api):
-    msg = await main.build_stats_msg(7, "7", by_id=True)
+    msg = await builders.build_stats_msg(7, "7", by_id=True)
     assert msg.startswith("7 the Villager\n")
     assert "tg://user" not in msg
 
 
 async def test_stats_msg_no_games(stats_api):
     stats_api.routes["/Stats/PlayerStats/"] = {}
-    assert await main.build_stats_msg(7, "Alice") == ("<a href='tg://user?id=7'>Alice</a> has not played any games.")
+    assert await builders.build_stats_msg(7, "Alice") == (
+        "<a href='tg://user?id=7'>Alice</a> has not played any games."
+    )
     stats_api.routes["/Stats/PlayerStats/"] = {}
-    assert await main.build_stats_msg(7, "7", by_id=True) == "7 has not played any games."
+    assert await builders.build_stats_msg(7, "7", by_id=True) == "7 has not played any games."
 
 
 async def test_stats_msg_omits_most_killed_lines_when_null(stats_api):
     stats_api.routes["/Stats/PlayerStats/"] = dict(
         stats_api.routes["/Stats/PlayerStats/"], mostKilled=None, mostKilledBy=None
     )
-    msg = await main.build_stats_msg(7, "Alice")
+    msg = await builders.build_stats_msg(7, "Alice")
     assert msg.endswith("<code>100  </code> Total Games\n")
 
 
 async def test_kills_msg(stats_api):
-    assert await main.build_kills_msg(7, "Alice") == (
+    assert await builders.build_kills_msg(7, "Alice") == (
         "Players <a href='tg://user?id=7'>Alice</a> most killed:\n"
         "<code>7    </code> <b>Bob</b>\n"
         "<code>3    </code> <b>Al &amp; Sons</b>\n"
@@ -237,14 +240,14 @@ async def test_kills_msg(stats_api):
 
 
 async def test_killed_by_msg(stats_api):
-    assert await main.build_killed_by_msg(7, "Alice") == (
+    assert await builders.build_killed_by_msg(7, "Alice") == (
         "Players who killed <a href='tg://user?id=7'>Alice</a> most:\n<code>5    </code> <b>Carol</b>\n"
     )
 
 
 async def test_deaths_msg_derives_approximate_totals(stats_api):
     # 100 played - 50 survived = 50 deaths; 40% -> 20, 20% -> 10.
-    assert await main.build_deaths_msg(7, "Alice") == (
+    assert await builders.build_deaths_msg(7, "Alice") == (
         "Types of deaths that <a href='tg://user?id=7'>Alice</a> most had:\n"
         "<code>40%</code>   <b>Lynched</b>   <code>(approx. 20)</code>\n"
         "<code>20%</code>   <b>Eaten</b>   <code>(approx. 10)</code>\n"
@@ -253,4 +256,4 @@ async def test_deaths_msg_derives_approximate_totals(stats_api):
 
 async def test_empty_lists_render_header_only(stats_api):
     stats_api.routes["/Stats/PlayerKills/"] = []
-    assert await main.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'>Alice</a> most killed:\n")
+    assert await builders.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'>Alice</a> most killed:\n")
