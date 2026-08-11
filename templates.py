@@ -90,10 +90,11 @@ SCHALL_USAGE = (
     "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
-# /schall with no reply re-uses the players from this chat's last reply-based run. The
-# notice is always shown, so a result built from a remembered roster is never mistaken for
-# a fresh one — a game group's line-up changes every round.
-SCHALL_FROM_CACHE = "<i>Using this chat's last player list, from {age} (expires after {ttl}).</i>\n"
+# /schall with no reply re-uses the players from this chat's last reply-based run. The age
+# is always shown, so a result built from a remembered roster is never mistaken for a fresh
+# one — a game group's line-up changes every round. Deliberately terse: it qualifies the
+# "Checked N players" line above it rather than explaining itself.
+SCHALL_FROM_CACHE = "🕐 <i>{age}</i>\n"
 # Nothing remembered for this chat yet.
 SCHALL_NO_REPLY_NO_CACHE = (
     "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>.\n"

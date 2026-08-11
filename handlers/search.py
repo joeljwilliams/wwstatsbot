@@ -159,13 +159,9 @@ def _now():
 
 
 def _describe_age(seconds):
-    """Human age for the cache notice: "just now", "12 minutes ago"."""
+    """Compact age for the cache notice: "just now", "12m ago"."""
     minutes = int(seconds // 60)
-    if minutes < 1:
-        return "just now"
-    if minutes == 1:
-        return "1 minute ago"
-    return "{} minutes ago".format(minutes)
+    return "just now" if minutes < 1 else "{}m ago".format(minutes)
 
 
 def _remember_players(context, users, unresolved):
@@ -217,7 +213,7 @@ def _render_schall(payload, token, show_have):
     )
     # Payloads stored before this field existed have no key, hence .get().
     if payload.get("from_cache_age"):
-        msg += t.SCHALL_FROM_CACHE.format(age=payload["from_cache_age"], ttl=_SCHALL_CACHE_TTL_LABEL)
+        msg += t.SCHALL_FROM_CACHE.format(age=payload["from_cache_age"])
     section = t.SCHALL_HAVE_HEADER if show_have else t.SCHALL_MISSING_HEADER
     msg += section.format(count=len(shown))
     msg += (

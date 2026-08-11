@@ -110,14 +110,16 @@ async def test_no_reply_checks_the_remembered_players(achievements, no_fts, stat
     assert "Not obtained (1)" in reply
 
 
-async def test_a_cached_run_says_the_list_is_remembered_and_when_it_expires(achievements, no_fts, stats_api):
+async def test_a_cached_run_is_marked_with_a_clock_and_its_age(achievements, no_fts, stats_api):
+    """Terse on purpose: the clock plus an age qualifies the "Checked N players" line above
+    it. What matters is that a remembered result is never indistinguishable from a fresh
+    one, not that the message explains itself."""
     chat_data = {}
     await reply_run({"chat_data": chat_data})
     reply = await run(message("/schall busy"), {"chat_data": chat_data})
 
-    assert "Using this chat's last player list" in reply
+    assert "🕐" in reply
     assert "just now" in reply
-    assert "expires after 60 minutes" in reply
 
 
 async def test_the_notice_reports_the_lists_actual_age(monkeypatch, achievements, no_fts, stats_api):
@@ -128,13 +130,14 @@ async def test_the_notice_reports_the_lists_actual_age(monkeypatch, achievements
     real = chat_data[search._SCHALL_CACHE_KEY]["at"]
     monkeypatch.setattr(search, "_now", lambda: real + 12 * 60)
     reply = await run(message("/schall busy"), {"chat_data": chat_data})
-    assert "12 minutes ago" in reply
+    assert "🕐" in reply
+    assert "12m ago" in reply
 
 
 async def test_a_fresh_reply_based_run_carries_no_notice(achievements, no_fts, stats_api):
     """Only a remembered result is labelled; a fresh one must not be."""
     msg, _ = await reply_run({"chat_data": {}})
-    assert "Using this chat's last player list" not in msg.last_reply
+    assert "🕐" not in msg.last_reply
 
 
 async def test_the_toggle_keeps_the_notice_after_a_cached_run(achievements, no_fts, stats_api):
@@ -154,7 +157,7 @@ async def test_the_toggle_keeps_the_notice_after_a_cached_run(achievements, no_f
     await search.schall_callback(FakeUpdate(callback_query=query), FakeContext(bot_data=bot_data))
 
     text, _ = query.edits[-1]
-    assert "Using this chat's last player list" in text
+    assert "🕐" in text
     assert "just now" in text, "the age must be frozen, not recomputed on every tap"
 
 
@@ -238,8 +241,9 @@ async def test_sch_with_no_reply_still_checks_the_sender(achievements, no_fts, s
 def test_describe_age_wording():
     assert search._describe_age(0) == "just now"
     assert search._describe_age(59) == "just now"
-    assert search._describe_age(60) == "1 minute ago"
-    assert search._describe_age(12 * 60) == "12 minutes ago"
+    assert search._describe_age(60) == "1m ago"
+    assert search._describe_age(12 * 60) == "12m ago"
+    assert search._describe_age(59 * 60) == "59m ago"
 
 
 def test_recall_returns_none_for_an_untouched_chat():

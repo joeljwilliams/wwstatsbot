@@ -240,7 +240,7 @@ re-checks them for 60 minutes. `/sch` with no reply still means "check my own ac
 it is the advertised command, so silently turning it into a group query would surprise
 anyone asking about themselves. The cache is per-chat (one group's roster can never surface
 in another), expires after an hour because a game roster changes every round, and the reply
-always states its age — a remembered result must never pass for a fresh one.
+always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
 
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
