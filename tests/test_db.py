@@ -15,7 +15,13 @@ The FTS tests below encode two failures the schema comments record:
   matching themselves;
 * `ts_rank` alone cannot tell a real hit from a stemmer collision — 'english' folds both
   "busy" and "business" to the lexeme "busi" — so the ILIKE boost in the ORDER BY is what
-  keeps a genuine full-word match on top.
+  keeps a genuine full-word match on top;
+* apostrophes must be stripped *before* words are reduced to initials, or a contraction
+  reads as two words ("Should've" -> S and v, giving "SvSS" instead of "SSS").
+
+And one about the schema itself: `search_tsv` is dropped and recreated on every
+`ensure_schema()`, because `ADD COLUMN IF NOT EXISTS` silently skips an existing column and
+let the expression in the code diverge from the one in the database.
 """
 
 import os
@@ -304,3 +310,124 @@ async def test_run_sql_propagates_errors_to_the_caller(pool):
 
     with pytest.raises(asyncpg.exceptions.UndefinedTableError):
         await db.run_sql("SELECT * FROM definitely_not_a_table")
+
+
+# --- Initialisms and contractions -------------------------------------------------
+
+# Every achievement whose name contains an apostrophe, with the initialism a user would
+# actually type. Before apostrophes were stripped first, each of these indexed a spurious
+# extra letter from the contraction suffix and none of them could be found this way.
+CONTRACTION_INITIALISMS = [
+    ("sss", "Should've Said Something"),
+    ("igyb", "I've Got Your Back"),
+    ("hj", "Here's Johnny!"),
+    ("twydsh", "That's Why You Don't Stay Home"),
+    ("ap", "Alzheimer's Patient"),
+    ("ihniwid", "I Have No Idea What I'm Doing"),
+    ("indb", "I'M NOT DRUN-- *BURPPP*"),
+    ("nib", "Now I'm Blind"),
+    ("ts", "Today's Special!"),
+]
+
+
+@pytest.mark.parametrize("query, expected", CONTRACTION_INITIALISMS)
+async def test_initialism_ignores_apostrophes(seeded, query, expected):
+    r"""The reported bug: "SSS" must find "Should've Said Something".
+
+    \w does not match an apostrophe, so reducing words to initials without stripping it
+    first treated the contraction suffix as its own word — "Should've" contributed both S
+    and v, indexing "SvSS". Only "SVSS" matched, which no user would type.
+    """
+    names = [a["name"] for a in await db.search_achievements(query)]
+    assert expected in names, "{!r} did not find {!r}".format(query, expected)
+
+
+async def test_the_old_buggy_initialism_no_longer_matches(seeded):
+    """ "SVSS" was the only spelling that worked; it should not linger as an alias."""
+    names = [a["name"] for a in await db.search_achievements("svss")]
+    assert "Should've Said Something" not in names
+
+
+async def test_stripping_apostrophes_does_not_break_other_initialisms(seeded):
+    """Names without contractions must be unaffected, including the two the stemmer
+    rewrites and one where a lowercase word legitimately contributes a letter."""
+    for query, expected in [
+        ("wth", "Welcome to Hell"),
+        ("dygy", "Did you guard yourself?"),
+        ("gcfy", "Good Choice... For You"),
+        ("svs", "Spy vs Spy"),
+        ("ohd", "O HAI DER!"),
+    ]:
+        names = [a["name"] for a in await db.search_achievements(query)]
+        assert expected in names, "{!r} no longer finds {!r}".format(query, expected)
+
+
+# --- The schema must not silently diverge from the code ---------------------------
+
+# The generated-column definition as it shipped before the apostrophe fix. Used to build a
+# deliberately stale database and prove ensure_schema() repairs it.
+_STALE_SEARCH_COLUMN = """
+ALTER TABLE achievements
+    ADD COLUMN search_tsv tsvector
+    GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
+        setweight(
+            to_tsvector('english',
+                regexp_replace(
+                    regexp_replace(coalesce(name, ''), '(\\w)\\w*', '\\1', 'g'),
+                    '[^a-zA-Z0-9]', '', 'g')),
+            'B') ||
+        setweight(to_tsvector('english', coalesce(description, '')), 'C')
+    ) STORED;
+CREATE INDEX achievements_search_tsv_idx ON achievements USING GIN (search_tsv);
+"""
+
+
+async def test_ensure_schema_rebuilds_a_stale_search_column(pool):
+    """The migration this fix needed, and the case the `pool` fixture cannot express.
+
+    Every other test here starts from dropped tables, so it always sees the current
+    expression — which is precisely why a naive fix would have passed the whole suite and
+    changed nothing in production. This test instead builds the *old* column on a table
+    that is not dropped, mirroring a live database, and asserts ensure_schema() replaces
+    it rather than skipping it as ADD COLUMN IF NOT EXISTS used to.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute("DROP INDEX IF EXISTS achievements_search_tsv_idx")
+        await conn.execute("ALTER TABLE achievements DROP COLUMN search_tsv")
+        await conn.execute(_STALE_SEARCH_COLUMN)
+    await db.seed_achievements()
+
+    # Confirm the stale definition really is stale, or the test proves nothing.
+    stale = [a["name"] for a in await db.search_achievements("sss")]
+    assert "Should've Said Something" not in stale, (
+        "the stale column already behaves correctly — this test is no longer meaningful"
+    )
+
+    await db.ensure_schema()
+
+    fixed = [a["name"] for a in await db.search_achievements("sss")]
+    assert "Should've Said Something" in fixed, "ensure_schema() did not rebuild the column"
+
+
+async def test_the_search_index_survives_the_rebuild(seeded):
+    """Dropping the column drops its index; ensure_schema must put it back, or every
+    search silently degrades to a sequential scan."""
+    await db.ensure_schema()
+    async with db._pool.acquire() as conn:
+        index = await conn.fetchval("SELECT indexname FROM pg_indexes WHERE indexname = 'achievements_search_tsv_idx'")
+    assert index == "achievements_search_tsv_idx"
+
+
+async def test_ensure_schema_is_idempotent_over_repeated_startups(seeded):
+    """It now performs real DDL on every call, so "safe to run repeatedly" is a stronger
+    claim than before: notes must survive, and search must keep working."""
+    await db.update_notes("Welcome to Hell", "\N{MEMO} keep me")
+    for _ in range(3):
+        await db.ensure_schema()
+    await db.load_cache()
+
+    entry = next(a for a in db.get_achievements() if a["name"] == "Welcome to Hell")
+    assert entry["notes"] == "\N{MEMO} keep me", "a rebuild must not touch source data"
+    names = [a["name"] for a in await db.search_achievements("sss")]
+    assert "Should've Said Something" in names

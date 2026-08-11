@@ -41,9 +41,21 @@ CREATE TABLE IF NOT EXISTS admins (
 -- Full-text search vector over achievements. A generated STORED column, so
 -- Postgres recomputes it automatically on every insert/update (e.g. note edits)
 -- with no trigger. Weighted name (A) > name-initialism (B) > description (C).
--- ADD COLUMN / CREATE INDEX IF NOT EXISTS keep this idempotent across restarts.
+--
+-- The column is DROPPED AND RECREATED on every startup rather than added with
+-- ADD COLUMN IF NOT EXISTS. That looks wasteful and is deliberate. IF NOT EXISTS
+-- silently *skips* an existing column, so editing the expression below changed nothing
+-- on a live database — while every test passed, because the test fixture drops the
+-- tables and therefore always saw the new definition. A derived column that can
+-- silently disagree with the code defining it generates exactly this class of bug: the
+-- initialism search shipped broken for months (see the apostrophe note below).
+--
+-- Rebuilding is safe and cheap. The column is GENERATED, so it holds no source data --
+-- nothing can be lost. The table is a fixed catalogue of ~110 rows, and the drop, add
+-- and reindex measure ~4ms in total. Startup does this once, before readiness.
+ALTER TABLE achievements DROP COLUMN IF EXISTS search_tsv;
 ALTER TABLE achievements
-    ADD COLUMN IF NOT EXISTS search_tsv tsvector
+    ADD COLUMN search_tsv tsvector
     GENERATED ALWAYS AS (
         setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
         -- Same 'english' config as the query (search_achievements) so the
@@ -52,13 +64,21 @@ ALTER TABLE achievements
         -- trailing y -> i: "dygy" indexed as dygy, queried as dygi).
         setweight(
             to_tsvector('english',
+                -- Apostrophes are stripped FIRST, before words are reduced to initials.
+                -- \w does not match an apostrophe, so "Should've" would otherwise read as
+                -- two words and contribute both S and v: the initialism came out "SvSS",
+                -- meaning a user typing the obvious "SSS" matched nothing. 9 of 109 names
+                -- contain a contraction and were all affected the same way.
                 regexp_replace(
-                    regexp_replace(coalesce(name, ''), '(\w)\w*', '\1', 'g'),
+                    regexp_replace(
+                        regexp_replace(coalesce(name, ''), '[''’]', '', 'g'),
+                        '(\w)\w*', '\1', 'g'),
                     '[^a-zA-Z0-9]', '', 'g')),
             'B') ||
         setweight(to_tsvector('english', coalesce(description, '')), 'C')
     ) STORED;
 
+-- Dropping the column above drops this index with it, so it is always recreated.
 CREATE INDEX IF NOT EXISTS achievements_search_tsv_idx
     ON achievements USING GIN (search_tsv);
 """
