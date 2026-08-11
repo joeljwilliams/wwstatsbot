@@ -17,7 +17,19 @@ import string
 import templates as t
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SOURCES = ["main.py", "wwstats.py"]
+
+
+def sources():
+    """Every application module that could reference a template.
+
+    Discovered rather than listed: `main.py` is being split into modules, and a
+    hardcoded list would silently stop covering call sites as they move out — the
+    drift check would keep passing while checking less and less.
+    """
+    skip = {"conftest.py", "config.py", "configEXAMPLE.py"}
+    found = [path for path in sorted(REPO.glob("*.py")) if path.name not in skip]
+    found += sorted(REPO.glob("handlers/*.py"))
+    return found
 
 
 def template_names():
@@ -58,8 +70,8 @@ def test_no_template_uses_positional_placeholders():
 def referenced_template_names():
     """Every `t.NAME` / `templates.NAME` attribute read across the app's sources."""
     referenced = set()
-    for filename in SOURCES:
-        tree = ast.parse((REPO / filename).read_text())
+    for path in sources():
+        tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Attribute)
