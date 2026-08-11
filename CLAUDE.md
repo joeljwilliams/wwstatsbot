@@ -124,6 +124,16 @@ commit metadata but not tags, so a tag-derived version would read `unknown` in p
 exactly where it matters. `importlib.metadata` is unavailable too (no build backend, and
 `uv sync --no-install-project`).
 
+**Tagging and releases are automatic.** The `release` job in `ci.yml` runs on a push to
+`main`, gated on lint/test/docker passing, and creates the `v<VERSION>` tag plus a GitHub
+release with generated notes. Consequences worth knowing:
+
+- A merge to `main` that did **not** bump `VERSION` is not an error — the tag already exists,
+  so the job logs a notice and skips. Most merges are like this.
+- To cut a release, bump `VERSION` and `pyproject.toml` on `devel`, then merge `devel` → `main`.
+- The tag is created *by* `gh release create`, so tag and release can never disagree about
+  which commit they point at.
+
 ### Things that will bite you
 
 **The achievement cache is the read path.** `db.get_achievements()` is *synchronous* and
