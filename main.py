@@ -40,6 +40,7 @@ from unidecode import unidecode
 
 import db
 import health
+import notes
 import templates as t
 import version
 import wwstats
@@ -207,49 +208,6 @@ async def build_info_results(search):
     return [a for a in db.get_achievements() if s in a["name"].lower()]
 
 
-# Notes are stored in a single TEXT column but hold up to two sub-fields, each
-# on its own line prefixed by a marker emoji (added automatically on write):
-#   📝 <memo>        the main note (may span multiple lines)
-#   🎲 <probability> the odds of attaining the achievement
-# parse_notes/serialize_notes are the only encoders; storage stays schema-free
-# and human-readable in the /db console. Fields are emitted in this order.
-NOTE_MEMO = "\N{MEMO}"
-NOTE_DIE = "\N{GAME DIE}"
-_NOTE_MARKERS = [("memo", NOTE_MEMO), ("prob", NOTE_DIE)]
-_PROB_KEYWORDS = {"prob", "probability"}
-
-
-def parse_notes(raw):
-    """Split a stored notes blob into {'memo': ..., 'prob': ...}.
-
-    A line starting with a field marker begins that field; any text before the
-    first marker is treated as the memo (back-compat with old plain notes).
-    """
-    marker_to_key = {marker: key for key, marker in _NOTE_MARKERS}
-    buf = {key: [] for key, _ in _NOTE_MARKERS}
-    current = "memo"
-    for line in (raw or "").splitlines():
-        stripped = line.lstrip()
-        marker = next((m for m in marker_to_key if stripped.startswith(m)), None)
-        if marker:
-            current = marker_to_key[marker]
-            buf[current].append(stripped[len(marker) :].lstrip())
-        else:
-            buf[current].append(line)
-    return {key: "\n".join(lines).strip() for key, lines in buf.items()}
-
-
-def serialize_notes(fields):
-    """Render a {'memo', 'prob'} dict back to the marker-prefixed storage form,
-    omitting empty fields. Returns '' when both are empty."""
-    parts = []
-    for key, marker in _NOTE_MARKERS:
-        value = fields.get(key, "").strip()
-        if value:
-            parts.append("{} {}".format(marker, value))
-    return "\n".join(parts)
-
-
 def format_single_achv(achv):
     """HTML block for one achievement, including the type and notes fields."""
     msg = t.ACHV_CARD.format(
@@ -259,10 +217,12 @@ def format_single_achv(achv):
     )
     # Normalise through parse/serialize so display is always canonical (markers
     # present and ordered) even for legacy or /db-console-edited notes.
-    notes = serialize_notes(parse_notes(achv.get("notes", "")))
-    if notes:
+    # Named `rendered`, not `notes`: assigning to `notes` anywhere in this function
+    # would shadow the module import and make the call below an UnboundLocalError.
+    rendered = notes.serialize_notes(notes.parse_notes(achv.get("notes", "")))
+    if rendered:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
-        msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
+        msg += t.ACHV_CARD_NOTES.format(notes=html.escape(rendered))
     return msg
 
 
@@ -758,16 +718,6 @@ def _achv_from_reply(replied):
     return next((a for a in db.get_achievements() if a["name"] == title), None)
 
 
-def _split_note_field(arg):
-    """Return (field_key, text) for a /setnote argument. A leading 'prob' /
-    'probability' keyword selects the probability field; otherwise it's the memo
-    and the whole argument is the text (line breaks preserved)."""
-    tokens = arg.split(None, 1)
-    if tokens and tokens[0].lower() in _PROB_KEYWORDS:
-        return "prob", (tokens[1].strip() if len(tokens) > 1 else "")
-    return "memo", arg
-
-
 # A Possible Achievements message nests achievements under the player they're
 # available to, and the two levels are told apart by indentation:
 #
@@ -851,7 +801,7 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # preserved (context.args tokenises on whitespace and would flatten them).
     parts = update.message.text.split(None, 1)
     arg = parts[1].strip() if len(parts) > 1 else ""
-    field, text = _split_note_field(arg)
+    field, text = notes.split_note_field(arg)
     if not text:
         await update.message.reply_text(
             "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
@@ -867,9 +817,9 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     # Merge into the existing fields so the other field is preserved.
-    fields = parse_notes(match.get("notes", ""))
+    fields = notes.parse_notes(match.get("notes", ""))
     fields[field] = text
-    await db.update_notes(match["name"], serialize_notes(fields))
+    await db.update_notes(match["name"], notes.serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
         "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
@@ -897,14 +847,14 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     which = context.args[0].lower() if context.args else ""
     if which == "all":
         targets = ["memo", "prob"]
-    elif which in _PROB_KEYWORDS:
+    elif notes.is_prob_keyword(which):
         targets = ["prob"]
     else:
         targets = ["memo"]
-    fields = parse_notes(match.get("notes", ""))
+    fields = notes.parse_notes(match.get("notes", ""))
     for key in targets:
         fields[key] = ""
-    await db.update_notes(match["name"], serialize_notes(fields))
+    await db.update_notes(match["name"], notes.serialize_notes(fields))
     updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
         "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
