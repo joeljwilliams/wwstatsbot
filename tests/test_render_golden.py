@@ -21,6 +21,7 @@ ambiguous in a diff.
 from conftest import assert_json_roundtrips
 
 import builders
+import templates as t
 from handlers import achievements as achv_handlers
 from handlers import admin, search
 
@@ -258,3 +259,42 @@ async def test_deaths_msg_derives_approximate_totals(stats_api):
 async def test_empty_lists_render_header_only(stats_api):
     stats_api.routes["/Stats/PlayerKills/"] = []
     assert await builders.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'>Alice</a> most killed:\n")
+
+
+# --- /version release + build info ------------------------------------------------
+
+VERSION_FIELDS = {
+    "version": "1.2.3",
+    "branch": "main",
+    "commit": "bafdebd18bccb1ce61a78a152aa0333d655f7227",
+    "short_commit": "bafdebd",
+    "commit_url": "https://github.com/joeljwilliams/wwstatsbot/commit/bafdebd18bccb1ce61a78a152aa0333d655f7227",
+    "source": "railway",
+}
+
+
+def test_version_linked():
+    """The deployed case: Railway supplies a commit, so the short sha links to it."""
+    assert t.VERSION_INFO_LINKED.format(**VERSION_FIELDS) == (
+        "<b>wwstatsbot</b> <code>v1.2.3</code>\n"
+        "Branch: <code>main</code>\n"
+        'Commit: <a href="https://github.com/joeljwilliams/wwstatsbot/commit/'
+        'bafdebd18bccb1ce61a78a152aa0333d655f7227">bafdebd</a>'
+    )
+
+
+def test_version_plain():
+    """No resolvable commit URL — the short sha is shown, unlinked."""
+    assert t.VERSION_INFO_PLAIN.format(**VERSION_FIELDS) == (
+        "<b>wwstatsbot</b> <code>v1.2.3</code>\nBranch: <code>main</code>\nCommit: <code>bafdebd</code>"
+    )
+
+
+def test_version_no_longer_shows_the_full_sha():
+    """It was redundant beside the short one; it now only backs the link."""
+    plain = t.VERSION_INFO_PLAIN.format(**VERSION_FIELDS)
+    assert VERSION_FIELDS["commit"] not in plain
+    linked = t.VERSION_INFO_LINKED.format(**VERSION_FIELDS)
+    # Present once, inside the href, and not as visible text.
+    assert linked.count(VERSION_FIELDS["commit"]) == 1
+    assert ">" + VERSION_FIELDS["commit"] not in linked

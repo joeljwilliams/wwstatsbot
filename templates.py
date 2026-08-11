@@ -4,14 +4,14 @@ All human-visible strings live here so they can be edited without touching the
 handler/builder logic. Two Telegram parse modes are in play:
 
   * HTML     — the /stats, /kills, /killedby, /deaths, /info and inline output
-               (built in main.py).
+               (assembled in builders.py and the handlers/ modules).
   * Markdown — the /achv achievement list (built in wwstats.py).
 
 Templates use str.format named fields; call `.format(**kwargs)`. Small render
 helpers cover the patterns that repeat across builders.
 """
 
-# --- HTML: stat builders (main.py) -----------------------------------------
+# --- HTML: stat builders (builders.py) -------------------------------------
 
 KILLS_HEADER = "Players <a href='tg://user?id={user_id}'>{name}</a> most killed:\n"
 KILLED_BY_HEADER = "Players who killed <a href='tg://user?id={user_id}'>{name}</a> most:\n"
@@ -33,23 +33,29 @@ STATS_MOST_KILLED_BY = "<code>{times:<5}</code> times I've been slaughtered by {
 NO_GAMES = "<a href='tg://user?id={user_id}'>{name}</a> has not played any games."
 NO_GAMES_BY_ID = "{name} has not played any games."
 
-# --- HTML: achievement info card (main.py) ---------------------------------
+# --- HTML: achievement info card (builders.py) -----------------------------
 
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
 ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
-# --- HTML: /version build info (main.py) -----------------------------------
+# --- HTML: /version release + build info (handlers/misc.py) ----------------
 
-# Two variants (linked / plain) mirror the STATS_NAME split so no conditional
-# lives inside the string. The handler picks LINKED when a commit_url exists.
+# The release version answers "what is deployed", the branch and short commit answer
+# "exactly which build". The full 40-char sha used to be shown next to the short one,
+# which was redundant on screen — it now only backs the link.
+#
+# Two variants (linked / plain) mirror the STATS_NAME split so no conditional lives
+# inside the string. The handler picks LINKED when a commit_url exists.
 VERSION_INFO_LINKED = (
-    "<b>wwstatsbot</b>\n"
+    "<b>wwstatsbot</b> <code>v{version}</code>\n"
     "Branch: <code>{branch}</code>\n"
-    'Commit: <a href="{commit_url}">{short_commit}</a> <code>{commit}</code>'
+    'Commit: <a href="{commit_url}">{short_commit}</a>'
 )
-VERSION_INFO_PLAIN = "<b>wwstatsbot</b>\nBranch: <code>{branch}</code>\nCommit: <code>{short_commit}</code>"
+VERSION_INFO_PLAIN = (
+    "<b>wwstatsbot</b> <code>v{version}</code>\nBranch: <code>{branch}</code>\nCommit: <code>{short_commit}</code>"
+)
 
-# --- HTML: /search achievement match list (main.py) ------------------------
+# --- HTML: /search achievement match list (handlers/search.py) -------------
 
 # Each matching achievement is tagged with whether the target user has it.
 SEARCH_HEADER = "Achievements matching <b>{query}</b> for <a href='tg://user?id={user_id}'>{name}</a>:\n\n"
@@ -86,7 +92,7 @@ SCHALL_USAGE = (
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
 
-# --- HTML: /info achievement card pager (main.py) ---------------------------
+# --- HTML: /info achievement card pager (handlers/achievements.py) ---------
 
 # Group hand-off: one public message with a button, so several people can each
 # pull their own copy of the cards without re-running the command.

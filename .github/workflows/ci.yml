@@ -109,3 +109,63 @@ jobs:
           echo "$output"
           echo "$output" | grep -q "BOT_TOKEN is not set" \
             || { echo "::error::expected the missing-token SystemExit"; exit 1; }
+
+  release:
+    # A merge to main is a release. Gated on the other three jobs because tagging a red
+    # build is worse than not tagging at all — which is also why this lives in ci.yml
+    # rather than its own workflow: `needs` gives that ordering for free, whereas a
+    # separate workflow would have to use workflow_run and check the conclusion by hand.
+    needs: [lint, test, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the release version
+        id: version
+        # version.py is the single source of truth and imports only the stdlib, so this
+        # needs no dependency install. It is deliberately import-safe (no token, no
+        # database), and test_pyproject_version_matches guarantees pyproject.toml agrees.
+        run: |
+          version=$(python3 -c 'import version; print(version.VERSION)')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version"
+
+      - name: Has this version already been released?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Not every merge to main bumps the version, so an existing tag is a normal
+        # outcome rather than a failure. Skipping keeps the pipeline green and says why.
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the tag and release
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # `gh release create` creates the tag as well, so tag and release can never
+        # disagree about which commit they point at.
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+          echo "### Released ${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tagged \`${{ github.sha }}\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report a skipped release
+        if: steps.existing.outputs.exists == 'true'
+        run: |
+          echo "::notice::${{ steps.version.outputs.tag }} already exists — this merge did not bump version.VERSION, so no release was created."
+          echo "### No release" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.version.outputs.tag }}\` is already released. Bump \`version.VERSION\` and \`pyproject.toml\` to cut a new one." >> "$GITHUB_STEP_SUMMARY"

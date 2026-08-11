@@ -26,6 +26,7 @@ async def display_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "command",
         command="version",
         user_id=update.message.from_user.id,
+        version=info["version"],
         commit=info["short_commit"],
         branch=info["branch"],
         source=info["source"],
