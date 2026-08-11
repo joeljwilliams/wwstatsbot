@@ -90,6 +90,9 @@ SCHALL_USAGE = (
     "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
+# Shown when someone other than the requester (or an admin) taps the toggle. Callback
+# answers are plain text — no HTML, and Telegram truncates past ~200 characters.
+SCHALL_NOT_YOURS = "Only {name} can switch this list. Send /sch yourself to get your own."
 # /schall with no reply re-uses the players from this chat's last reply-based run. The age
 # is always shown, so a result built from a remembered roster is never mistaken for a fresh
 # one — a game group's line-up changes every round. Deliberately terse: it qualifies the
