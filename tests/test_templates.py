@@ -113,3 +113,110 @@ def test_html_templates_have_balanced_simple_tags():
             opens = template.count("<{}>".format(tag)) + template.count("<{} ".format(tag))
             closes = template.count("</{}>".format(tag))
             assert opens == closes, "templates.{} has {} <{}> open vs {} close".format(name, opens, tag, closes)
+
+
+# --- Extraction must be able to see every string ----------------------------------
+
+# babel.cfg scans templates.py alone, so prose that creeps back into a handler would be
+# silently untranslatable — extraction would never see it and no test would fail.
+#
+# Only the modules that actually render replies are scanned. Deliberately excluded:
+#   achvlist.py   achievement seed data. Names and descriptions come from the game and stay
+#                 English; every lookup matches on them (see db.py).
+#   db.py         SQL.
+#   health.py     an HTTP header.
+#   settings.py   startup diagnostics for whoever deploys the bot. They are emitted before
+#                 any locale could be known — there is no user yet — and go to the console,
+#                 not to Telegram.
+_SCANNED = ["builders.py", "wwstats.py", "main.py"]
+
+# Strings inside the scanned modules that are not prose and must stay literal.
+_NOT_PROSE = {
+    # Matched against Telegram's own error text, which is always English. Translating these
+    # would break the swallow-list and every long-poll timeout would report to the log group.
+    "timed out",
+    "not modified",
+    "query_id_invalid",
+    # Postgres' own spelling of the value in the /db console. A translated console must not
+    # misrepresent what the database returned.
+    "NULL",
+}
+
+
+def scanned_sources():
+    paths = [REPO / name for name in _SCANNED]
+    paths += sorted((REPO / "handlers").glob("*.py"))
+    return [p for p in paths if p.exists()]
+
+
+def prose_literals(path):
+    """String constants in `path` that look like user-visible prose.
+
+    Heuristic and deliberately loose: long enough to be a sentence fragment, containing a
+    space, not a docstring, and not a compiled regex pattern. A false positive costs one
+    allowlist entry; a false negative is a string no translator will ever see.
+    """
+    source = path.read_text()
+    tree = ast.parse(source)
+
+    skip = set(_NOT_PROSE)
+    for node in [tree] + [
+        n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]:
+        doc = ast.get_docstring(node, clean=False)
+        if doc:
+            skip.add(doc)
+    # Anything handed to re.compile is a pattern, not prose.
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "compile"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            skip.add(node.args[0].value)
+
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and len(node.value) >= 12
+        and " " in node.value
+        and "\n" not in node.value[:1]
+        and node.value not in skip
+    }
+
+
+def test_no_prose_outside_templates():
+    """All user-visible prose lives in templates.py, so extraction can find all of it.
+
+    This is what makes scanning one file in babel.cfg correct. Without it, a message added
+    straight into a handler would work in English forever and never reach a translator.
+    """
+    offenders = {p.name: sorted(found) for p in scanned_sources() if (found := prose_literals(p))}
+    assert not offenders, "prose found outside templates.py: {}".format(offenders)
+
+
+def test_every_template_is_extractable():
+    """Every constant in templates.py appears in the .pot, and nothing extra does.
+
+    Catches a constant added without its N_() marker: it would still work in English and
+    still pass every other test, while being invisible to translators.
+    """
+    from babel.messages.pofile import read_po
+
+    pot = REPO / "locales" / "messages.pot"
+    assert pot.exists(), "run: uv run pybabel extract -F babel.cfg -o locales/messages.pot ."
+    with pot.open(encoding="utf-8") as handle:
+        catalog = read_po(handle)
+
+    extracted = {message.id for message in catalog if message.id}
+    defined = {getattr(t, name) for name in template_names()}
+    assert not defined - extracted, "in templates.py but not extracted (missing N_()?): {}".format(
+        sorted(s[:60] for s in defined - extracted)
+    )
+    assert not extracted - defined, "extracted but gone from templates.py (stale .pot — re-extract): {}".format(
+        sorted(s[:60] for s in extracted - defined)
+    )
