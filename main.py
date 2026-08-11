@@ -12,7 +12,6 @@
 
 import asyncio
 import html
-import os
 import re
 import secrets
 
@@ -41,62 +40,13 @@ from unidecode import unidecode
 import db
 import health
 import notes
+import settings
 import templates as t
 import version
 import wwstats
 from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
-
-# Configuration is read from environment variables (for containers / k8s), with
-# a fallback to a local config.py module for development. Env vars win.
-try:
-    from config import (
-        BOT_TOKEN as _CFG_TOKEN,
-    )
-    from config import (
-        LOG_GROUP_ID as _CFG_LOG_GROUP,
-    )
-except ImportError:
-    _CFG_TOKEN, _CFG_LOG_GROUP = None, None
-
-try:
-    from config import DATABASE_URL as _CFG_DATABASE_URL
-except ImportError:
-    _CFG_DATABASE_URL = None
-
-try:
-    from config import SUPERUSER_ID as _CFG_SUPERUSER_ID
-except ImportError:
-    _CFG_SUPERUSER_ID = None
-
-try:
-    from config import REDIS_URL as _CFG_REDIS_URL
-except ImportError:
-    _CFG_REDIS_URL = None
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN", _CFG_TOKEN)
-LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", _CFG_LOG_GROUP or 0)) or None
-HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
-DATABASE_URL = os.environ.get("DATABASE_URL", _CFG_DATABASE_URL)
-SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or None
-# Optional: enables durable /allinfo buttons (and any other bot_data) across
-# restarts. Unset -> in-memory only.
-REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
-
-
-def _require_config():
-    """Fail fast on missing required settings. Called from main(), not at import.
-
-    Importing this module must stay side-effect-free enough to be safe from a test
-    process, which has no bot token and no database: exiting at import time meant
-    `import main` killed the interpreter, so nothing here could be tested.
-    """
-    if not BOT_TOKEN:
-        raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
-    if not DATABASE_URL:
-        raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
-
 
 BASE = "https://www.tgwerewolf.com/Stats"
 
@@ -644,7 +594,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def is_superuser(user_id):
-    return SUPERUSER_ID is not None and user_id == SUPERUSER_ID
+    return settings.SUPERUSER_ID is not None and user_id == settings.SUPERUSER_ID
 
 
 async def is_admin_user(user_id):
@@ -1176,10 +1126,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if "timed out" in e or "not modified" in e or "query_id_invalid" in e:
         return
     logger.error("update_error", exc_info=error)
-    if not LOG_GROUP_ID:
+    if not settings.LOG_GROUP_ID:
         return
     try:
-        await context.bot.send_message(LOG_GROUP_ID, str(error), parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_message(settings.LOG_GROUP_ID, str(error), parse_mode=ParseMode.MARKDOWN)
     except Exception:
         logger.exception("log_group_report_failed")
 
@@ -1207,7 +1157,7 @@ PUBLIC_COMMANDS = [
 
 async def _post_init(application: Application):
     # Bring up the database before reporting ready to k8s.
-    await db.init_pool(DATABASE_URL)
+    await db.init_pool(settings.DATABASE_URL)
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
@@ -1229,13 +1179,13 @@ def build_application():
     below is the one place a command can silently cease to exist: drop a line and the
     handler still passes its own tests while being unreachable from Telegram.
     """
-    builder = Application.builder().token(BOT_TOKEN).post_init(_post_init).post_shutdown(_post_shutdown)
+    builder = Application.builder().token(settings.BOT_TOKEN).post_init(_post_init).post_shutdown(_post_shutdown)
     # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
     # a Redis backend is configured; otherwise state is in-memory only.
-    if REDIS_URL:
+    if settings.REDIS_URL:
         from redis_persistence import RedisPersistence
 
-        builder = builder.persistence(RedisPersistence(url=REDIS_URL))
+        builder = builder.persistence(RedisPersistence(url=settings.REDIS_URL))
         logger.info("persistence_enabled", backend="redis")
     else:
         logger.info("persistence_disabled")
@@ -1269,8 +1219,8 @@ def build_application():
 
 def main():
     configure_logging()
-    _require_config()
-    health.start_health_server(HEALTH_PORT)
+    settings.require()
+    health.start_health_server(settings.HEALTH_PORT)
     build_application().run_polling(drop_pending_updates=True)
 
 
