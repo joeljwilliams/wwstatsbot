@@ -2,15 +2,19 @@
 
 Two things happen here before anything else can work:
 
-1. **Config env is stubbed at module scope, above the `import main`.** pytest imports
-   conftest before any test module, so this runs first. It matters for more than CI: a
-   developer's checkout has a real `config.py` holding a live bot token, and env wins
-   over `config.py` in main.py's resolution order — so this is what guarantees the
-   suite can never pick up (or send anything with) the real credentials.
+1. **Config env is stubbed at module scope, before any application import.** pytest
+   imports conftest before every test module, so this runs first — which matters because
+   `settings.py` reads the environment at *its* import, and a test module importing
+   `main` pulls `settings` in with it. It matters for more than CI: a developer's
+   checkout has a real `config.py` holding a live bot token, and env wins over
+   `config.py`, so this is what guarantees the suite can never pick up (or send anything
+   with) the real credentials.
 
-2. **The module-level httpx client is replaced per test.** `main.client` is created at
-   import; the `stats_api` fixture swaps in a `MockTransport`-backed client so no test
-   touches tgwerewolf.com.
+2. **The shared httpx client is replaced per test.** `api.client` is created at import;
+   the `stats_api` fixture swaps in a `MockTransport`-backed client so no test touches
+   tgwerewolf.com. It patches the attribute on the module rather than importing the
+   object, because a stale patch target fails silently — the suite would go on passing
+   while hitting the real API. `forbid_real_network` (autouse) is the backstop.
 
 The Telegram fakes are deliberately hand-rolled `SimpleNamespace`-ish objects rather
 than a PTB test harness: the handlers only ever touch a handful of attributes, and
@@ -36,8 +40,8 @@ os.environ.pop("REDIS_URL", None)
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
+import api  # noqa: E402
 import db  # noqa: E402
-import main  # noqa: E402
 
 SUPERUSER_ID = 999
 
@@ -168,14 +172,43 @@ class StatsAPI:
         return httpx.Response(404, json={})
 
 
+@pytest.fixture(autouse=True)
+def forbid_real_network(monkeypatch):
+    """Make the shared client unusable unless a test opts into the fake API.
+
+    The `stats_api` fixture patches an attribute by name, and a patch whose target has
+    drifted fails **silently** — the suite would keep passing while making real requests
+    to tgwerewolf.com. That is exactly what would happen if the client moved module again
+    and this fixture were not updated with it.
+
+    So every test starts with a client that raises on any request. Tests that want the
+    stats API take `stats_api`, which replaces it with the working mock; anything else
+    that reaches the network fails loudly and names the URL it tried.
+    """
+
+    def explode(request):
+        raise AssertionError(
+            "real HTTP request attempted: {} {}\n"
+            "Either this test needs the `stats_api` fixture, or `stats_api`'s patch "
+            "target has drifted from where the shared client actually lives.".format(request.method, request.url)
+        )
+
+    monkeypatch.setattr(api, "client", httpx.AsyncClient(transport=httpx.MockTransport(explode)))
+
+
 @pytest.fixture
 def stats_api(monkeypatch):
-    """Replace main.client with a MockTransport client. No network, no real sockets."""
-    api = StatsAPI()
-    client = httpx.AsyncClient(transport=httpx.MockTransport(api.handler), timeout=15)
-    monkeypatch.setattr(main, "client", client)
-    # No teardown: MockTransport holds no sockets, and monkeypatch restores main.client.
-    return api
+    """Replace api.client with a MockTransport client. No network, no real sockets.
+
+    Patches the attribute on the `api` module, which is where the client lives and where
+    every fetcher resolves it from. `forbid_real_network` above is the backstop for this
+    patch target going stale.
+    """
+    fake = StatsAPI()
+    client = httpx.AsyncClient(transport=httpx.MockTransport(fake.handler), timeout=15)
+    monkeypatch.setattr(api, "client", client)
+    # No teardown: MockTransport holds no sockets, and monkeypatch restores api.client.
+    return fake
 
 
 # --- Telegram fakes ---------------------------------------------------------------
