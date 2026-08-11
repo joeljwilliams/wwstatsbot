@@ -206,6 +206,16 @@ this. Cached entries keep the legacy `ACHV` dict shape: `desc` (not `description
 `inactive`/`not_via_playing` keys **present only when true** (`a.get('inactive')`, never
 `a['inactive']`).
 
+**The search column is rebuilt, not patched.** `ensure_schema()` drops and recreates
+`search_tsv` on every startup. `ADD COLUMN IF NOT EXISTS` silently skips an existing column,
+so editing the generation expression changed nothing on a live database — and the test fixture
+drops the tables, so the whole suite passed while production kept the old definition. That gap
+shipped a broken initialism search (typing `SSS` found nothing for "Should've Said Something").
+The column is GENERATED, so a rebuild loses no data, and it costs ~4ms on ~110 rows. If you
+change the expression, `test_ensure_schema_rebuilds_a_stale_search_column` is what proves a
+live database actually picks it up — it is the one db test that does not start from dropped
+tables.
+
 **Search has two layers.** `build_info_results()` tries Postgres FTS
 (`search_achievements`) and falls back to a substring scan over the cache. The `search_tsv`
 generated column and the query must use the *same* `'english'` config — a mismatch silently
