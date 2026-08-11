@@ -11,13 +11,14 @@ four stat cards, and typed text becomes an achievement search identical to /info
 from conftest import FakeContext, FakeInlineQuery, FakeUpdate, FakeUser
 
 import builders
-import main
+import db
+from handlers import inline as inline_handlers
 
 
 async def answer(query="", user=None):
     """Run the handler and hand back the FakeInlineQuery holding the results."""
     inline = FakeInlineQuery(query=query, from_user=user or FakeUser(7, "Alice"))
-    await main.inline_query(FakeUpdate(inline_query=inline), FakeContext())
+    await inline_handlers.inline_query(FakeUpdate(inline_query=inline), FakeContext())
     return inline
 
 
@@ -85,7 +86,7 @@ async def test_no_match_returns_a_single_explanatory_result(achievements, no_fts
 async def test_results_are_capped_at_fifty(monkeypatch, no_fts, stats_api):
     """Telegram rejects an inline answer with more than 50 results."""
     many = [{"name": "Achv {}".format(i), "desc": "d", "type": "game-end", "notes": ""} for i in range(80)]
-    monkeypatch.setattr(main.db, "get_achievements", lambda: many)
+    monkeypatch.setattr(db, "get_achievements", lambda: many)
 
     inline = await answer("Achv")
     assert len(inline.results) == 50

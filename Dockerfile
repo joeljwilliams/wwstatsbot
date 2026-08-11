@@ -46,7 +46,11 @@ ENV PYTHONUNBUFFERED=1 \
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
+# The glob covers only top-level modules — it does NOT recurse, so every package needs
+# its own COPY. Missing one still builds a valid image; the bot then dies at startup with
+# ModuleNotFoundError. The docker CI job runs `python main.py` for exactly this reason.
 COPY *.py ./
+COPY handlers/ ./handlers/
 
 # Run as an unprivileged user.
 RUN useradd --create-home --uid 10001 appuser

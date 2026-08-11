@@ -13,44 +13,45 @@ reading a single function:
 
 from conftest import FakeContext, assert_json_roundtrips
 
-import main
+from handlers import achievements as achv_handlers
+from handlers import search
 
 
 def test_store_allinfo_returns_a_token_and_stores_under_it():
     ctx = FakeContext()
-    token = main._store_allinfo_names(ctx, ["Busy Night"])
+    token = achv_handlers._store_allinfo_names(ctx, ["Busy Night"])
     assert ctx.bot_data["allinfo"][token] == ["Busy Night"]
 
 
 def test_tokens_are_unique():
     ctx = FakeContext()
-    tokens = {main._store_allinfo_names(ctx, ["x"]) for _ in range(50)}
+    tokens = {achv_handlers._store_allinfo_names(ctx, ["x"]) for _ in range(50)}
     assert len(tokens) == 50
 
 
 def test_allinfo_store_is_bounded_and_evicts_oldest_first():
     ctx = FakeContext()
-    first = main._store_allinfo_names(ctx, ["first"])
-    for i in range(main._ALLINFO_MAX):
-        main._store_allinfo_names(ctx, ["n{}".format(i)])
-    assert len(ctx.bot_data["allinfo"]) <= main._ALLINFO_MAX
+    first = achv_handlers._store_allinfo_names(ctx, ["first"])
+    for i in range(achv_handlers._ALLINFO_MAX):
+        achv_handlers._store_allinfo_names(ctx, ["n{}".format(i)])
+    assert len(ctx.bot_data["allinfo"]) <= achv_handlers._ALLINFO_MAX
     # The oldest token is gone — its button now reports "expired", by design.
     assert first not in ctx.bot_data["allinfo"]
 
 
 def test_schall_store_is_bounded_and_evicts_oldest_first():
     ctx = FakeContext()
-    first = main._store_schall_result(ctx, {"name": "first"})
-    for i in range(main._SCHALL_MAX):
-        main._store_schall_result(ctx, {"name": "n{}".format(i)})
-    assert len(ctx.bot_data["schall"]) <= main._SCHALL_MAX
+    first = search._store_schall_result(ctx, {"name": "first"})
+    for i in range(search._SCHALL_MAX):
+        search._store_schall_result(ctx, {"name": "n{}".format(i)})
+    assert len(ctx.bot_data["schall"]) <= search._SCHALL_MAX
     assert first not in ctx.bot_data["schall"]
 
 
 def test_stores_share_bot_data_without_colliding():
     ctx = FakeContext()
-    a = main._store_allinfo_names(ctx, ["names"])
-    s = main._store_schall_result(ctx, {"name": "x"})
+    a = achv_handlers._store_allinfo_names(ctx, ["names"])
+    s = search._store_schall_result(ctx, {"name": "x"})
     assert ctx.bot_data["allinfo"][a] == ["names"]
     assert ctx.bot_data["schall"][s] == {"name": "x"}
 
@@ -58,7 +59,7 @@ def test_stores_share_bot_data_without_colliding():
 def test_allinfo_payload_is_json_serializable():
     """A list of names round-trips unchanged."""
     ctx = FakeContext()
-    main._store_allinfo_names(ctx, ["Busy Night", "Liquid Business"])
+    achv_handlers._store_allinfo_names(ctx, ["Busy Night", "Liquid Business"])
     assert assert_json_roundtrips(ctx.bot_data) == ctx.bot_data
 
 
@@ -72,25 +73,25 @@ def test_schall_payload_survives_json_with_tuples_degrading_to_lists():
         "have": [(2, "Bob")],
         "unresolved": ["@dave"],
     }
-    token = main._store_schall_result(ctx, payload)
+    token = search._store_schall_result(ctx, payload)
     restored = assert_json_roundtrips(ctx.bot_data)["schall"][token]
 
     assert restored["missing"] == [[1, "Alice"]]  # tuple -> list
     # ...and the renderer must not care which it got.
-    before, _ = main._render_schall(payload, token, show_have=False)
-    after, _ = main._render_schall(restored, token, show_have=False)
+    before, _ = search._render_schall(payload, token, show_have=False)
+    after, _ = search._render_schall(restored, token, show_have=False)
     assert before == after
 
 
 def test_callback_data_stays_within_telegrams_64_byte_cap():
     """The whole reason state is token-keyed rather than embedded in the button."""
     ctx = FakeContext()
-    token = main._store_schall_result(ctx, {"name": "X", "desc": "d", "missing": [], "have": [], "unresolved": []})
-    _, keyboard = main._render_schall(ctx.bot_data["schall"][token], token, show_have=False)
+    token = search._store_schall_result(ctx, {"name": "X", "desc": "d", "missing": [], "have": [], "unresolved": []})
+    _, keyboard = search._render_schall(ctx.bot_data["schall"][token], token, show_have=False)
     data = keyboard.inline_keyboard[0][0].callback_data
     assert len(data.encode()) <= 64
 
-    _, kb = main._render_allinfo_page(["a", "b"], 0, token)
+    _, kb = achv_handlers._render_allinfo_page(["a", "b"], 0, token)
     for row in kb.inline_keyboard:
         for button in row:
             assert len(button.callback_data.encode()) <= 64

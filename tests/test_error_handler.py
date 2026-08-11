@@ -18,8 +18,8 @@ differently.
 import pytest
 from conftest import FakeBot, FakeContext, FakeUpdate
 
-import main
 import settings
+from handlers import errors
 
 LOG_GROUP = -1001234567890
 
@@ -38,7 +38,7 @@ def no_log_group(monkeypatch):
 async def handle(error, context=None):
     context = context or FakeContext()
     context.error = error
-    await main.error_handler(FakeUpdate(), context)
+    await errors.error_handler(FakeUpdate(), context)
     return context
 
 
