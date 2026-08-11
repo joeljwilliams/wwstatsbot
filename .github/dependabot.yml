@@ -1,0 +1,32 @@
+version: 2
+
+# Dependencies are pinned exactly (pyproject.toml + uv.lock) so that a refactor's
+# effects can be told apart from a dependency's. Pinning without an update path just
+# converts drift into staleness, hence this file.
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the dev toolchain: CI proves these in a single run, and they can't
+      # affect the deployed image (uv sync --no-dev omits them).
+      dev-tooling:
+        dependency-type: development
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(docker)"

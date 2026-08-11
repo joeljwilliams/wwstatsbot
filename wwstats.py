@@ -2,10 +2,10 @@ import db
 import templates as t
 
 
-def chunks(l, n):
-    """Yield successive n-sized chunks from l."""
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+def chunks(items, n):
+    """Yield successive n-sized chunks from items."""
+    for i in range(0, len(items), n):
+        yield items[i:i + n]
 
 
 def _section(items, main, section_header):

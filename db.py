@@ -6,9 +6,8 @@ the achievements table. The achievement list is small and read on hot paths
 refreshed after every edit; callers read it synchronously via get_achievements().
 """
 
-import structlog
-
 import asyncpg
+import structlog
 
 from achvlist import ACHV
 

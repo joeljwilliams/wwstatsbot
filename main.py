@@ -10,43 +10,41 @@
 # /info by @Olgabrezel
 # ptb v22 async rewrite + inline query support
 
-import os
 import asyncio
 import html
+import os
 import re
 import secrets
 
 import httpx
 import structlog
 from telegram import (
-    Update,
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
     MessageEntity,
+    Update,
 )
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
-    CommandHandler,
     CallbackQueryHandler,
-    InlineQueryHandler,
+    CommandHandler,
     ContextTypes,
+    InlineQueryHandler,
 )
-
 from unidecode import unidecode
+
 import db
 import health
 import templates as t
 import version
+import wwstats
 from logging_config import configure_logging
 
-import wwstats
-
-configure_logging()
 logger = structlog.get_logger(__name__)
 
 # Configuration is read from environment variables (for containers / k8s), with
@@ -54,6 +52,8 @@ logger = structlog.get_logger(__name__)
 try:
     from config import (
         BOT_TOKEN as _CFG_TOKEN,
+    )
+    from config import (
         LOG_GROUP_ID as _CFG_LOG_GROUP,
     )
 except ImportError:
@@ -83,11 +83,18 @@ SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or No
 # restarts. Unset -> in-memory only.
 REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 
-if not BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
+def _require_config():
+    """Fail fast on missing required settings. Called from main(), not at import.
 
-if not DATABASE_URL:
-    raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
+    Importing this module must stay side-effect-free enough to be safe from a test
+    process, which has no bot token and no database: exiting at import time meant
+    `import main` killed the interpreter, so nothing here could be tested.
+    """
+    if not BOT_TOKEN:
+        raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
+    if not DATABASE_URL:
+        raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
+
 
 BASE = "https://www.tgwerewolf.com/Stats"
 
@@ -483,7 +490,9 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return_exceptions=True,
     )
     have, missing = [], []
-    for (uid, uname), result in zip(users, results):
+    # strict=True can never trigger — gather returns exactly one result per awaitable —
+    # but it keeps the pairing honest if either side is ever built separately.
+    for (uid, uname), result in zip(users, results, strict=True):
         if isinstance(result, Exception):
             logger.warning("schall_lookup_failed", user_id=uid, error=str(result))
             unresolved.append(uname)
@@ -1211,6 +1220,8 @@ async def _post_shutdown(application: Application):
 
 
 def main():
+    configure_logging()
+    _require_config()
     health.start_health_server(HEALTH_PORT)
 
     builder = (

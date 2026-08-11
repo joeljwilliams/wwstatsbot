@@ -1,0 +1,81 @@
+[project]
+name = "wwstatsbot"
+version = "0.1.0"
+description = "Werewolf for Telegram stats bot (@wwstatsbot)"
+requires-python = ">=3.12"
+# Pinned to the versions the bot is known to run on today. This is a snapshot of
+# working state, not an upgrade: floating deps made "did my change break it, or did
+# a dependency?" unanswerable. uv.lock is committed and the image builds --frozen.
+dependencies = [
+    "httpx==0.28.1",
+    "python-telegram-bot==22.8",
+    "asyncpg==0.31.0",
+    "unidecode==1.4.0",
+    "structlog==26.1.0",
+    "redis==8.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "fakeredis>=2.37",
+    "ruff>=0.14",
+]
+
+# The bot is an app, not an installable package: it's a flat set of modules run as
+# `python main.py`. Nothing to build, so no build-system table and no package discovery.
+
+[tool.ruff]
+# 111 lines already exceed 100 chars (the longest is 348). 120 keeps new code honest
+# without flagging a tenth of the existing file; E501 stays off so it's not a gate.
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes — undefined names, unused imports: the real breakage class
+    "W",  # pycodestyle warnings
+    "B",  # flake8-bugbear
+    "I",  # import sorting
+]
+ignore = [
+    "E501",  # line length — see line-length above
+    "B008",  # function call in default arg: PTB handler signatures do this
+]
+# Deliberately NOT selected: "UP" (pyupgrade). It would rewrite this codebase's
+# consistent .format() style into f-strings — a large, purely cosmetic diff across
+# every module, right before a refactor that has to move that code.
+
+[tool.ruff.lint.per-file-ignores]
+# The seed list is one long literal; and tests bind fixtures that look "unused".
+"achvlist.py" = ["E501"]
+"tests/*" = ["B011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The bot's modules live at the repo root and aren't an installed package, so the
+# root has to be importable for `import main` / `import db` to resolve.
+pythonpath = ["."]
+asyncio_mode = "auto"
+# Every handler/builder under test is async; auto mode avoids decorating each one.
+markers = [
+    "postgres: needs a real Postgres (set TEST_DATABASE_URL; skipped otherwise)",
+]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    "error::DeprecationWarning:main",
+    "error::DeprecationWarning:db",
+]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "achvlist.py", ".venv/*"]
+
+[tool.coverage.report]
+# Reported, never gated. A fail_under threshold before a refactor manufactures
+# busywork; the golden tests in test_render_golden.py are the real safety net.
+show_missing = true
+skip_covered = true
