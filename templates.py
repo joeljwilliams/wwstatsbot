@@ -88,6 +88,53 @@ SCHALL_TOGGLE_TO_MISSING = "☑️ Show who hasn't ({count})"
 # Footer noting players that couldn't be checked: @username mentions carry no
 # user id (so no stats lookup is possible) and any that errored out.
 SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
+# These name /sch, not /schall: /sch is the advertised spelling and routes here on
+# its own when it replies to a bot message that mentions players. /schall still
+# works when typed, it's just no longer the way anyone is told to reach this.
+SCHALL_NEED_REPLY = (
+    "Reply to a message that mentions players with "
+    "<code>/sch &lt;achievement&gt;</code>."
+)
+SCHALL_USAGE = (
+    "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n"
+    "(reply to a message that mentions players)"
+)
+SCHALL_EXPIRED = "This list has expired. Please run /sch again."
+
+# --- HTML: /info achievement card pager (main.py) ---------------------------
+
+# Group hand-off: one public message with a button, so several people can each
+# pull their own copy of the cards without re-running the command.
+ALLINFO_PROMPT = (
+    "Found info for <b>{count}</b> achievement{plural} from that list.\n"
+    "Tap the button to get the info cards in your PM."
+)
+ALLINFO_NOT_MATCHED = "Could not match: {names}"
+ALLINFO_PM_BUTTON = "📥 Send me the info in PM"
+# The pager: one card at a time. The position goes *after* the card so the first
+# line stays the bare achievement name, which /setnote matches a reply against.
+ALLINFO_PAGE_FOOTER = "\n\n<i>{index}/{total}</i>"
+ALLINFO_PREV = "◀️ Prev"
+ALLINFO_NEXT = "Next ▶️"
+ALLINFO_SEND_ALL = "📄 Send all {count}"
+# Errors and button acknowledgements. Like the /sch strings above, these name
+# /info rather than the now-hidden /allinfo.
+ALLINFO_NEED_REPLY = (
+    "Reply to a 'Possible Achievements' message with <code>/info</code>."
+)
+ALLINFO_NO_ACHIEVEMENTS = (
+    "No achievements found in that message. Make sure it contains lines like "
+    "<code>- Achievement Name</code>."
+)
+ALLINFO_NO_MATCH = "No matching achievements found."
+ALLINFO_EXPIRED = "This request has expired. Please run /info again."
+ALLINFO_GONE = "Those achievements are no longer available."
+ALLINFO_NO_PM = (
+    "I can't message you yet. Start a private chat with me first "
+    "(tap my name, then Start), then tap the button again."
+)
+ALLINFO_SENT_PAGER = "Sent the achievement info to your PM ✅"
+ALLINFO_SENT_ALL = "Sent {count} card{plural} to your PM ✅"
 
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
