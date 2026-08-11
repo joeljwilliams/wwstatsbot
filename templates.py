@@ -86,11 +86,24 @@ SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
 # These name /sch, not /schall: /sch is the advertised spelling and routes here on
 # its own when it replies to a bot message that mentions players. /schall still
 # works when typed, it's just no longer the way anyone is told to reach this.
-SCHALL_NEED_REPLY = "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>."
 SCHALL_USAGE = (
     "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
+# /schall with no reply re-uses the players from this chat's last reply-based run. The
+# notice is always shown, so a result built from a remembered roster is never mistaken for
+# a fresh one — a game group's line-up changes every round.
+SCHALL_FROM_CACHE = "<i>Using this chat's last player list, from {age} (expires after {ttl}).</i>\n"
+# Nothing remembered for this chat yet.
+SCHALL_NO_REPLY_NO_CACHE = (
+    "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>.\n"
+    "After that, <code>/schall &lt;achievement&gt;</code> re-checks the same players for {ttl}."
+)
+# Remembered, but older than the TTL.
+SCHALL_CACHE_STALE = (
+    "This chat's remembered player list is more than {ttl} old, so I've forgotten it.\n"
+    "Reply to a player list with <code>/sch &lt;achievement&gt;</code> to start again."
+)
 
 # --- HTML: /info achievement card pager (handlers/achievements.py) ---------
 

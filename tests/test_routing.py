@@ -317,10 +317,12 @@ async def test_schall_reports_players_whose_lookup_failed(achievements, no_fts, 
     assert "Not obtained (1)" in text  # Alice still got answered
 
 
-async def test_schall_needs_a_reply():
-    msg = message("/sch busy")
+async def test_schall_without_a_reply_or_a_cache_explains_both():
+    """With nothing remembered for this chat, say how to start one."""
+    msg = message("/schall busy")
     await search.display_search_all(FakeUpdate(message=msg), FakeContext(args=["busy"]))
-    assert msg.last_reply == t.SCHALL_NEED_REPLY
+    assert "Reply to a message that mentions players" in msg.last_reply
+    assert "60 minutes" in msg.last_reply
 
 
 async def test_schall_without_a_query_shows_usage():
