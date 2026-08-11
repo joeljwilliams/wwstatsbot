@@ -19,6 +19,7 @@ import pytest
 from conftest import FakeBot, FakeContext, FakeUpdate
 
 import main
+import settings
 
 LOG_GROUP = -1001234567890
 
@@ -26,12 +27,12 @@ LOG_GROUP = -1001234567890
 @pytest.fixture
 def log_group(monkeypatch):
     """Configure a log group, as production does."""
-    monkeypatch.setattr(main, "LOG_GROUP_ID", LOG_GROUP)
+    monkeypatch.setattr(settings, "LOG_GROUP_ID", LOG_GROUP)
 
 
 @pytest.fixture
 def no_log_group(monkeypatch):
-    monkeypatch.setattr(main, "LOG_GROUP_ID", None)
+    monkeypatch.setattr(settings, "LOG_GROUP_ID", None)
 
 
 async def handle(error, context=None):

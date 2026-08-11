@@ -17,6 +17,7 @@ from conftest import SUPERUSER_ID, FakeContext, FakeUpdate, FakeUser, message
 
 import db
 import main
+import settings
 
 
 class Tripwire:
@@ -66,7 +67,7 @@ def test_superuser_matches_the_configured_id():
 
 def test_nobody_is_superuser_when_unconfigured(monkeypatch):
     """An unset SUPERUSER_ID must not make everyone (or user 0) a superuser."""
-    monkeypatch.setattr(main, "SUPERUSER_ID", None)
+    monkeypatch.setattr(settings, "SUPERUSER_ID", None)
     assert main.is_superuser(0) is False
     assert main.is_superuser(999) is False
 

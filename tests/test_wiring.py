@@ -20,6 +20,7 @@ import re
 from telegram.ext import CallbackQueryHandler, CommandHandler, InlineQueryHandler
 
 import main
+import settings
 
 # Commands advertised in Telegram's "/" menu. Sourced from main so the test tracks the
 # real list rather than a copy that could drift out of step with it.
@@ -212,7 +213,7 @@ def test_lifecycle_hooks_are_attached():
 
 
 def test_persistence_is_disabled_without_redis(monkeypatch):
-    monkeypatch.setattr(main, "REDIS_URL", None)
+    monkeypatch.setattr(settings, "REDIS_URL", None)
     assert application().persistence is None
 
 
@@ -221,7 +222,7 @@ def test_persistence_is_enabled_with_redis(monkeypatch):
     import redis_persistence
     from redis_persistence import RedisPersistence
 
-    monkeypatch.setattr(main, "REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
     # from_url is lazy, but stub it anyway so nothing can attempt a connection.
     monkeypatch.setattr(redis_persistence.redis.Redis, "from_url", staticmethod(lambda url, **kw: None))
     monkeypatch.setattr(redis_persistence.aioredis.Redis, "from_url", staticmethod(lambda url, **kw: None))
