@@ -77,7 +77,10 @@ def _git(*args):
     try:
         result = subprocess.run(
             ["git", *args],
-            capture_output=True, text=True, timeout=2, check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
         )
     except (FileNotFoundError, subprocess.SubprocessError, OSError):
         return None
@@ -106,12 +109,7 @@ def _from_git():
 
 
 def _resolve():
-    return (
-        _from_railway()
-        or _from_env()
-        or _from_git()
-        or _info(UNKNOWN, UNKNOWN, "", "unknown")
-    )
+    return _from_railway() or _from_env() or _from_git() or _info(UNKNOWN, UNKNOWN, "", "unknown")
 
 
 _VERSION_INFO = _resolve()

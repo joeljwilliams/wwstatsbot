@@ -6,9 +6,8 @@ the achievements table. The achievement list is small and read on hot paths
 refreshed after every edit; callers read it synchronously via get_achievements().
 """
 
-import structlog
-
 import asyncpg
+import structlog
 
 from achvlist import ACHV
 
@@ -152,9 +151,7 @@ def get_achievements():
 async def update_notes(name, notes):
     """Set the notes for an achievement by exact name. Returns True if a row matched."""
     async with _pool.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE achievements SET notes = $2 WHERE name = $1", name, notes
-        )
+        result = await conn.execute("UPDATE achievements SET notes = $2 WHERE name = $1", name, notes)
     matched = result != "UPDATE 0"
     if matched:
         await load_cache()
@@ -214,6 +211,7 @@ async def search_achievements(query):
 
 # --- Admins ----------------------------------------------------------------
 
+
 async def is_admin(user_id):
     return await _scalar("SELECT 1 FROM admins WHERE user_id = $1", user_id) is not None
 
@@ -229,7 +227,10 @@ async def add_admin(user_id, username, first_name, added_by):
                     first_name = EXCLUDED.first_name,
                     added_by = EXCLUDED.added_by
             """,
-            user_id, username, first_name, added_by,
+            user_id,
+            username,
+            first_name,
+            added_by,
         )
 
 
@@ -242,9 +243,7 @@ async def remove_admin(user_id):
 
 async def list_admins():
     async with _pool.acquire() as conn:
-        return await conn.fetch(
-            "SELECT user_id, username, first_name FROM admins ORDER BY created_at"
-        )
+        return await conn.fetch("SELECT user_id, username, first_name FROM admins ORDER BY created_at")
 
 
 async def _scalar(query, *args):
@@ -253,6 +252,7 @@ async def _scalar(query, *args):
 
 
 # --- Raw SQL console (superuser only) --------------------------------------
+
 
 async def run_sql(sql):
     """Execute an arbitrary single SQL statement and return (columns, rows, status).

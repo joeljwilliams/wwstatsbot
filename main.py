@@ -10,43 +10,41 @@
 # /info by @Olgabrezel
 # ptb v22 async rewrite + inline query support
 
-import os
 import asyncio
 import html
+import os
 import re
 import secrets
 
 import httpx
 import structlog
 from telegram import (
-    Update,
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
     MessageEntity,
+    Update,
 )
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
-    CommandHandler,
     CallbackQueryHandler,
-    InlineQueryHandler,
+    CommandHandler,
     ContextTypes,
+    InlineQueryHandler,
 )
-
 from unidecode import unidecode
+
 import db
 import health
 import templates as t
 import version
+import wwstats
 from logging_config import configure_logging
 
-import wwstats
-
-configure_logging()
 logger = structlog.get_logger(__name__)
 
 # Configuration is read from environment variables (for containers / k8s), with
@@ -54,6 +52,8 @@ logger = structlog.get_logger(__name__)
 try:
     from config import (
         BOT_TOKEN as _CFG_TOKEN,
+    )
+    from config import (
         LOG_GROUP_ID as _CFG_LOG_GROUP,
     )
 except ImportError:
@@ -83,11 +83,19 @@ SUPERUSER_ID = int(os.environ.get("SUPERUSER_ID", _CFG_SUPERUSER_ID or 0)) or No
 # restarts. Unset -> in-memory only.
 REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 
-if not BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
 
-if not DATABASE_URL:
-    raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
+def _require_config():
+    """Fail fast on missing required settings. Called from main(), not at import.
+
+    Importing this module must stay side-effect-free enough to be safe from a test
+    process, which has no bot token and no database: exiting at import time meant
+    `import main` killed the interpreter, so nothing here could be tested.
+    """
+    if not BOT_TOKEN:
+        raise SystemExit("BOT_TOKEN is not set (env var BOT_TOKEN or config.py).")
+    if not DATABASE_URL:
+        raise SystemExit("DATABASE_URL is not set (env var DATABASE_URL or config.py).")
+
 
 BASE = "https://www.tgwerewolf.com/Stats"
 
@@ -97,6 +105,7 @@ client = httpx.AsyncClient(timeout=15)
 
 
 # --- Stats API helpers (async) ---------------------------------------------
+
 
 async def get_stats(user_id):
     r = await client.get(BASE + "/PlayerStats/", params={"pid": user_id, "json": "true"})
@@ -130,11 +139,12 @@ async def get_achievements(user_id):
 
 # --- Message builders (reused by commands and inline query) ----------------
 
+
 async def build_kills_msg(user_id, name):
     kills = await get_kills(user_id)
     msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
     for k in kills:
-        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
+        msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
     return msg
 
 
@@ -142,7 +152,7 @@ async def build_killed_by_msg(user_id, name):
     killedby = await get_killed_by(user_id)
     msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
     for k in killedby:
-        msg += t.COUNT_ROW.format(count=k['times'], label=html.escape(k['name']))
+        msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
     return msg
 
 
@@ -153,8 +163,8 @@ async def build_deaths_msg(user_id, name):
     for d in deaths:
         # The total per kill method is derived from the percentage in the JSON,
         # so the value is approximate rather than exact.
-        total = round((stats['gamesPlayed'] - stats['survived']['total']) * float(d['percent']) / 100)
-        msg += t.DEATH_ROW.format(percent=d['percent'], method=d['method'], total=total)
+        total = round((stats["gamesPlayed"] - stats["survived"]["total"]) * float(d["percent"]) / 100)
+        msg += t.DEATH_ROW.format(percent=d["percent"], method=d["method"], total=total)
     return msg
 
 
@@ -167,18 +177,20 @@ async def build_stats_msg(user_id, name, by_id=False):
         return template.format(user_id=user_id, name=name)
 
     name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
-    msg = name_template.format(user_id=user_id, name=name, role=stats['mostCommonRole'])
+    msg = name_template.format(user_id=user_id, name=name, role=stats["mostCommonRole"])
     msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
-    msg += t.STATS_WON.format(total=stats['won']['total'], percent=stats['won']['percent'])
-    msg += t.STATS_LOST.format(total=stats['lost']['total'], percent=stats['lost']['percent'])
-    msg += t.STATS_SURVIVED.format(total=stats['survived']['total'], percent=stats['survived']['percent'])
-    msg += t.STATS_TOTAL.format(total=stats['gamesPlayed'])
-    if stats['mostKilled']:
+    msg += t.STATS_WON.format(total=stats["won"]["total"], percent=stats["won"]["percent"])
+    msg += t.STATS_LOST.format(total=stats["lost"]["total"], percent=stats["lost"]["percent"])
+    msg += t.STATS_SURVIVED.format(total=stats["survived"]["total"], percent=stats["survived"]["percent"])
+    msg += t.STATS_TOTAL.format(total=stats["gamesPlayed"])
+    if stats["mostKilled"]:
         msg += t.STATS_MOST_KILLED.format(
-            times=stats['mostKilled']['times'], name=html.escape(stats['mostKilled']['name']))
-    if stats['mostKilledBy']:
+            times=stats["mostKilled"]["times"], name=html.escape(stats["mostKilled"]["name"])
+        )
+    if stats["mostKilledBy"]:
         msg += t.STATS_MOST_KILLED_BY.format(
-            times=stats['mostKilledBy']['times'], name=html.escape(stats['mostKilledBy']['name']))
+            times=stats["mostKilledBy"]["times"], name=html.escape(stats["mostKilledBy"]["name"])
+        )
     return msg
 
 
@@ -192,7 +204,7 @@ async def build_info_results(search):
     # prefix matching can't catch). Fall back to the old case-insensitive
     # substring-on-name scan over the in-memory cache.
     s = search.lower()
-    return [a for a in db.get_achievements() if s in a['name'].lower()]
+    return [a for a in db.get_achievements() if s in a["name"].lower()]
 
 
 # Notes are stored in a single TEXT column but hold up to two sub-fields, each
@@ -221,7 +233,7 @@ def parse_notes(raw):
         marker = next((m for m in marker_to_key if stripped.startswith(m)), None)
         if marker:
             current = marker_to_key[marker]
-            buf[current].append(stripped[len(marker):].lstrip())
+            buf[current].append(stripped[len(marker) :].lstrip())
         else:
             buf[current].append(line)
     return {key: "\n".join(lines).strip() for key, lines in buf.items()}
@@ -241,13 +253,13 @@ def serialize_notes(fields):
 def format_single_achv(achv):
     """HTML block for one achievement, including the type and notes fields."""
     msg = t.ACHV_CARD.format(
-        name=html.escape(achv['name']),
-        desc=html.escape(achv['desc']),
-        type=achv.get('type', 'instantaneous'),
+        name=html.escape(achv["name"]),
+        desc=html.escape(achv["desc"]),
+        type=achv.get("type", "instantaneous"),
     )
     # Normalise through parse/serialize so display is always canonical (markers
     # present and ordered) even for legacy or /db-console-edited notes.
-    notes = serialize_notes(parse_notes(achv.get('notes', '')))
+    notes = serialize_notes(parse_notes(achv.get("notes", "")))
     if notes:
         # Expandable blockquote (Bot API 7.0+) so long notes collapse by default.
         msg += t.ACHV_CARD_NOTES.format(notes=html.escape(notes))
@@ -264,6 +276,7 @@ def resolve_target(update):
 
 
 # --- Command handlers ------------------------------------------------------
+
 
 async def display_kills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, name = resolve_target(update)
@@ -305,26 +318,25 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Search the full achievement list the same way /info does, then annotate
     # each match with whether the target user has already attained it.
-    search = ' '.join(args)
+    search = " ".join(args)
     if not search:
         msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
     elif len(search) < 3:
         msg = "Please enter at least 3 letters to search for!\n"
     else:
         matches = await build_info_results(search)
-        attained_names = {a['name'] for a in await get_achievements(user_id)} if matches else set()
+        attained_names = {a["name"] for a in await get_achievements(user_id)} if matches else set()
         # Drop inactive achievements the user hasn't obtained: they can no longer
         # be earned, so listing them as "not yet" would be misleading. (Inactive
         # ones the user already has are kept, so their collection stays complete.)
-        matches = [m for m in matches
-                   if not (m.get('inactive') and m['name'] not in attained_names)]
+        matches = [m for m in matches if not (m.get("inactive") and m["name"] not in attained_names)]
         if not matches:
             msg = "No matching achievements found!\n"
         else:
             msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
             for m in matches[:_SEARCH_MAX_RESULTS]:
-                mark = t.SEARCH_ATTAINED if m['name'] in attained_names else t.SEARCH_NOT_ATTAINED
-                msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m['name']))
+                mark = t.SEARCH_ATTAINED if m["name"] in attained_names else t.SEARCH_NOT_ATTAINED
+                msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m["name"]))
             if len(matches) > _SEARCH_MAX_RESULTS:
                 msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
 
@@ -359,7 +371,7 @@ def _mentioned_users(message):
             seen.add(u.id)
             users.append((u.id, u.first_name))
         elif ent.type == MessageEntity.MENTION:
-            unresolved.append(body[ent.offset:ent.offset + ent.length])
+            unresolved.append(body[ent.offset : ent.offset + ent.length])
     return users, unresolved
 
 
@@ -378,7 +390,7 @@ def _is_bot_player_reply(message):
 
 async def _user_has_achievement(user_id, achv_name):
     """True if the player holds the named achievement per the stats API."""
-    attained = {a['name'] for a in await get_achievements(user_id)}
+    attained = {a["name"] for a in await get_achievements(user_id)}
     return achv_name in attained
 
 
@@ -408,27 +420,36 @@ def _render_schall(payload, token, show_have):
     button that swaps to the other. Names are stored unescaped and escaped here,
     so a re-render after a persistence round-trip escapes exactly once.
     """
-    missing, have = payload['missing'], payload['have']
+    missing, have = payload["missing"], payload["have"]
     shown, other = (have, missing) if show_have else (missing, have)
 
     checked = len(missing) + len(have)
     msg = t.SCHALL_HEADER.format(
-        name=html.escape(payload['name']), desc=html.escape(payload['desc']),
-        count=checked, plural="" if checked == 1 else "s")
+        name=html.escape(payload["name"]),
+        desc=html.escape(payload["desc"]),
+        count=checked,
+        plural="" if checked == 1 else "s",
+    )
     section = t.SCHALL_HAVE_HEADER if show_have else t.SCHALL_MISSING_HEADER
     msg += section.format(count=len(shown))
-    msg += "".join(
-        t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname))
-        for uid, uname in shown) or t.SCHALL_NONE_ROW
-    if payload['unresolved']:
-        msg += t.SCHALL_UNRESOLVED.format(
-            names=", ".join(html.escape(n) for n in payload['unresolved']))
+    msg += (
+        "".join(t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname)) for uid, uname in shown)
+        or t.SCHALL_NONE_ROW
+    )
+    if payload["unresolved"]:
+        msg += t.SCHALL_UNRESOLVED.format(names=", ".join(html.escape(n) for n in payload["unresolved"]))
 
     label = t.SCHALL_TOGGLE_TO_MISSING if show_have else t.SCHALL_TOGGLE_TO_HAVE
     view = _SCHALL_MISSING if show_have else _SCHALL_HAVE
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(
-        label.format(count=len(other)),
-        callback_data="{}{}:{}".format(_SCHALL_PREFIX, token, view))]])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    label.format(count=len(other)), callback_data="{}{}:{}".format(_SCHALL_PREFIX, token, view)
+                )
+            ]
+        ]
+    )
     return msg, keyboard
 
 
@@ -446,10 +467,9 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     requester_id = update.message.from_user.id
     requester_name = html.escape(update.message.from_user.first_name)
     replied = update.message.reply_to_message
-    search = ' '.join(args)
+    search = " ".join(args)
 
-    logger.info("command", command="schall", user_id=requester_id,
-                user=unidecode(requester_name), args=args)
+    logger.info("command", command="schall", user_id=requester_id, user=unidecode(requester_name), args=args)
 
     if replied is None:
         await update.message.reply_text(t.SCHALL_NEED_REPLY, parse_mode=ParseMode.HTML)
@@ -470,8 +490,10 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     users, unresolved = _mentioned_users(replied)
     if not users:
-        note = ("Reply to a message that mentions players directly. "
-                "I can't check plain @username mentions (they carry no user id).")
+        note = (
+            "Reply to a message that mentions players directly. "
+            "I can't check plain @username mentions (they carry no user id)."
+        )
         await update.message.reply_text(note, parse_mode=ParseMode.HTML)
         return
 
@@ -479,11 +501,13 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # (network/API) shouldn't sink the whole command, so those users are reported
     # as uncheckable alongside any @username mentions.
     results = await asyncio.gather(
-        *[_user_has_achievement(uid, achv['name']) for uid, _ in users],
+        *[_user_has_achievement(uid, achv["name"]) for uid, _ in users],
         return_exceptions=True,
     )
     have, missing = [], []
-    for (uid, uname), result in zip(users, results):
+    # strict=True can never trigger — gather returns exactly one result per awaitable —
+    # but it keeps the pairing honest if either side is ever built separately.
+    for (uid, uname), result in zip(users, results, strict=True):
         if isinstance(result, Exception):
             logger.warning("schall_lookup_failed", user_id=uid, error=str(result))
             unresolved.append(uname)
@@ -495,28 +519,36 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Both buckets are stored so the toggle can render either view; JSON-backed
     # persistence turns the (id, name) tuples into lists, which unpack the same.
     payload = {
-        'name': achv['name'], 'desc': achv['desc'],
-        'missing': missing, 'have': have, 'unresolved': unresolved,
+        "name": achv["name"],
+        "desc": achv["desc"],
+        "missing": missing,
+        "have": have,
+        "unresolved": unresolved,
     }
     token = _store_schall_result(context, payload)
     msg, keyboard = _render_schall(payload, token, show_have=False)
 
     await update.message.reply_text(
-        msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True)
+        msg, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
 
 
 async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Swap a /schall message between the not-obtained and obtained lists."""
     query = update.callback_query
     user = query.from_user
-    token, _, view = query.data[len(_SCHALL_PREFIX):].partition(":")
+    token, _, view = query.data[len(_SCHALL_PREFIX) :].partition(":")
     show_have = view == _SCHALL_HAVE
     payload = context.bot_data.get("schall", {}).get(token)
 
-    logger.info("callback", command="schall", user_id=user.id,
-                user=unidecode(html.escape(user.first_name)),
-                view=view, expired=payload is None)
+    logger.info(
+        "callback",
+        command="schall",
+        user_id=user.id,
+        user=unidecode(html.escape(user.first_name)),
+        view=view,
+        expired=payload is None,
+    )
 
     if payload is None:
         await query.answer(t.SCHALL_EXPIRED, show_alert=True)
@@ -525,8 +557,8 @@ async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg, keyboard = _render_schall(payload, token, show_have)
     try:
         await query.edit_message_text(
-            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True)
+            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
     except BadRequest:
         # Two people tapped the same button at once, so the message already shows
         # this view. Nothing to update — just acknowledge the tap.
@@ -569,17 +601,23 @@ async def display_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def display_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = version.get_version_info()
-    logger.info("command", command="version", user_id=update.message.from_user.id,
-                commit=info["short_commit"], branch=info["branch"], source=info["source"])
+    logger.info(
+        "command",
+        command="version",
+        user_id=update.message.from_user.id,
+        commit=info["short_commit"],
+        branch=info["branch"],
+        source=info["source"],
+    )
     tmpl = t.VERSION_INFO_LINKED if info["commit_url"] else t.VERSION_INFO_PLAIN
-    await update.message.reply_text(
-        tmpl.format(**info), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    await update.message.reply_text(tmpl.format(**info), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def startme(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat.type == 'private':
-        await update.message.reply_text("Thank you for starting me. "
-                                        "Use /stats and /achievements to check your related stats!")
+    if update.message.chat.type == "private":
+        await update.message.reply_text(
+            "Thank you for starting me. Use /stats and /achievements to check your related stats!"
+        )
     else:
         return
 
@@ -595,7 +633,7 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         for msg in msgs:
             await context.bot.send_message(chat_id=user_id, text=msg, parse_mode=ParseMode.MARKDOWN)
-        if update.message.chat.type != 'private':
+        if update.message.chat.type != "private":
             await update.message.reply_text("I have sent you your achievement list in PM.")
     except Exception:
         url = "telegram.me/{}".format(context.bot.username)
@@ -611,8 +649,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # A bare /info replying to a bot means "info for everything that message
     # lists" — the game bot's Possible Achievements post. Given arguments, or
     # replying to a human, it stays the single-achievement lookup below.
-    if not args and replied is not None and replied.from_user is not None \
-            and replied.from_user.is_bot:
+    if not args and replied is not None and replied.from_user is not None and replied.from_user.is_bot:
         await all_info_cmd(update, context)
         return
 
@@ -621,7 +658,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     search = ""
     if len(args) > 0:
-        search = ' '.join(args)
+        search = " ".join(args)
     elif replied and replied.text:
         search = replied.text
 
@@ -644,6 +681,7 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --- Admin roles & commands ------------------------------------------------
+
 
 def is_superuser(user_id):
     return SUPERUSER_ID is not None and user_id == SUPERUSER_ID
@@ -673,15 +711,16 @@ async def add_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = _resolve_admin_target(update, context)
     if target is None:
-        await update.message.reply_text(
-            "Usage: reply to a user with /addadmin, or /addadmin <user_id>.")
+        await update.message.reply_text("Usage: reply to a user with /addadmin, or /addadmin <user_id>.")
         return
     user_id, username, first_name = target
     await db.add_admin(user_id, username, first_name, update.message.from_user.id)
     label = html.escape(first_name) if first_name else str(user_id)
     await update.message.reply_text(
         "Added <a href='tg://user?id={}'>{}</a> as an admin.".format(user_id, label),
-        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def del_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -690,12 +729,10 @@ async def del_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = _resolve_admin_target(update, context)
     if target is None:
-        await update.message.reply_text(
-            "Usage: reply to a user with /deladmin, or /deladmin <user_id>.")
+        await update.message.reply_text("Usage: reply to a user with /deladmin, or /deladmin <user_id>.")
         return
     removed = await db.remove_admin(target[0])
-    await update.message.reply_text(
-        "Removed admin {}.".format(target[0]) if removed else "That user is not an admin.")
+    await update.message.reply_text("Removed admin {}.".format(target[0]) if removed else "That user is not an admin.")
 
 
 async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -708,18 +745,17 @@ async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     lines = ["<b>Admins:</b>"]
     for r in rows:
-        name = html.escape(r['first_name']) if r['first_name'] else "(unknown)"
-        uname = " @{}".format(html.escape(r['username'])) if r['username'] else ""
-        lines.append("<code>{}</code> {}{}".format(r['user_id'], name, uname))
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        name = html.escape(r["first_name"]) if r["first_name"] else "(unknown)"
+        uname = " @{}".format(html.escape(r["username"])) if r["username"] else ""
+        lines.append("<code>{}</code> {}{}".format(r["user_id"], name, uname))
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 def _achv_from_reply(replied):
     """Find the achievement whose /info card was replied to, by its title line
     (the first non-empty line of the card's plain text). None if no match."""
     title = next((line.strip() for line in replied.text.splitlines() if line.strip()), "")
-    return next((a for a in db.get_achievements() if a['name'] == title), None)
+    return next((a for a in db.get_achievements() if a["name"] == title), None)
 
 
 def _split_note_field(arg):
@@ -762,11 +798,11 @@ def _extract_possible_achievements(text):
         row = _ACHV_ROW.match(line)
         if row is None:
             continue
-        (indented if row.group('indent') else flat).append(row.group('name'))
+        (indented if row.group("indent") else flat).append(row.group("name"))
 
     seen = set()
     names = []
-    for candidate in (indented or flat):
+    for candidate in indented or flat:
         key = candidate.casefold()
         if key in seen:
             continue
@@ -778,7 +814,7 @@ def _extract_possible_achievements(text):
 def _best_achievement_match(name):
     """Find an achievement by exact case-insensitive name, then fuzzy fallback."""
     key = name.casefold()
-    exact = next((a for a in db.get_achievements() if a['name'].casefold() == key), None)
+    exact = next((a for a in db.get_achievements() if a["name"].casefold() == key), None)
     return exact
 
 
@@ -808,7 +844,8 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code> "
             "or <code>/setnote prob &lt;probability&gt;</code>.",
-            parse_mode=ParseMode.HTML)
+            parse_mode=ParseMode.HTML,
+        )
         return
     # Take the text after the command verbatim so line breaks in the note are
     # preserved (context.args tokenises on whitespace and would flatten them).
@@ -820,22 +857,23 @@ async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
             "<code>/setnote prob &lt;probability&gt;</code>. "
             "Use /clearnote to remove a field.",
-            parse_mode=ParseMode.HTML)
+            parse_mode=ParseMode.HTML,
+        )
         return
     match = _achv_from_reply(replied)
     if match is None:
         await update.message.reply_text(
-            "Could not identify the achievement from that message. "
-            "Reply to a single /info card.")
+            "Could not identify the achievement from that message. Reply to a single /info card."
+        )
         return
     # Merge into the existing fields so the other field is preserved.
-    fields = parse_notes(match.get('notes', ''))
+    fields = parse_notes(match.get("notes", ""))
     fields[field] = text
-    await db.update_notes(match['name'], serialize_notes(fields))
-    updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
+    await db.update_notes(match["name"], serialize_notes(fields))
+    updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
-        "Note updated.\n\n" + format_single_achv(updated),
-        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
 
 
 async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -847,29 +885,30 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Reply to an achievement /info card with <code>/clearnote</code> "
             "(memo), <code>/clearnote prob</code>, or <code>/clearnote all</code>.",
-            parse_mode=ParseMode.HTML)
+            parse_mode=ParseMode.HTML,
+        )
         return
     match = _achv_from_reply(replied)
     if match is None:
         await update.message.reply_text(
-            "Could not identify the achievement from that message. "
-            "Reply to a single /info card.")
+            "Could not identify the achievement from that message. Reply to a single /info card."
+        )
         return
-    which = (context.args[0].lower() if context.args else "")
+    which = context.args[0].lower() if context.args else ""
     if which == "all":
         targets = ["memo", "prob"]
     elif which in _PROB_KEYWORDS:
         targets = ["prob"]
     else:
         targets = ["memo"]
-    fields = parse_notes(match.get('notes', ''))
+    fields = parse_notes(match.get("notes", ""))
     for key in targets:
         fields[key] = ""
-    await db.update_notes(match['name'], serialize_notes(fields))
-    updated = next((a for a in db.get_achievements() if a['name'] == match['name']), match)
+    await db.update_notes(match["name"], serialize_notes(fields))
+    updated = next((a for a in db.get_achievements() if a["name"] == match["name"]), match)
     await update.message.reply_text(
-        "Note updated.\n\n" + format_single_achv(updated),
-        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        "Note updated.\n\n" + format_single_achv(updated), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
 
 
 # Pending /info card sets: token -> list of achievement names. Populated when a
@@ -886,9 +925,9 @@ _ALLINFO_PREFIX = "allinfo:"
 # callback_data is capped at 64 bytes, so a button carries only an action, the
 # token, and — when paging — the card index it wants; the cards themselves are
 # re-resolved from the token on every tap.
-_ALLINFO_PM = "pm"      # allinfo:pm:<token>       — open the pager in the tapper's PM
-_ALLINFO_PAGE = "p"     # allinfo:p:<token>:<idx>  — show card <idx>
-_ALLINFO_ALL = "all"    # allinfo:all:<token>      — send every card as its own message
+_ALLINFO_PM = "pm"  # allinfo:pm:<token>       — open the pager in the tapper's PM
+_ALLINFO_PAGE = "p"  # allinfo:p:<token>:<idx>  — show card <idx>
+_ALLINFO_ALL = "all"  # allinfo:all:<token>      — send every card as its own message
 _ALLINFO_ACTIONS = (_ALLINFO_PM, _ALLINFO_PAGE, _ALLINFO_ALL)
 
 
@@ -926,13 +965,20 @@ def _render_allinfo_page(cards, index, token):
     def page(target):
         return "{}{}:{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_PAGE, token, target % total)
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(t.ALLINFO_PREV, callback_data=page(index - 1)),
-         InlineKeyboardButton(t.ALLINFO_NEXT, callback_data=page(index + 1))],
-        [InlineKeyboardButton(
-            t.ALLINFO_SEND_ALL.format(count=total),
-            callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_ALL, token))],
-    ])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(t.ALLINFO_PREV, callback_data=page(index - 1)),
+                InlineKeyboardButton(t.ALLINFO_NEXT, callback_data=page(index + 1)),
+            ],
+            [
+                InlineKeyboardButton(
+                    t.ALLINFO_SEND_ALL.format(count=total),
+                    callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_ALL, token),
+                )
+            ],
+        ]
+    )
     return msg, keyboard
 
 
@@ -946,8 +992,12 @@ async def _deliver_to_pm(context, query, sends):
     try:
         for text, keyboard in sends:
             await context.bot.send_message(
-                chat_id=query.from_user.id, text=text, reply_markup=keyboard,
-                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                chat_id=query.from_user.id,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
     except Exception:
         await query.answer(t.ALLINFO_NO_PM, show_alert=True)
         return False
@@ -980,45 +1030,56 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # In a private chat the pager can go straight into the conversation; offering
     # to PM someone who is already in their PM would just add a hop.
-    if update.message.chat.type == 'private':
+    if update.message.chat.type == "private":
         if not_found:
-            await update.message.reply_text(
-                _allinfo_unmatched(not_found), parse_mode=ParseMode.HTML)
+            await update.message.reply_text(_allinfo_unmatched(not_found), parse_mode=ParseMode.HTML)
         msg, keyboard = _render_allinfo_page(cards, 0, token)
         await update.message.reply_text(
-            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True)
+            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
         return
 
     # In a group, post one message with a button instead: everyone who wants the
     # cards taps it and gets their own pager in PM, rather than one person's
     # paging being visible to — and shared with — the whole chat.
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(
-        t.ALLINFO_PM_BUTTON,
-        callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_PM, token))]])
-    prompt = t.ALLINFO_PROMPT.format(
-        count=len(cards), plural="" if len(cards) == 1 else "s")
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    t.ALLINFO_PM_BUTTON, callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_PM, token)
+                )
+            ]
+        ]
+    )
+    prompt = t.ALLINFO_PROMPT.format(count=len(cards), plural="" if len(cards) == 1 else "s")
     if not_found:
         prompt += "\n\n" + _allinfo_unmatched(not_found)
     await update.message.reply_text(
-        prompt, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        prompt, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
 
 
 async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serve the /info card pager: open it in a PM, page it, or send every card."""
     query = update.callback_query
     user = query.from_user
-    action, _, rest = query.data[len(_ALLINFO_PREFIX):].partition(":")
+    action, _, rest = query.data[len(_ALLINFO_PREFIX) :].partition(":")
     if action not in _ALLINFO_ACTIONS:
         # A button posted before the pager existed carried a bare token, and its
         # message may still be sitting in a group. Treat it as the PM hand-off.
-        action, rest = _ALLINFO_PM, query.data[len(_ALLINFO_PREFIX):]
+        action, rest = _ALLINFO_PM, query.data[len(_ALLINFO_PREFIX) :]
     token, _, raw_index = rest.partition(":")
     names = context.bot_data.get("allinfo", {}).get(token)
 
-    logger.info("callback", command="allinfo", user_id=user.id,
-                user=unidecode(html.escape(user.first_name)), action=action,
-                count=len(names) if names else 0, expired=names is None)
+    logger.info(
+        "callback",
+        command="allinfo",
+        user_id=user.id,
+        user=unidecode(html.escape(user.first_name)),
+        action=action,
+        count=len(names) if names else 0,
+        expired=names is None,
+    )
 
     if names is None:
         await query.answer(t.ALLINFO_EXPIRED, show_alert=True)
@@ -1038,8 +1099,8 @@ async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg, keyboard = _render_allinfo_page(cards, index, token)
         try:
             await query.edit_message_text(
-                msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True)
+                msg, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
         except BadRequest:
             # Two taps raced and the message already shows this card. Nothing to
             # update — just acknowledge the tap.
@@ -1049,8 +1110,7 @@ async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == _ALLINFO_ALL:
         if await _deliver_to_pm(context, query, [(card, None) for card in cards]):
-            await query.answer(t.ALLINFO_SENT_ALL.format(
-                count=len(cards), plural="" if len(cards) == 1 else "s"))
+            await query.answer(t.ALLINFO_SENT_ALL.format(count=len(cards), plural="" if len(cards) == 1 else "s"))
         return
 
     if await _deliver_to_pm(context, query, [_render_allinfo_page(cards, 0, token)]):
@@ -1089,27 +1149,28 @@ async def db_console_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sql = parts[1].strip() if len(parts) > 1 else ""
     if not sql:
         await update.message.reply_text(
-            "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.",
-            parse_mode=ParseMode.HTML)
+            "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement.", parse_mode=ParseMode.HTML
+        )
         return
     logger.info("command", command="db", user_id=update.message.from_user.id, sql=sql)
     try:
         columns, rows, status = await db.run_sql(sql)
     except Exception as e:
         await update.message.reply_text(
-            "<b>SQL error:</b>\n<pre>{}</pre>".format(html.escape(str(e))),
-            parse_mode=ParseMode.HTML)
+            "<b>SQL error:</b>\n<pre>{}</pre>".format(html.escape(str(e))), parse_mode=ParseMode.HTML
+        )
         return
     # A statement that wasn't a plain SELECT may have changed the achievements
     # table; refresh the in-memory cache so the bot stays consistent.
     if not (status or "").upper().startswith("SELECT"):
         await db.load_cache()
     await update.message.reply_text(
-        _format_sql_result(columns, rows, status),
-        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        _format_sql_result(columns, rows, status), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
 
 
 # --- Inline query ----------------------------------------------------------
+
 
 def _article(result_id, title, html_text, description=None):
     return InlineQueryResultArticle(
@@ -1150,14 +1211,14 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             results = [_article("none", "No matching achievements", "No matching achievements found.")]
         else:
             results = [
-                _article(m['name'], m['name'], format_single_achv(m), description=m['desc'])
-                for m in matches[:50]
+                _article(m["name"], m["name"], format_single_achv(m), description=m["desc"]) for m in matches[:50]
             ]
 
     await update.inline_query.answer(results, cache_time=30, is_personal=True)
 
 
 # --- Error handling & startup ----------------------------------------------
+
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     error = context.error
@@ -1211,49 +1272,47 @@ async def _post_shutdown(application: Application):
 
 
 def main():
+    configure_logging()
+    _require_config()
     health.start_health_server(HEALTH_PORT)
 
-    builder = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(_post_init)
-        .post_shutdown(_post_shutdown)
-    )
+    builder = Application.builder().token(BOT_TOKEN).post_init(_post_init).post_shutdown(_post_shutdown)
     # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
     # a Redis backend is configured; otherwise state is in-memory only.
     if REDIS_URL:
         from redis_persistence import RedisPersistence
+
         builder = builder.persistence(RedisPersistence(url=REDIS_URL))
         logger.info("persistence_enabled", backend="redis")
     else:
         logger.info("persistence_disabled")
     app = builder.build()
 
-    app.add_handler(CommandHandler('start', startme))
-    app.add_handler(CommandHandler('stats', display_stats))
-    app.add_handler(CommandHandler('kills', display_kills))
-    app.add_handler(CommandHandler('killedby', display_killed_by))
-    app.add_handler(CommandHandler('deaths', display_deaths))
-    app.add_handler(CommandHandler(['search', 'sch'], display_search))
-    app.add_handler(CommandHandler('schall', display_search_all))
-    app.add_handler(CommandHandler('about', display_about))
-    app.add_handler(CommandHandler('version', display_version))
-    app.add_handler(CommandHandler(['achievements', 'achv'], display_achv))
-    app.add_handler(CommandHandler(['info', 'getachv'], display_achv_info))
-    app.add_handler(CommandHandler('allinfo', all_info_cmd))
+    app.add_handler(CommandHandler("start", startme))
+    app.add_handler(CommandHandler("stats", display_stats))
+    app.add_handler(CommandHandler("kills", display_kills))
+    app.add_handler(CommandHandler("killedby", display_killed_by))
+    app.add_handler(CommandHandler("deaths", display_deaths))
+    app.add_handler(CommandHandler(["search", "sch"], display_search))
+    app.add_handler(CommandHandler("schall", display_search_all))
+    app.add_handler(CommandHandler("about", display_about))
+    app.add_handler(CommandHandler("version", display_version))
+    app.add_handler(CommandHandler(["achievements", "achv"], display_achv))
+    app.add_handler(CommandHandler(["info", "getachv"], display_achv_info))
+    app.add_handler(CommandHandler("allinfo", all_info_cmd))
     app.add_handler(CallbackQueryHandler(all_info_callback, pattern=r"^allinfo:"))
     app.add_handler(CallbackQueryHandler(schall_callback, pattern=r"^schall:"))
-    app.add_handler(CommandHandler('addadmin', add_admin_cmd))
-    app.add_handler(CommandHandler('deladmin', del_admin_cmd))
-    app.add_handler(CommandHandler('admins', list_admins_cmd))
-    app.add_handler(CommandHandler('setnote', set_note_cmd))
-    app.add_handler(CommandHandler('clearnote', clear_note_cmd))
-    app.add_handler(CommandHandler('db', db_console_cmd))
+    app.add_handler(CommandHandler("addadmin", add_admin_cmd))
+    app.add_handler(CommandHandler("deladmin", del_admin_cmd))
+    app.add_handler(CommandHandler("admins", list_admins_cmd))
+    app.add_handler(CommandHandler("setnote", set_note_cmd))
+    app.add_handler(CommandHandler("clearnote", clear_note_cmd))
+    app.add_handler(CommandHandler("db", db_console_cmd))
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)
 
     app.run_polling(drop_pending_updates=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

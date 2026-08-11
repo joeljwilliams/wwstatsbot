@@ -6,15 +6,30 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtualenv — the image builds its own at /opt/venv
+.venv/
+
+# Dev-only: tests and CI never run inside the image (uv sync --no-dev omits pytest).
+# NOTE: pyproject.toml and uv.lock are deliberately NOT ignored — the builder stage
+# copies them and `uv sync --frozen` fails without both.
+tests/
+.github/
+.python-version
 
 # VCS & editor
 .git/
 .gitignore
 .idea/
 .vscode/
+.claude/
 
 # Docs / deploy artifacts not needed in the image
 README.md
+CLAUDE.md
 LICENSE
 k8s-deployment.example.yaml
 Dockerfile

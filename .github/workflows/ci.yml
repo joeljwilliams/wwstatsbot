@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main, devel]
+  pull_request:
+    branches: [main, devel]
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep this in step with the uv version pinned in the Dockerfile.
+  UV_VERSION: "0.10.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # --frozen: fail if uv.lock disagrees with pyproject.toml rather than silently
+      # resolving something different from what the image will install.
+      - run: uv sync --frozen
+
+      - name: ruff check
+        run: uv run ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # postgres:18 matches Railway. Version parity matters because test_db.py pins
+        # server-side text-search behaviour (tsvector generation, stemming, ts_rank).
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wwstatsbot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: pytest (incl. the Postgres data layer)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wwstatsbot_test
+          # REQUIRE_POSTGRES turns "database absent" from a skip into a failure. Without
+          # it, a broken service container leaves the entire data layer unexercised while
+          # the build still reports green. See tests/test_db.py.
+          REQUIRE_POSTGRES: "1"
+        run: uv run pytest --cov --cov-report=term
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # This is the image Railway deploys (railway.json -> DOCKERFILE builder), so a
+      # broken build here is a broken deploy. Loaded rather than pushed, then smoke
+      # tested: `uv sync` writing to the wrong path still produces a valid image.
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: wwstatsbot:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm wwstatsbot:ci python -c "
+          import telegram, httpx, asyncpg, structlog, redis, unidecode
+          print('deps import OK, ptb', telegram.__version__)"
+
+      - name: Confirm the bot exits cleanly without configuration
+        # main.py must fail fast with its own message, not a traceback — this also
+        # proves the module still imports in an environment with no config at all.
+        run: |
+          output=$(docker run --rm wwstatsbot:ci python main.py 2>&1 || true)
+          echo "$output"
+          echo "$output" | grep -q "BOT_TOKEN is not set" \
+            || { echo "::error::expected the missing-token SystemExit"; exit 1; }

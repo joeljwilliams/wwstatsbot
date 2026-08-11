@@ -89,8 +89,7 @@ def configure_logging():
         # foreign_pre_chain runs on records that did NOT originate from structlog
         # (i.e. plain logging.getLogger() calls in third-party libraries).
         foreign_pre_chain=shared_processors + [structlog.stdlib.ExtraAdder()],
-        processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta]
-        + render_chain,
+        processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta] + render_chain,
     )
 
     handler = logging.StreamHandler(sys.stdout)
