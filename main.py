@@ -13,6 +13,7 @@
 import os
 import asyncio
 import html
+import re
 import secrets
 
 import httpx
@@ -731,21 +732,41 @@ def _split_note_field(arg):
     return "memo", arg
 
 
+# A Possible Achievements message nests achievements under the player they're
+# available to, and the two levels are told apart by indentation:
+#
+#   Possible Achievements:
+#
+#   Ren
+#    - Traffic Control
+#
+# Both the indent and the space after the dash carry weight. Player names sit at
+# the left margin and can themselves begin with a dash — "-Mini | ˹ʙᴜ..." is a
+# real player — so matching any line that merely starts with "-" scoops names up
+# as achievements, and they then get reported as unmatchable (or worse, fuzzy-match
+# onto an unrelated achievement).
+_ACHV_ROW = re.compile(r"^(?P<indent>[ \t]*)-+[ \t]+(?P<name>\S.*?)\s*$")
+
+
 def _extract_possible_achievements(text):
     """Extract unique achievement names from a Possible Achievements message.
 
-    Expected lines are bullet-like rows, e.g. "- Strongest Alpha".
-    Returns names in first-seen order, de-duplicated case-insensitively.
+    Rows are indented dash bullets, e.g. " - Strongest Alpha". Indented rows win;
+    a message with none falls back to unindented ones, so text that lost its
+    leading spaces on the way in (a copy-paste, a client that trims) still works —
+    the dash-then-space requirement keeps dash-prefixed player names out either
+    way. Returns names in first-seen order, de-duplicated case-insensitively.
     """
+    indented, flat = [], []
+    for line in (text or "").splitlines():
+        row = _ACHV_ROW.match(line)
+        if row is None:
+            continue
+        (indented if row.group('indent') else flat).append(row.group('name'))
+
     seen = set()
     names = []
-    for line in (text or "").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("-"):
-            continue
-        candidate = stripped.lstrip("-").strip()
-        if not candidate:
-            continue
+    for candidate in (indented or flat):
         key = candidate.casefold()
         if key in seen:
             continue
