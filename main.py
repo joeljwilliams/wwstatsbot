@@ -23,6 +23,7 @@ import api
 import db
 import health
 import settings
+import templates as t
 from handlers import achievements, admin, errors, inline, misc, search, stats
 from logging_config import configure_logging
 
@@ -36,17 +37,20 @@ logger = structlog.get_logger(__name__)
 # same reason: /search and /info now switch to that behaviour themselves when
 # they reply to a bot message, so the explicit spellings are only kept working
 # for muscle memory, not advertised.
+# The command word itself is never translated — Telegram matches on it — so only the
+# descriptions come from templates. Telegram accepts a separate menu per language, which is
+# what makes a localised "/" list possible (see _post_init).
 PUBLIC_COMMANDS = [
-    BotCommand("stats", "Your game stats (or reply to another player)"),
-    BotCommand("kills", "Players you've killed the most"),
-    BotCommand("killedby", "Players who've killed you the most"),
-    BotCommand("deaths", "Your most common causes of death"),
-    BotCommand("search", "Search your achievements, or reply to a player list to check everyone"),
-    BotCommand("achievements", "List all achievements"),
-    BotCommand("info", "Look up an achievement, or reply to a list to get them all"),
-    BotCommand("about", "About this bot"),
-    BotCommand("version", "Show the running bot version"),
-    BotCommand("start", "Start the bot in a private chat"),
+    BotCommand("stats", t.CMD_STATS),
+    BotCommand("kills", t.CMD_KILLS),
+    BotCommand("killedby", t.CMD_KILLEDBY),
+    BotCommand("deaths", t.CMD_DEATHS),
+    BotCommand("search", t.CMD_SEARCH),
+    BotCommand("achievements", t.CMD_ACHIEVEMENTS),
+    BotCommand("info", t.CMD_INFO),
+    BotCommand("about", t.CMD_ABOUT),
+    BotCommand("version", t.CMD_VERSION),
+    BotCommand("start", t.CMD_START),
 ]
 
 

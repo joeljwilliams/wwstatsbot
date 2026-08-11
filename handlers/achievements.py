@@ -41,12 +41,12 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for msg in msgs:
             await context.bot.send_message(chat_id=user_id, text=msg, parse_mode=ParseMode.MARKDOWN)
         if update.message.chat.type != "private":
-            await update.message.reply_text("I have sent you your achievement list in PM.")
+            await update.message.reply_text(t.ACHV_SENT_TO_PM)
     except Exception:
         url = "telegram.me/{}".format(context.bot.username)
-        keyboard = [[InlineKeyboardButton("Start Me!", url=url)]]
+        keyboard = [[InlineKeyboardButton(t.START_ME_BUTTON, url=url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("You have to start me in PM first.", reply_markup=reply_markup)
+        await update.message.reply_text(t.ACHV_NEEDS_PM, reply_markup=reply_markup)
 
 
 async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,13 +72,13 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("command", command="info", user_id=user_id, user=unidecode(name), args=args)
 
     if len(search) == 0:
-        msg = "Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n"
+        msg = t.INFO_USAGE
     elif len(search) < 3:
-        msg = "Please enter at least 3 letters to search for!\n"
+        msg = t.QUERY_TOO_SHORT
     else:
         found = await builders.build_info_results(search)
         if not found:
-            msg = "No matching achievements found!\n"
+            msg = t.NO_MATCHES
         else:
             # Results are rank-ordered (name hits first), so the top match is the
             # best answer — show it rather than making the user pick from a list.
