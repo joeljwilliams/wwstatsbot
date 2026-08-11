@@ -1,0 +1,8 @@
+# Revisions to skip when running git blame — bulk, mechanical, no-behaviour-change
+# commits that would otherwise attribute every line to a formatting pass.
+#
+# Enable once per clone:
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply ruff format (whole-repo, introduced with the test suite)
+79a82baaf144b61b8277d408166ad66d1c376656
