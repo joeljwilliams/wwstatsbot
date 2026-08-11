@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main, devel]
+  # Every pull request, whatever it targets — deliberately unfiltered. Filtering to
+  # [main, devel] meant a PR stacked on another feature branch got no CI at all and
+  # showed "no checks reported", which reads as "not run yet" rather than "will never
+  # run". Stacked PRs are normal here while main.py is split into modules.
   pull_request:
-    branches: [main, devel]
 
 # A new push to the same branch supersedes the previous run.
 concurrency:
