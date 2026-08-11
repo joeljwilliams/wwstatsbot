@@ -256,6 +256,23 @@ class FakeCallbackQuery:
         self.edits.append((text, kwargs))
 
 
+class FakeInlineQuery:
+    """Records the results passed to answer(), plus the answer kwargs."""
+
+    def __init__(self, query="", from_user=None):
+        self.query = query
+        self.from_user = from_user or FakeUser()
+        self.answers = []
+
+    async def answer(self, results, **kwargs):
+        self.answers.append({"results": results, **kwargs})
+
+    @property
+    def results(self):
+        assert self.answers, "expected the inline query to be answered"
+        return self.answers[-1]["results"]
+
+
 class FakeBot:
     def __init__(self, username="wwstatsbot", send_error=None):
         self.username = username
@@ -273,9 +290,10 @@ class FakeBot:
 
 
 class FakeUpdate:
-    def __init__(self, message=None, callback_query=None):
+    def __init__(self, message=None, callback_query=None, inline_query=None):
         self.message = message
         self.callback_query = callback_query
+        self.inline_query = inline_query
 
 
 class FakeContext:

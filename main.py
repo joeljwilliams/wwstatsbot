@@ -1271,11 +1271,14 @@ async def _post_shutdown(application: Application):
     await db.close_pool()
 
 
-def main():
-    configure_logging()
-    _require_config()
-    health.start_health_server(HEALTH_PORT)
+def build_application():
+    """Construct the Application with every handler registered.
 
+    Separate from main() so the wiring can be asserted without starting the health
+    server or entering the polling loop. That matters because the registration table
+    below is the one place a command can silently cease to exist: drop a line and the
+    handler still passes its own tests while being unreachable from Telegram.
+    """
     builder = Application.builder().token(BOT_TOKEN).post_init(_post_init).post_shutdown(_post_shutdown)
     # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
     # a Redis backend is configured; otherwise state is in-memory only.
@@ -1311,7 +1314,14 @@ def main():
     app.add_handler(InlineQueryHandler(inline_query))
     app.add_error_handler(error_handler)
 
-    app.run_polling(drop_pending_updates=True)
+    return app
+
+
+def main():
+    configure_logging()
+    _require_config()
+    health.start_health_server(HEALTH_PORT)
+    build_application().run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
