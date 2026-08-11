@@ -30,15 +30,13 @@ import templates as t
 
 
 def player_mention(user_id=1, name="Alice", offset=0, length=5):
-    return FakeEntity("text_mention", offset=offset, length=length,
-                      user=FakeUser(user_id, name))
+    return FakeEntity("text_mention", offset=offset, length=length, user=FakeUser(user_id, name))
 
 
 # --- /sch -> multi-player path ---------------------------------------------------
 
 
-async def test_search_reroutes_to_search_all_on_a_bot_player_reply(
-        monkeypatch, achievements, no_fts, stats_api):
+async def test_search_reroutes_to_search_all_on_a_bot_player_reply(monkeypatch, achievements, no_fts, stats_api):
     called = {}
 
     async def spy(update, context):
@@ -53,8 +51,7 @@ async def test_search_reroutes_to_search_all_on_a_bot_player_reply(
     assert called.get("yes"), "expected /sch to hand off to display_search_all"
 
 
-async def test_search_stays_single_player_when_replying_to_a_human(
-        achievements, no_fts, stats_api):
+async def test_search_stays_single_player_when_replying_to_a_human(achievements, no_fts, stats_api):
     """A human reply means "check this person", the original behaviour."""
     replied = message("hi", from_user=FakeUser(5, "Bob"))
     msg = message("/sch busy", reply_to_message=replied)
@@ -80,20 +77,18 @@ async def test_search_marks_attained_and_unattained(achievements, no_fts, stats_
     msg = message("/sch night")
     await main.display_search(FakeUpdate(message=msg), FakeContext(args=["night"]))
     reply = msg.last_reply
-    assert t.SEARCH_ATTAINED in reply     # Busy Night is in ACHIEVEMENTS_JSON
+    assert t.SEARCH_ATTAINED in reply  # Busy Night is in ACHIEVEMENTS_JSON
     assert "Busy Night" in reply
 
 
-async def test_search_hides_inactive_achievements_the_user_lacks(
-        achievements, no_fts, stats_api):
+async def test_search_hides_inactive_achievements_the_user_lacks(achievements, no_fts, stats_api):
     """They can no longer be earned, so listing them as "not yet" would mislead."""
     msg = message("/sch Explorer")
     await main.display_search(FakeUpdate(message=msg), FakeContext(args=["Explorer"]))
     assert "No matching achievements found" in msg.last_reply
 
 
-async def test_search_keeps_an_inactive_achievement_the_user_already_holds(
-        achievements, no_fts, stats_api):
+async def test_search_keeps_an_inactive_achievement_the_user_already_holds(achievements, no_fts, stats_api):
     """So a completed collection still shows everything in it."""
     stats_api.set_achievements(1, ["Explorer"])
     msg = message("/sch Explorer", from_user=FakeUser(1, "Alice"))
@@ -118,9 +113,9 @@ async def test_bare_info_replying_to_a_bot_reroutes_to_all_info(monkeypatch):
     assert called.get("yes"), "expected bare /info on a bot reply to hand off"
 
 
-async def test_info_with_args_stays_a_single_lookup_even_when_replying_to_a_bot(
-        monkeypatch, achievements, no_fts):
+async def test_info_with_args_stays_a_single_lookup_even_when_replying_to_a_bot(monkeypatch, achievements, no_fts):
     """Explicit arguments mean the user named what they want."""
+
     async def fail(update, context):
         raise AssertionError("should not have rerouted")
 
@@ -131,8 +126,7 @@ async def test_info_with_args_stays_a_single_lookup_even_when_replying_to_a_bot(
     assert "<b>Busy Night</b>" in msg.last_reply
 
 
-async def test_info_replying_to_a_human_uses_the_replied_text_as_the_query(
-        achievements, no_fts):
+async def test_info_replying_to_a_human_uses_the_replied_text_as_the_query(achievements, no_fts):
     replied = message("Busy Night", from_user=FakeUser(5, "Bob"))
     msg = message("/info", reply_to_message=replied)
     await main.display_achv_info(FakeUpdate(message=msg), FakeContext(args=[]))
@@ -211,8 +205,7 @@ async def test_schall_callback_reports_an_expired_token():
 
 
 async def test_schall_callback_toggles_the_view():
-    payload = {"name": "X", "desc": "d", "missing": [(1, "Alice")],
-               "have": [(2, "Bob")], "unresolved": []}
+    payload = {"name": "X", "desc": "d", "missing": [(1, "Alice")], "have": [(2, "Bob")], "unresolved": []}
     ctx = FakeContext(bot_data={"schall": {"TOK": payload}})
     query = FakeCallbackQuery(data="schall:TOK:have")
     await main.schall_callback(FakeUpdate(callback_query=query), ctx)
@@ -231,7 +224,7 @@ async def test_schall_callback_swallows_a_not_modified_race():
     query = FakeCallbackQuery(data="schall:TOK:have")
     query.edit_error = BadRequest("Message is not modified")
 
-    await main.schall_callback(FakeUpdate(callback_query=query), ctx)   # must not raise
+    await main.schall_callback(FakeUpdate(callback_query=query), ctx)  # must not raise
     assert query.answers == [{"text": None, "show_alert": False}]
 
 
@@ -245,8 +238,7 @@ async def test_allinfo_callback_pages(achievements, no_fts):
     assert "<i>2/2</i>" in text
 
 
-async def test_allinfo_callback_treats_a_legacy_bare_token_as_the_pm_handoff(
-        achievements, no_fts):
+async def test_allinfo_callback_treats_a_legacy_bare_token_as_the_pm_handoff(achievements, no_fts):
     """Buttons posted before the pager existed carried just a token, and their
     messages may still be sitting in a group."""
     ctx = FakeContext(bot_data={"allinfo": {"TOK": ["Busy Night"]}})
@@ -270,8 +262,10 @@ async def test_allinfo_callback_explains_when_it_cannot_pm_the_user(achievements
     """Almost always means the user has never started the bot in a private chat."""
     from conftest import FakeBot
 
-    ctx = FakeContext(bot=FakeBot(send_error=RuntimeError("Forbidden: bot can't initiate")),
-                      bot_data={"allinfo": {"TOK": ["Busy Night"]}})
+    ctx = FakeContext(
+        bot=FakeBot(send_error=RuntimeError("Forbidden: bot can't initiate")),
+        bot_data={"allinfo": {"TOK": ["Busy Night"]}},
+    )
     query = FakeCallbackQuery(data="allinfo:pm:TOK")
     await main.all_info_callback(FakeUpdate(callback_query=query), ctx)
 
@@ -282,13 +276,16 @@ async def test_allinfo_callback_explains_when_it_cannot_pm_the_user(achievements
 
 
 async def test_schall_buckets_mentioned_players(achievements, no_fts, stats_api):
-    stats_api.set_achievements(1, ["Busy Night"])       # Alice has it
-    stats_api.set_achievements(2, [])                   # Bob does not
+    stats_api.set_achievements(1, ["Busy Night"])  # Alice has it
+    stats_api.set_achievements(2, [])  # Bob does not
 
-    replied = bot_message("Alice Bob", entities=[
-        player_mention(1, "Alice", 0, 5),
-        player_mention(2, "Bob", 6, 3),
-    ])
+    replied = bot_message(
+        "Alice Bob",
+        entities=[
+            player_mention(1, "Alice", 0, 5),
+            player_mention(2, "Bob", 6, 3),
+        ],
+    )
     msg = message("/sch busy", reply_to_message=replied)
     ctx = FakeContext(args=["busy"])
     await main.display_search_all(FakeUpdate(message=msg), ctx)
@@ -304,16 +301,19 @@ async def test_schall_reports_players_whose_lookup_failed(achievements, no_fts, 
     stats_api.set_achievements(1, [])
     stats_api.fail_pids.add("2")
 
-    replied = bot_message("Alice Bob", entities=[
-        player_mention(1, "Alice", 0, 5),
-        player_mention(2, "Bob", 6, 3),
-    ])
+    replied = bot_message(
+        "Alice Bob",
+        entities=[
+            player_mention(1, "Alice", 0, 5),
+            player_mention(2, "Bob", 6, 3),
+        ],
+    )
     msg = message("/sch busy", reply_to_message=replied)
     await main.display_search_all(FakeUpdate(message=msg), FakeContext(args=["busy"]))
 
     text = msg.last_reply
     assert "Couldn't check: Bob" in text
-    assert "Not obtained (1)" in text     # Alice still got answered
+    assert "Not obtained (1)" in text  # Alice still got answered
 
 
 async def test_schall_needs_a_reply():

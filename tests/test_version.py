@@ -21,15 +21,11 @@ def test_short_commit_passes_unknown_through():
 
 
 def test_commit_url_builds_a_github_link():
-    assert version._commit_url("https://github.com/o/r", "abc123") == (
-        "https://github.com/o/r/commit/abc123"
-    )
+    assert version._commit_url("https://github.com/o/r", "abc123") == ("https://github.com/o/r/commit/abc123")
 
 
 def test_commit_url_strips_a_trailing_slash():
-    assert version._commit_url("https://github.com/o/r/", "abc") == (
-        "https://github.com/o/r/commit/abc"
-    )
+    assert version._commit_url("https://github.com/o/r/", "abc") == ("https://github.com/o/r/commit/abc")
 
 
 def test_commit_url_is_empty_without_a_usable_commit_or_base():
@@ -67,9 +63,7 @@ def test_railway_resolution(monkeypatch):
     assert info["source"] == "railway"
     assert info["branch"] == "main"
     assert info["short_commit"] == "deadbee"
-    assert info["commit_url"] == (
-        "https://github.com/joeljwilliams/wwstatsbot/commit/deadbeefcafe"
-    )
+    assert info["commit_url"] == ("https://github.com/joeljwilliams/wwstatsbot/commit/deadbeefcafe")
 
 
 def test_railway_falls_back_to_the_default_repo_when_owner_is_absent(monkeypatch):

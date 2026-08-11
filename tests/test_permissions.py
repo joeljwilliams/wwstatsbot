@@ -267,8 +267,7 @@ async def test_del_admin_reports_when_no_row_matched(monkeypatch, superuser):
 # --- Note editing (admin tier) ---------------------------------------------------
 
 
-async def test_set_note_refuses_a_stranger_and_never_writes(
-        monkeypatch, not_an_admin, achievements, outsider):
+async def test_set_note_refuses_a_stranger_and_never_writes(monkeypatch, not_an_admin, achievements, outsider):
     tripwire = Tripwire()
     monkeypatch.setattr(db, "update_notes", tripwire)
 
@@ -280,8 +279,7 @@ async def test_set_note_refuses_a_stranger_and_never_writes(
     assert not tripwire.called
 
 
-async def test_clear_note_refuses_a_stranger_and_never_writes(
-        monkeypatch, not_an_admin, achievements, outsider):
+async def test_clear_note_refuses_a_stranger_and_never_writes(monkeypatch, not_an_admin, achievements, outsider):
     tripwire = Tripwire()
     monkeypatch.setattr(db, "update_notes", tripwire)
 
@@ -303,8 +301,7 @@ async def test_set_note_writes_for_an_admin(monkeypatch, is_an_admin, achievemen
     monkeypatch.setattr(db, "update_notes", fake_update)
 
     replied = message("Busy Night")
-    msg = message("/setnote watch out", from_user=FakeUser(12345, "Mod"),
-                  reply_to_message=replied)
+    msg = message("/setnote watch out", from_user=FakeUser(12345, "Mod"), reply_to_message=replied)
     await main.set_note_cmd(FakeUpdate(message=msg), FakeContext())
 
     assert written["name"] == "Busy Night"
@@ -321,16 +318,14 @@ async def test_set_note_preserves_the_other_field(monkeypatch, is_an_admin, achi
 
     monkeypatch.setattr(db, "update_notes", fake_update)
 
-    replied = message("Liquid Business")   # already has both fields
-    msg = message("/setnote prob 99%", from_user=FakeUser(12345, "Mod"),
-                  reply_to_message=replied)
+    replied = message("Liquid Business")  # already has both fields
+    msg = message("/setnote prob 99%", from_user=FakeUser(12345, "Mod"), reply_to_message=replied)
     await main.set_note_cmd(FakeUpdate(message=msg), FakeContext())
 
     assert written["notes"] == "\N{MEMO} Needs the drunk role.\n\N{GAME DIE} 99%"
 
 
-async def test_set_note_needs_an_identifiable_achievement(
-        monkeypatch, is_an_admin, achievements):
+async def test_set_note_needs_an_identifiable_achievement(monkeypatch, is_an_admin, achievements):
     tripwire = Tripwire()
     monkeypatch.setattr(db, "update_notes", tripwire)
 
@@ -352,8 +347,7 @@ async def test_clear_note_all_clears_both_fields(monkeypatch, is_an_admin, achie
     monkeypatch.setattr(db, "update_notes", fake_update)
 
     replied = message("Liquid Business")
-    msg = message("/clearnote all", from_user=FakeUser(12345, "Mod"),
-                  reply_to_message=replied)
+    msg = message("/clearnote all", from_user=FakeUser(12345, "Mod"), reply_to_message=replied)
     await main.clear_note_cmd(FakeUpdate(message=msg), FakeContext(args=["all"]))
 
     assert written["notes"] == ""
@@ -369,8 +363,7 @@ async def test_clear_note_prob_leaves_the_memo(monkeypatch, is_an_admin, achieve
     monkeypatch.setattr(db, "update_notes", fake_update)
 
     replied = message("Liquid Business")
-    msg = message("/clearnote prob", from_user=FakeUser(12345, "Mod"),
-                  reply_to_message=replied)
+    msg = message("/clearnote prob", from_user=FakeUser(12345, "Mod"), reply_to_message=replied)
     await main.clear_note_cmd(FakeUpdate(message=msg), FakeContext(args=["prob"]))
 
     assert written["notes"] == "\N{MEMO} Needs the drunk role."

@@ -45,21 +45,14 @@ ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 VERSION_INFO_LINKED = (
     "<b>wwstatsbot</b>\n"
     "Branch: <code>{branch}</code>\n"
-    "Commit: <a href=\"{commit_url}\">{short_commit}</a> <code>{commit}</code>"
+    'Commit: <a href="{commit_url}">{short_commit}</a> <code>{commit}</code>'
 )
-VERSION_INFO_PLAIN = (
-    "<b>wwstatsbot</b>\n"
-    "Branch: <code>{branch}</code>\n"
-    "Commit: <code>{short_commit}</code>"
-)
+VERSION_INFO_PLAIN = "<b>wwstatsbot</b>\nBranch: <code>{branch}</code>\nCommit: <code>{short_commit}</code>"
 
 # --- HTML: /search achievement match list (main.py) ------------------------
 
 # Each matching achievement is tagged with whether the target user has it.
-SEARCH_HEADER = (
-    "Achievements matching <b>{query}</b> for "
-    "<a href='tg://user?id={user_id}'>{name}</a>:\n\n"
-)
+SEARCH_HEADER = "Achievements matching <b>{query}</b> for <a href='tg://user?id={user_id}'>{name}</a>:\n\n"
 SEARCH_ROW = "{mark} <code>{name}</code>\n"
 SEARCH_ATTAINED = "✅"
 SEARCH_NOT_ATTAINED = "☑️"
@@ -70,11 +63,7 @@ SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i
 
 # Head of the reply: the single achievement the query matched (shown clearly so
 # it's obvious what everyone is being checked against), then one of the lists.
-SCHALL_HEADER = (
-    "Achievement: <b>{name}</b>\n"
-    "<i>{desc}</i>\n\n"
-    "Checked {count} player{plural} for it:\n"
-)
+SCHALL_HEADER = "Achievement: <b>{name}</b>\n<i>{desc}</i>\n\nChecked {count} player{plural} for it:\n"
 # Section header for whichever list is on screen; only one shows at a time and
 # the button below swaps them (marks mirror /search: ☑️ not attained, ✅ attained).
 SCHALL_MISSING_HEADER = "\n☑️ <b>Not obtained ({count})</b>\n"
@@ -91,13 +80,9 @@ SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
 # These name /sch, not /schall: /sch is the advertised spelling and routes here on
 # its own when it replies to a bot message that mentions players. /schall still
 # works when typed, it's just no longer the way anyone is told to reach this.
-SCHALL_NEED_REPLY = (
-    "Reply to a message that mentions players with "
-    "<code>/sch &lt;achievement&gt;</code>."
-)
+SCHALL_NEED_REPLY = "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>."
 SCHALL_USAGE = (
-    "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n"
-    "(reply to a message that mentions players)"
+    "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
 
@@ -119,19 +104,15 @@ ALLINFO_NEXT = "Next ▶️"
 ALLINFO_SEND_ALL = "📄 Send all {count}"
 # Errors and button acknowledgements. Like the /sch strings above, these name
 # /info rather than the now-hidden /allinfo.
-ALLINFO_NEED_REPLY = (
-    "Reply to a 'Possible Achievements' message with <code>/info</code>."
-)
+ALLINFO_NEED_REPLY = "Reply to a 'Possible Achievements' message with <code>/info</code>."
 ALLINFO_NO_ACHIEVEMENTS = (
-    "No achievements found in that message. Make sure it contains lines like "
-    "<code>- Achievement Name</code>."
+    "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>."
 )
 ALLINFO_NO_MATCH = "No matching achievements found."
 ALLINFO_EXPIRED = "This request has expired. Please run /info again."
 ALLINFO_GONE = "Those achievements are no longer available."
 ALLINFO_NO_PM = (
-    "I can't message you yet. Start a private chat with me first "
-    "(tap my name, then Start), then tap the button again."
+    "I can't message you yet. Start a private chat with me first (tap my name, then Start), then tap the button again."
 )
 ALLINFO_SENT_PAGER = "Sent the achievement info to your PM ✅"
 ALLINFO_SENT_ALL = "Sent {count} card{plural} to your PM ✅"

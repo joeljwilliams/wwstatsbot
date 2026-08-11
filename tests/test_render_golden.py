@@ -28,18 +28,14 @@ import main
 
 def test_card_plain(achievements):
     achv = next(a for a in achievements if a["name"] == "Welcome to Hell")
-    assert main.format_single_achv(achv) == (
-        "<b>Welcome to Hell</b>\n\nPlay a game\n\nType: <code>game-end</code>"
-    )
+    assert main.format_single_achv(achv) == ("<b>Welcome to Hell</b>\n\nPlay a game\n\nType: <code>game-end</code>")
 
 
 def test_card_escapes_apostrophe_and_leaves_at_mentions(achievements):
     """The description holds an apostrophe and an @handle; only the former is escaped."""
     achv = next(a for a in achievements if a["name"] == "O HAI DER!")
     assert main.format_single_achv(achv) == (
-        "<b>O HAI DER!</b>\n\n"
-        "Play a game with Para&#x27;s secret account (not @para949)\n\n"
-        "Type: <code>game-end</code>"
+        "<b>O HAI DER!</b>\n\nPlay a game with Para&#x27;s secret account (not @para949)\n\nType: <code>game-end</code>"
     )
 
 
@@ -115,7 +111,7 @@ def test_schall_empty_bucket_renders_none_row_and_singular_player():
     msg, _ = main._render_schall(payload, "TOK", show_have=False)
     assert msg == (
         "Achievement: <b>X</b>\n<i>d</i>\n\n"
-        "Checked 1 player for it:\n\n"          # singular, not "1 players"
+        "Checked 1 player for it:\n\n"  # singular, not "1 players"
         "☑️ <b>Not obtained (0)</b>\n"
         "<i>none</i>\n"
     )
@@ -221,9 +217,7 @@ async def test_stats_msg_by_id_omits_the_user_link(stats_api):
 
 async def test_stats_msg_no_games(stats_api):
     stats_api.routes["/Stats/PlayerStats/"] = {}
-    assert await main.build_stats_msg(7, "Alice") == (
-        "<a href='tg://user?id=7'>Alice</a> has not played any games."
-    )
+    assert await main.build_stats_msg(7, "Alice") == ("<a href='tg://user?id=7'>Alice</a> has not played any games.")
     stats_api.routes["/Stats/PlayerStats/"] = {}
     assert await main.build_stats_msg(7, "7", by_id=True) == "7 has not played any games."
 
@@ -248,8 +242,7 @@ async def test_kills_msg(stats_api):
 
 async def test_killed_by_msg(stats_api):
     assert await main.build_killed_by_msg(7, "Alice") == (
-        "Players who killed <a href='tg://user?id=7'>Alice</a> most:\n"
-        "<code>5    </code> <b>Carol</b>\n"
+        "Players who killed <a href='tg://user?id=7'>Alice</a> most:\n<code>5    </code> <b>Carol</b>\n"
     )
 
 
@@ -264,6 +257,4 @@ async def test_deaths_msg_derives_approximate_totals(stats_api):
 
 async def test_empty_lists_render_header_only(stats_api):
     stats_api.routes["/Stats/PlayerKills/"] = []
-    assert await main.build_kills_msg(7, "Alice") == (
-        "Players <a href='tg://user?id=7'> Alice</a> most killed:\n"
-    )
+    assert await main.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'> Alice</a> most killed:\n")

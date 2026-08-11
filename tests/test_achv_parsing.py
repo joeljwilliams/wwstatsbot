@@ -44,9 +44,7 @@ def test_dash_prefixed_player_name_is_not_read_as_an_achievement():
 
 def test_dash_without_a_following_space_is_not_a_row():
     """A player literally named '-Someone' has no space after the dash."""
-    assert main._extract_possible_achievements("-Someone\n - Real Achievement") == [
-        "Real Achievement"
-    ]
+    assert main._extract_possible_achievements("-Someone\n - Real Achievement") == ["Real Achievement"]
 
 
 def test_falls_back_to_unindented_rows_when_none_are_indented():

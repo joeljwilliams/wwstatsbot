@@ -208,8 +208,16 @@ class FakeEntity:
 class FakeMessage:
     """Records every reply_text call in .replies as (text, kwargs)."""
 
-    def __init__(self, text="", from_user=None, chat=None, reply_to_message=None,
-                 entities=None, caption=None, caption_entities=None):
+    def __init__(
+        self,
+        text="",
+        from_user=None,
+        chat=None,
+        reply_to_message=None,
+        entities=None,
+        caption=None,
+        caption_entities=None,
+    ):
         self.text = text
         self.caption = caption
         self.from_user = from_user or FakeUser()
@@ -296,9 +304,9 @@ def message(text="", **kwargs):
 
 def bot_message(text="", entities=None, **kwargs):
     """A message posted by a bot — the shape /sch and /info reroute on."""
-    return FakeMessage(text=text, from_user=FakeUser(user_id=42, first_name="WerewolfBot",
-                                                     is_bot=True),
-                       entities=entities, **kwargs)
+    return FakeMessage(
+        text=text, from_user=FakeUser(user_id=42, first_name="WerewolfBot", is_bot=True), entities=entities, **kwargs
+    )
 
 
 def assert_json_roundtrips(value):

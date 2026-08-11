@@ -23,10 +23,13 @@ def username_entity(offset, length):
 
 
 def test_extracts_text_mentions_with_ids():
-    msg = message("Alice Bob", entities=[
-        mention_entity(FakeUser(1, "Alice"), 0, 5),
-        mention_entity(FakeUser(2, "Bob"), 6, 3),
-    ])
+    msg = message(
+        "Alice Bob",
+        entities=[
+            mention_entity(FakeUser(1, "Alice"), 0, 5),
+            mention_entity(FakeUser(2, "Bob"), 6, 3),
+        ],
+    )
     users, unresolved = main._mentioned_users(msg)
     assert users == [(1, "Alice"), (2, "Bob")]
     assert unresolved == []
@@ -34,20 +37,26 @@ def test_extracts_text_mentions_with_ids():
 
 def test_plain_username_mentions_are_returned_as_unresolved():
     """@handles have no user id, so they can't be looked up — but must be reported."""
-    msg = message("hi @dave and @erin", entities=[
-        username_entity(3, 5),    # @dave
-        username_entity(13, 5),   # @erin
-    ])
+    msg = message(
+        "hi @dave and @erin",
+        entities=[
+            username_entity(3, 5),  # @dave
+            username_entity(13, 5),  # @erin
+        ],
+    )
     users, unresolved = main._mentioned_users(msg)
     assert users == []
     assert unresolved == ["@dave", "@erin"]
 
 
 def test_mixed_mentions():
-    msg = message("Alice @dave", entities=[
-        mention_entity(FakeUser(1, "Alice"), 0, 5),
-        username_entity(6, 5),
-    ])
+    msg = message(
+        "Alice @dave",
+        entities=[
+            mention_entity(FakeUser(1, "Alice"), 0, 5),
+            username_entity(6, 5),
+        ],
+    )
     users, unresolved = main._mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
@@ -55,19 +64,25 @@ def test_mixed_mentions():
 
 def test_bots_are_skipped():
     """A mentioned bot has no player stats, so it could only pad the 'hasn't' list."""
-    msg = message("Alice WerewolfBot", entities=[
-        mention_entity(FakeUser(1, "Alice"), 0, 5),
-        mention_entity(FakeUser(42, "WerewolfBot", is_bot=True), 6, 11),
-    ])
+    msg = message(
+        "Alice WerewolfBot",
+        entities=[
+            mention_entity(FakeUser(1, "Alice"), 0, 5),
+            mention_entity(FakeUser(42, "WerewolfBot", is_bot=True), 6, 11),
+        ],
+    )
     users, _ = main._mentioned_users(msg)
     assert users == [(1, "Alice")]
 
 
 def test_duplicate_users_are_deduped_first_seen_first():
-    msg = message("Alice Alice", entities=[
-        mention_entity(FakeUser(1, "Alice"), 0, 5),
-        mention_entity(FakeUser(1, "Alice"), 6, 5),
-    ])
+    msg = message(
+        "Alice Alice",
+        entities=[
+            mention_entity(FakeUser(1, "Alice"), 0, 5),
+            mention_entity(FakeUser(1, "Alice"), 6, 5),
+        ],
+    )
     users, _ = main._mentioned_users(msg)
     assert users == [(1, "Alice")]
 
@@ -79,11 +94,14 @@ def test_entity_without_a_user_object_is_ignored():
 
 def test_reads_caption_entities_on_media_messages():
     """Media messages carry text in `caption` with `caption_entities`."""
-    msg = message(text=None, caption="Alice @dave",
-                  caption_entities=[
-                      mention_entity(FakeUser(1, "Alice"), 0, 5),
-                      username_entity(6, 5),
-                  ])
+    msg = message(
+        text=None,
+        caption="Alice @dave",
+        caption_entities=[
+            mention_entity(FakeUser(1, "Alice"), 0, 5),
+            username_entity(6, 5),
+        ],
+    )
     users, unresolved = main._mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
@@ -107,8 +125,9 @@ def test_none_is_not_a_bot_player_reply():
 
 def test_human_reply_is_not_a_bot_player_reply():
     """A human's message mentioning players must still mean 'check the author'."""
-    msg = message("Alice", from_user=FakeUser(1, "Alice", is_bot=False),
-                  entities=[mention_entity(FakeUser(2, "Bob"), 0, 5)])
+    msg = message(
+        "Alice", from_user=FakeUser(1, "Alice", is_bot=False), entities=[mention_entity(FakeUser(2, "Bob"), 0, 5)]
+    )
     assert main._is_bot_player_reply(msg) is False
 
 
@@ -123,6 +142,5 @@ def test_bot_reply_mentioning_only_usernames_is_not_detected():
 
 
 def test_bot_reply_mentioning_only_bots_is_not_detected():
-    msg = bot_message("SomeBot", entities=[
-        mention_entity(FakeUser(43, "SomeBot", is_bot=True), 0, 7)])
+    msg = bot_message("SomeBot", entities=[mention_entity(FakeUser(43, "SomeBot", is_bot=True), 0, 7)])
     assert main._is_bot_player_reply(msg) is False

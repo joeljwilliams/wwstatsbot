@@ -87,9 +87,7 @@ async def test_every_state_bucket_is_written(fake_redis):
     await persistence.update_conversation("conv", (1, 1), "state")
 
     stored = json.loads(fake_redis.get(KEY))
-    assert set(stored) == {
-        "bot_data", "chat_data", "user_data", "callback_data", "conversations"
-    }
+    assert set(stored) == {"bot_data", "chat_data", "user_data", "callback_data", "conversations"}
     revived = RedisPersistence(url="redis://x", key=KEY)
     assert await revived.get_user_data() == {1: {"u": 1}}
     assert await revived.get_chat_data() == {-100: {"c": 2}}
@@ -104,7 +102,7 @@ async def test_writes_are_immediate_by_default(fake_redis):
 async def test_on_flush_defers_writes_until_shutdown(fake_redis):
     persistence = RedisPersistence(url="redis://x", key=KEY, on_flush=True)
     await persistence.update_bot_data({"a": 1})
-    assert fake_redis.get(KEY) is None      # nothing written yet
+    assert fake_redis.get(KEY) is None  # nothing written yet
     await persistence.flush()
     assert fake_redis.get(KEY) is not None
 
@@ -114,6 +112,7 @@ async def test_on_flush_defers_writes_until_shutdown(fake_redis):
 
 def test_a_load_failure_still_yields_a_working_instance(monkeypatch):
     """Redis down at startup: the bot must boot, just without prior state."""
+
     class Boom:
         def get(self, key):
             raise ConnectionError("redis is down")
@@ -121,10 +120,8 @@ def test_a_load_failure_still_yields_a_working_instance(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(redis_persistence.redis.Redis, "from_url",
-                        staticmethod(lambda url, **kw: Boom()))
-    monkeypatch.setattr(redis_persistence.aioredis.Redis, "from_url",
-                        staticmethod(lambda url, **kw: object()))
+    monkeypatch.setattr(redis_persistence.redis.Redis, "from_url", staticmethod(lambda url, **kw: Boom()))
+    monkeypatch.setattr(redis_persistence.aioredis.Redis, "from_url", staticmethod(lambda url, **kw: object()))
 
     persistence = RedisPersistence(url="redis://x", key=KEY)
     assert persistence is not None
@@ -138,5 +135,5 @@ async def test_a_save_failure_does_not_propagate(fake_redis, monkeypatch):
         raise ConnectionError("redis went away")
 
     monkeypatch.setattr(persistence._redis, "set", boom)
-    await persistence.update_bot_data({"a": 1})          # must not raise
+    await persistence.update_bot_data({"a": 1})  # must not raise
     assert await persistence.get_bot_data() == {"a": 1}  # in-memory state still correct

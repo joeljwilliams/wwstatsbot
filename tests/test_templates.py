@@ -22,18 +22,12 @@ SOURCES = ["main.py", "wwstats.py"]
 
 def template_names():
     """Every public template constant in templates.py (UPPER_CASE strings)."""
-    return [
-        name for name in dir(t)
-        if name.isupper() and isinstance(getattr(t, name), str)
-    ]
+    return [name for name in dir(t) if name.isupper() and isinstance(getattr(t, name), str)]
 
 
 def fields_of(template):
     """The named {fields} a template expects, ignoring literal text."""
-    return {
-        field for _, field, _, _ in string.Formatter().parse(template)
-        if field
-    }
+    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
 
 
 def test_there_are_templates_to_check():
@@ -48,9 +42,7 @@ def test_every_template_formats_with_its_own_fields():
         try:
             template.format(**kwargs)
         except (KeyError, IndexError, ValueError) as exc:
-            raise AssertionError(
-                "templates.{} cannot be formatted: {!r}".format(name, exc)
-            ) from exc
+            raise AssertionError("templates.{} cannot be formatted: {!r}".format(name, exc)) from exc
 
 
 def test_no_template_uses_positional_placeholders():
@@ -59,8 +51,7 @@ def test_no_template_uses_positional_placeholders():
         for _, field, _, _ in string.Formatter().parse(getattr(t, name)):
             if field is not None:
                 assert field != "", (
-                    "templates.{} uses a positional {{}} placeholder; "
-                    "call sites format with keywords".format(name)
+                    "templates.{} uses a positional {{}} placeholder; call sites format with keywords".format(name)
                 )
 
 
@@ -70,10 +61,12 @@ def referenced_template_names():
     for filename in SOURCES:
         tree = ast.parse((REPO / filename).read_text())
         for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute)
-                    and isinstance(node.value, ast.Name)
-                    and node.value.id in ("t", "templates")
-                    and node.attr.isupper()):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in ("t", "templates")
+                and node.attr.isupper()
+            ):
                 referenced.add(node.attr)
     return referenced
 
@@ -91,9 +84,7 @@ def test_no_template_is_unreferenced():
     dropped by accident during a refactor.
     """
     orphans = sorted(set(template_names()) - referenced_template_names())
-    assert not orphans, (
-        "templates.py defines these but nothing reads them: {}".format(orphans)
-    )
+    assert not orphans, "templates.py defines these but nothing reads them: {}".format(orphans)
 
 
 def test_html_templates_have_balanced_simple_tags():
@@ -103,6 +94,4 @@ def test_html_templates_have_balanced_simple_tags():
         for tag in ("b", "i", "code", "pre", "a"):
             opens = template.count("<{}>".format(tag)) + template.count("<{} ".format(tag))
             closes = template.count("</{}>".format(tag))
-            assert opens == closes, (
-                "templates.{} has {} <{}> open vs {} close".format(name, opens, tag, closes)
-            )
+            assert opens == closes, "templates.{} has {} <{}> open vs {} close".format(name, opens, tag, closes)

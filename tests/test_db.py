@@ -89,9 +89,7 @@ async def test_search_column_and_index_exist(pool):
             "SELECT is_generated FROM information_schema.columns "
             "WHERE table_name = 'achievements' AND column_name = 'search_tsv'"
         )
-        index = await conn.fetchval(
-            "SELECT indexname FROM pg_indexes WHERE indexname = 'achievements_search_tsv_idx'"
-        )
+        index = await conn.fetchval("SELECT indexname FROM pg_indexes WHERE indexname = 'achievements_search_tsv_idx'")
     assert column == "ALWAYS", "search_tsv must be a generated STORED column"
     assert index == "achievements_search_tsv_idx"
 
@@ -109,7 +107,7 @@ async def test_seed_inserts_the_whole_list(pool):
 async def test_seed_never_clobbers_an_edited_row(seeded):
     """ON CONFLICT DO NOTHING: a restart must not undo an admin's /setnote."""
     await db.update_notes("Welcome to Hell", "\N{MEMO} admin edit")
-    await db.seed_achievements()          # simulate a redeploy
+    await db.seed_achievements()  # simulate a redeploy
     await db.load_cache()
 
     entry = next(a for a in db.get_achievements() if a["name"] == "Welcome to Hell")
@@ -225,7 +223,7 @@ async def test_search_tolerates_punctuation_in_the_query(seeded):
     """Names contain punctuation ("O HAI DER!", "Spy vs Spy"). Building the tsquery
     from lexemes rather than raw input means this can never be invalid syntax."""
     for query in ["O HAI DER!", "Spy vs Spy", "I've Got Your Back", "!!!", "a & b", "'"]:
-        await db.search_achievements(query)   # must not raise
+        await db.search_achievements(query)  # must not raise
 
 
 async def test_search_returns_nothing_for_a_stopword_only_query(seeded):
@@ -264,7 +262,7 @@ async def test_admin_lifecycle(pool):
 
     assert await db.remove_admin(1) is True
     assert await db.is_admin(1) is False
-    assert await db.remove_admin(1) is False      # already gone
+    assert await db.remove_admin(1) is False  # already gone
 
 
 async def test_add_admin_is_an_upsert(pool):
@@ -294,9 +292,7 @@ async def test_run_sql_returns_columns_rows_and_status_for_a_select(seeded):
 
 
 async def test_run_sql_returns_a_status_tag_for_a_write(seeded):
-    columns, rows, status = await db.run_sql(
-        "UPDATE achievements SET notes = '' WHERE name = 'Welcome to Hell'"
-    )
+    columns, rows, status = await db.run_sql("UPDATE achievements SET notes = '' WHERE name = 'Welcome to Hell'")
     assert columns == []
     assert rows == []
     assert status == "UPDATE 1"

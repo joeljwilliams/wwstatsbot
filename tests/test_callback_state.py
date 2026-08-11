@@ -66,13 +66,16 @@ def test_schall_payload_survives_json_with_tuples_degrading_to_lists():
     """The renderer unpacks (id, name) pairs, so lists must work identically."""
     ctx = FakeContext()
     payload = {
-        "name": "X", "desc": "d",
-        "missing": [(1, "Alice")], "have": [(2, "Bob")], "unresolved": ["@dave"],
+        "name": "X",
+        "desc": "d",
+        "missing": [(1, "Alice")],
+        "have": [(2, "Bob")],
+        "unresolved": ["@dave"],
     }
     token = main._store_schall_result(ctx, payload)
     restored = assert_json_roundtrips(ctx.bot_data)["schall"][token]
 
-    assert restored["missing"] == [[1, "Alice"]]      # tuple -> list
+    assert restored["missing"] == [[1, "Alice"]]  # tuple -> list
     # ...and the renderer must not care which it got.
     before, _ = main._render_schall(payload, token, show_have=False)
     after, _ = main._render_schall(restored, token, show_have=False)
@@ -82,10 +85,8 @@ def test_schall_payload_survives_json_with_tuples_degrading_to_lists():
 def test_callback_data_stays_within_telegrams_64_byte_cap():
     """The whole reason state is token-keyed rather than embedded in the button."""
     ctx = FakeContext()
-    token = main._store_schall_result(ctx, {"name": "X", "desc": "d", "missing": [],
-                                           "have": [], "unresolved": []})
-    _, keyboard = main._render_schall(
-        ctx.bot_data["schall"][token], token, show_have=False)
+    token = main._store_schall_result(ctx, {"name": "X", "desc": "d", "missing": [], "have": [], "unresolved": []})
+    _, keyboard = main._render_schall(ctx.bot_data["schall"][token], token, show_have=False)
     data = keyboard.inline_keyboard[0][0].callback_data
     assert len(data.encode()) <= 64
 
