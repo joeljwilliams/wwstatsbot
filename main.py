@@ -291,6 +291,13 @@ _SEARCH_MAX_RESULTS = 10
 
 
 async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Replying to a bot message that mentions players means "check all of them",
+    # not "check this message's author" — the author is the bot, whose own stats
+    # are empty, so the single-player reading of the reply is never what was meant.
+    if _is_bot_player_reply(update.message.reply_to_message):
+        await display_search_all(update, context)
+        return
+
     args = context.args
     user_id, name = resolve_target(update)
     logger.info("command", command="search", user_id=user_id, user=unidecode(name), args=args)
@@ -344,13 +351,28 @@ def _mentioned_users(message):
     for ent in entities:
         if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
             u = ent.user
-            if u.id in seen:
+            # A mentioned bot has no player stats, so it could only ever land in
+            # the "hasn't obtained it" list — noise, not an answer. Skip bots.
+            if u.is_bot or u.id in seen:
                 continue
             seen.add(u.id)
             users.append((u.id, u.first_name))
         elif ent.type == MessageEntity.MENTION:
             unresolved.append(body[ent.offset:ent.offset + ent.length])
     return users, unresolved
+
+
+def _is_bot_player_reply(message):
+    """True if `message` is a bot post that directly mentions at least one player.
+
+    That shape — the game bot listing the players of a round — is the one case
+    where checking *everyone* mentioned beats checking the message's author, so
+    /sch routes itself to the multi-player path when it replies to one.
+    """
+    if message is None or message.from_user is None or not message.from_user.is_bot:
+        return False
+    users, _ = _mentioned_users(message)
+    return bool(users)
 
 
 async def _user_has_achievement(user_id, achv_name):
@@ -410,7 +432,11 @@ def _render_schall(payload, token, show_have):
 
 
 async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/schall <achievement> in reply to a message that mentions players.
+    """<achievement> in reply to a message that mentions players.
+
+    Reached two ways: /sch (and /search) route here on their own when replying to
+    a bot message that mentions players — see _is_bot_player_reply — and /schall
+    still calls it directly for anyone with the old spelling in muscle memory.
 
     Matches a single achievement the same way /info does, then lists the mentioned
     players who have *not* obtained it, with a button to toggle to those who have.
@@ -425,16 +451,10 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 user=unidecode(requester_name), args=args)
 
     if replied is None:
-        await update.message.reply_text(
-            "Reply to a message that mentions players with "
-            "<code>/schall &lt;achievement&gt;</code>.",
-            parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.SCHALL_NEED_REPLY, parse_mode=ParseMode.HTML)
         return
     if not search:
-        await update.message.reply_text(
-            "Invalid parameter! Syntax:\n<code>/schall [achievement_to_search]</code>\n"
-            "(reply to a message that mentions players)",
-            parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.SCHALL_USAGE, parse_mode=ParseMode.HTML)
         return
     if len(search) < 3:
         await update.message.reply_text("Please enter at least 3 letters to search for!\n")
@@ -498,8 +518,7 @@ async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view=view, expired=payload is None)
 
     if payload is None:
-        await query.answer(
-            "This list has expired. Please run /schall again.", show_alert=True)
+        await query.answer(t.SCHALL_EXPIRED, show_alert=True)
         return
 
     msg, keyboard = _render_schall(payload, token, show_have)
@@ -586,14 +605,24 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
+    replied = update.message.reply_to_message
+
+    # A bare /info replying to a bot means "info for everything that message
+    # lists" — the game bot's Possible Achievements post. Given arguments, or
+    # replying to a human, it stays the single-achievement lookup below.
+    if not args and replied is not None and replied.from_user is not None \
+            and replied.from_user.is_bot:
+        await all_info_cmd(update, context)
+        return
+
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
 
     search = ""
     if len(args) > 0:
         search = ' '.join(args)
-    elif update.message.reply_to_message and update.message.reply_to_message.text:
-        search = update.message.reply_to_message.text
+    elif replied and replied.text:
+        search = replied.text
 
     logger.info("command", command="info", user_id=user_id, user=unidecode(name), args=args)
 
@@ -822,16 +851,24 @@ async def clear_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
-# Pending /allinfo requests: token -> list of achievement names. Populated when
-# /allinfo runs, consumed when a user taps the inline button so each interested user
-# gets the cards in their own PM (no need to re-run the command). We store names (not
-# rendered cards) and re-render on tap, so notes stay fresh and the payload is tiny.
+# Pending /info card sets: token -> list of achievement names. Populated when a
+# bare /info replies to a list of achievements, consumed when a user taps the inline
+# button so each interested user gets the cards in their own PM (no need to re-run
+# the command). We store names (not rendered cards) and re-render on tap, so notes
+# stay fresh and the payload is tiny.
 #
 # The store lives in application.bot_data, so with a persistence backend configured
 # (see REDIS_URL) it survives restarts; without one it's in-memory and a stale button
 # just reports "expired". The dict is bounded (insertion-ordered eviction).
 _ALLINFO_MAX = 200
 _ALLINFO_PREFIX = "allinfo:"
+# callback_data is capped at 64 bytes, so a button carries only an action, the
+# token, and — when paging — the card index it wants; the cards themselves are
+# re-resolved from the token on every tap.
+_ALLINFO_PM = "pm"      # allinfo:pm:<token>       — open the pager in the tapper's PM
+_ALLINFO_PAGE = "p"     # allinfo:p:<token>:<idx>  — show card <idx>
+_ALLINFO_ALL = "all"    # allinfo:all:<token>      — send every card as its own message
+_ALLINFO_ACTIONS = (_ALLINFO_PM, _ALLINFO_PAGE, _ALLINFO_ALL)
 
 
 def _store_allinfo_names(context, names):
@@ -844,6 +881,58 @@ def _store_allinfo_names(context, names):
     return token
 
 
+def _allinfo_unmatched(not_found):
+    """The "couldn't match these names" line, capped so it can't run away."""
+    names = ", ".join(html.escape(n) for n in not_found[:10])
+    if len(not_found) > 10:
+        names += ", ..."
+    return t.ALLINFO_NOT_MATCHED.format(names=names)
+
+
+def _render_allinfo_page(cards, index, token):
+    """Render one card of a /info result set: (message_html, keyboard).
+
+    Prev/Next wrap around modulo the card count, so the keyboard keeps the same
+    shape on every page — a button never moves out from under the user's thumb at
+    the ends of the list. A single card gets no keyboard at all: there is nothing
+    to page through, and "send all" would just repeat what's already on screen.
+    """
+    total = len(cards)
+    msg = cards[index] + t.ALLINFO_PAGE_FOOTER.format(index=index + 1, total=total)
+    if total == 1:
+        return msg, None
+
+    def page(target):
+        return "{}{}:{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_PAGE, token, target % total)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(t.ALLINFO_PREV, callback_data=page(index - 1)),
+         InlineKeyboardButton(t.ALLINFO_NEXT, callback_data=page(index + 1))],
+        [InlineKeyboardButton(
+            t.ALLINFO_SEND_ALL.format(count=total),
+            callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_ALL, token))],
+    ])
+    return msg, keyboard
+
+
+async def _deliver_to_pm(context, query, sends):
+    """Send (text, keyboard) pairs to the user who tapped `query`. True on success.
+
+    A failure is almost always that the user has never started the bot in PM, so
+    we can't message them at all. A callback answer can't carry a button, so the
+    alert spells out the fix and they can tap again once the chat exists.
+    """
+    try:
+        for text, keyboard in sends:
+            await context.bot.send_message(
+                chat_id=query.from_user.id, text=text, reply_markup=keyboard,
+                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception:
+        await query.answer(t.ALLINFO_NO_PM, show_alert=True)
+        return False
+    return True
+
+
 async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
@@ -852,79 +941,99 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("command", command="allinfo", user_id=user_id, user=unidecode(name))
 
     if replied is None:
-        await update.message.reply_text(
-            "Reply to a 'Possible Achievements' message with <code>/allinfo</code>.",
-            parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.ALLINFO_NEED_REPLY, parse_mode=ParseMode.HTML)
         return
 
     source_text = replied.text or replied.caption or ""
     achv_names = _extract_possible_achievements(source_text)
     if not achv_names:
-        await update.message.reply_text(
-            "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>.",
-            parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.ALLINFO_NO_ACHIEVEMENTS, parse_mode=ParseMode.HTML)
         return
 
     cards, not_found = await _resolve_achievement_cards(achv_names)
     if not cards:
-        await update.message.reply_text("No matching achievements found.")
+        await update.message.reply_text(t.ALLINFO_NO_MATCH)
         return
 
-    # Post one message with a button. Anyone in the chat can tap it to receive the
-    # cards in their own PM, so multiple people don't have to each run /allinfo.
     token = _store_allinfo_names(context, achv_names)
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("📥 Send me the info in PM", callback_data=_ALLINFO_PREFIX + token)]])
-    prompt = "Found info for <b>{}</b> achievement{} from that list.\nTap the button to get the info cards in your PM.".format(
-        len(cards), "" if len(cards) == 1 else "s")
+
+    # In a private chat the pager can go straight into the conversation; offering
+    # to PM someone who is already in their PM would just add a hop.
+    if update.message.chat.type == 'private':
+        if not_found:
+            await update.message.reply_text(
+                _allinfo_unmatched(not_found), parse_mode=ParseMode.HTML)
+        msg, keyboard = _render_allinfo_page(cards, 0, token)
+        await update.message.reply_text(
+            msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True)
+        return
+
+    # In a group, post one message with a button instead: everyone who wants the
+    # cards taps it and gets their own pager in PM, rather than one person's
+    # paging being visible to — and shared with — the whole chat.
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(
+        t.ALLINFO_PM_BUTTON,
+        callback_data="{}{}:{}".format(_ALLINFO_PREFIX, _ALLINFO_PM, token))]])
+    prompt = t.ALLINFO_PROMPT.format(
+        count=len(cards), plural="" if len(cards) == 1 else "s")
     if not_found:
-        prompt += "\n\nCould not match: {}".format(", ".join(html.escape(n) for n in not_found[:10]))
-        if len(not_found) > 10:
-            prompt += ", ..."
+        prompt += "\n\n" + _allinfo_unmatched(not_found)
     await update.message.reply_text(
         prompt, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def all_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Deliver the stored /allinfo cards to whichever user tapped the button."""
+    """Serve the /info card pager: open it in a PM, page it, or send every card."""
     query = update.callback_query
     user = query.from_user
-    token = query.data[len(_ALLINFO_PREFIX):] if query.data.startswith(_ALLINFO_PREFIX) else ""
+    action, _, rest = query.data[len(_ALLINFO_PREFIX):].partition(":")
+    if action not in _ALLINFO_ACTIONS:
+        # A button posted before the pager existed carried a bare token, and its
+        # message may still be sitting in a group. Treat it as the PM hand-off.
+        action, rest = _ALLINFO_PM, query.data[len(_ALLINFO_PREFIX):]
+    token, _, raw_index = rest.partition(":")
     names = context.bot_data.get("allinfo", {}).get(token)
 
     logger.info("callback", command="allinfo", user_id=user.id,
-                user=unidecode(html.escape(user.first_name)),
+                user=unidecode(html.escape(user.first_name)), action=action,
                 count=len(names) if names else 0, expired=names is None)
 
     if names is None:
-        await query.answer(
-            "This request has expired. Please run /allinfo again.", show_alert=True)
+        await query.answer(t.ALLINFO_EXPIRED, show_alert=True)
         return
 
     # Re-render now so notes reflect the latest edits.
     cards, _ = await _resolve_achievement_cards(names)
     if not cards:
-        await query.answer(
-            "Those achievements are no longer available.", show_alert=True)
+        await query.answer(t.ALLINFO_GONE, show_alert=True)
         return
 
-    try:
-        for card in cards:
-            await context.bot.send_message(
-                chat_id=user.id, text=card,
-                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    except Exception:
-        # Almost always: the user has never started the bot in PM, so we can't
-        # message them. A callback answer can't carry a button, so point them at
-        # the fix and let them tap again once they've started the chat.
-        await query.answer(
-            "I can't message you yet. Start a private chat with me first "
-            "(tap my name, then Start), then tap the button again.",
-            show_alert=True)
+    if action == _ALLINFO_PAGE:
+        # Modulo rather than a bounds check: a /setnote edit between taps can
+        # change how many names still resolve, and the index in the button the
+        # user just tapped was written before that.
+        index = int(raw_index) % len(cards) if raw_index.isdigit() else 0
+        msg, keyboard = _render_allinfo_page(cards, index, token)
+        try:
+            await query.edit_message_text(
+                msg, reply_markup=keyboard, parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True)
+        except BadRequest:
+            # Two taps raced and the message already shows this card. Nothing to
+            # update — just acknowledge the tap.
+            pass
+        await query.answer()
         return
 
-    await query.answer("Sent {} card{} to your PM ✅".format(
-        len(cards), "" if len(cards) == 1 else "s"))
+    if action == _ALLINFO_ALL:
+        if await _deliver_to_pm(context, query, [(card, None) for card in cards]):
+            await query.answer(t.ALLINFO_SENT_ALL.format(
+                count=len(cards), plural="" if len(cards) == 1 else "s"))
+        return
+
+    if await _deliver_to_pm(context, query, [_render_allinfo_page(cards, 0, token)]):
+        await query.answer(t.ALLINFO_SENT_PAGER)
 
 
 # Telegram caps messages at 4096 chars; keep the SQL result well under that.
@@ -1046,17 +1155,18 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # Public commands shown in Telegram's command menu (the "/" list and Menu
 # button). Admin/superuser commands (addadmin, deladmin, admins, setnote, db)
 # are intentionally omitted. Command aliases are omitted too — only the primary
-# verb is listed to keep the menu clean.
+# verb is listed to keep the menu clean. schall and allinfo are omitted for the
+# same reason: /search and /info now switch to that behaviour themselves when
+# they reply to a bot message, so the explicit spellings are only kept working
+# for muscle memory, not advertised.
 PUBLIC_COMMANDS = [
     BotCommand("stats", "Your game stats (or reply to another player)"),
     BotCommand("kills", "Players you've killed the most"),
     BotCommand("killedby", "Players who've killed you the most"),
     BotCommand("deaths", "Your most common causes of death"),
-    BotCommand("search", "Search your attained achievements"),
-    BotCommand("schall", "Reply: who among mentioned players lacks an achievement"),
+    BotCommand("search", "Search your achievements, or reply to a player list to check everyone"),
     BotCommand("achievements", "List all achievements"),
-    BotCommand("info", "Look up an achievement by name"),
-    BotCommand("allinfo", "Reply: get info cards for listed achievements"),
+    BotCommand("info", "Look up an achievement, or reply to a list to get them all"),
     BotCommand("about", "About this bot"),
     BotCommand("version", "Show the running bot version"),
     BotCommand("start", "Start the bot in a private chat"),
