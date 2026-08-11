@@ -242,6 +242,13 @@ anyone asking about themselves. The cache is per-chat (one group's roster can ne
 in another), expires after an hour because a game roster changes every round, and the reply
 always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
 
+**The /schall toggle belongs to whoever asked.** Only the requester (recorded as
+`requested_by` in the payload) and admins may flip the view; anyone else gets an alert and the
+message is left alone. Before that, whoever tapped last decided what everyone saw. The
+requester check comes first so the common tap costs no `admins` lookup, and payloads stored
+before the field existed stay open to everyone — with `REDIS_URL` set they survive a restart,
+and locking the requester out of a live message would be the worse failure.
+
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
 Stored state (e.g. `/schall` player names) is kept **unescaped** and escaped only at
