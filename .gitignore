@@ -1,3 +1,12 @@
 config.py
 __pycache__
 .idea
+
+# Virtualenv — recreate with `uv sync` (uv.lock is committed)
+.venv
+
+# Tooling caches and coverage artifacts
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov

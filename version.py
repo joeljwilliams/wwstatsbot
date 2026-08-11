@@ -1,7 +1,25 @@
-"""Runtime version/build identification for the /version command.
+"""Release version and build identification for the /version command.
 
-Resolves which git commit/branch is running, so a deploy can be tied to a precise
-commit. Resolution order (first hit wins), computed ONCE at import so the git
+Two independent things are reported. **VERSION** is the semantic version of the
+release — chosen by a human, bumped in a commit. The **commit and branch** identify the
+exact build running it, so a deploy can be tied to a precise revision.
+
+VERSION is a plain constant here, and this module is the single source of truth for it.
+The two obvious alternatives do not work for this app:
+
+  * `importlib.metadata.version("wwstatsbot")` — there is no dist-info. The bot is a flat
+    set of modules with no build backend, installed with `uv sync --no-install-project`.
+  * parsing `pyproject.toml` at runtime — it is copied into the *builder* stage only, so
+    it does not exist in the running image.
+
+`pyproject.toml` still carries a `version` for uv's benefit, and
+tests/test_version.py asserts the two agree, so the mirror cannot drift silently.
+
+Bumping a release: edit VERSION here and `version` in pyproject.toml in the same commit,
+following semver — major for a breaking change to commands or stored data, minor for a
+new command or capability, patch for fixes.
+
+Commit/branch resolution order (first hit wins), computed ONCE at import so the git
 subprocess (if any) runs at process startup, never inside the async event loop:
 
   1. Railway  — the production path. Railway auto-injects git metadata as runtime
@@ -18,6 +36,19 @@ get_version_info() returns the cached dict; callers must not mutate it.
 import os
 import shutil
 import subprocess
+
+# The release version, semver. Keep in step with `version` in pyproject.toml — a test
+# enforces it.
+#
+# The numbers carry the project's history rather than starting from scratch:
+#   major 2  — 1.x was the original bot (Carson True, later @jeffffc); 2.x is the async
+#              rewrite this fork carries.
+#   minor 22 — feature releases since that rewrite. (Coincidentally the same number as the
+#              python-telegram-bot major it targets. The two are unrelated.)
+#
+# Not derived from git tags: the container has no .git and Railway does not inject tag
+# metadata, so a tag-derived version would read "unknown" exactly where it matters most.
+VERSION = "2.22.0"
 
 UNKNOWN = "unknown"
 
@@ -38,7 +69,10 @@ def _short(commit):
 
 
 def _info(commit, branch, commit_url, source):
+    # `commit` (the full sha) is retained even though /version no longer displays it: it
+    # builds the commit URL, and structured log lines carry it.
     return {
+        "version": VERSION,
         "commit": commit or UNKNOWN,
         "branch": branch or UNKNOWN,
         "short_commit": _short(commit),
@@ -77,7 +111,10 @@ def _git(*args):
     try:
         result = subprocess.run(
             ["git", *args],
-            capture_output=True, text=True, timeout=2, check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
         )
     except (FileNotFoundError, subprocess.SubprocessError, OSError):
         return None
@@ -106,12 +143,7 @@ def _from_git():
 
 
 def _resolve():
-    return (
-        _from_railway()
-        or _from_env()
-        or _from_git()
-        or _info(UNKNOWN, UNKNOWN, "", "unknown")
-    )
+    return _from_railway() or _from_env() or _from_git() or _info(UNKNOWN, UNKNOWN, "", "unknown")
 
 
 _VERSION_INFO = _resolve()

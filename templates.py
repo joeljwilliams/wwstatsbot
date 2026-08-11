@@ -4,16 +4,16 @@ All human-visible strings live here so they can be edited without touching the
 handler/builder logic. Two Telegram parse modes are in play:
 
   * HTML     — the /stats, /kills, /killedby, /deaths, /info and inline output
-               (built in main.py).
+               (assembled in builders.py and the handlers/ modules).
   * Markdown — the /achv achievement list (built in wwstats.py).
 
 Templates use str.format named fields; call `.format(**kwargs)`. Small render
 helpers cover the patterns that repeat across builders.
 """
 
-# --- HTML: stat builders (main.py) -----------------------------------------
+# --- HTML: stat builders (builders.py) -------------------------------------
 
-KILLS_HEADER = "Players <a href='tg://user?id={user_id}'> {name}</a> most killed:\n"
+KILLS_HEADER = "Players <a href='tg://user?id={user_id}'>{name}</a> most killed:\n"
 KILLED_BY_HEADER = "Players who killed <a href='tg://user?id={user_id}'>{name}</a> most:\n"
 DEATHS_HEADER = "Types of deaths that <a href='tg://user?id={user_id}'>{name}</a> most had:\n"
 
@@ -29,37 +29,36 @@ STATS_LOST = "<code>{total:<5}</code> Games Lost <code>({percent}%)</code>\n"
 STATS_SURVIVED = "<code>{total:<5}</code> Games Survived <code>({percent}%)</code>\n"
 STATS_TOTAL = "<code>{total:<5}</code> Total Games\n"
 STATS_MOST_KILLED = "<code>{times:<5}</code> times I've gleefully killed {name}\n"
-STATS_MOST_KILLED_BY = "<code>{times:<5}</code> times I've been slaughted by {name}\n\n"
+STATS_MOST_KILLED_BY = "<code>{times:<5}</code> times I've been slaughtered by {name}\n\n"
 NO_GAMES = "<a href='tg://user?id={user_id}'>{name}</a> has not played any games."
 NO_GAMES_BY_ID = "{name} has not played any games."
 
-# --- HTML: achievement info card (main.py) ---------------------------------
+# --- HTML: achievement info card (builders.py) -----------------------------
 
 ACHV_CARD = "<b>{name}</b>\n\n{desc}\n\nType: <code>{type}</code>"
 ACHV_CARD_NOTES = "\n\n<blockquote expandable>{notes}</blockquote>"
 
-# --- HTML: /version build info (main.py) -----------------------------------
+# --- HTML: /version release + build info (handlers/misc.py) ----------------
 
-# Two variants (linked / plain) mirror the STATS_NAME split so no conditional
-# lives inside the string. The handler picks LINKED when a commit_url exists.
+# The release version answers "what is deployed", the branch and short commit answer
+# "exactly which build". The full 40-char sha used to be shown next to the short one,
+# which was redundant on screen — it now only backs the link.
+#
+# Two variants (linked / plain) mirror the STATS_NAME split so no conditional lives
+# inside the string. The handler picks LINKED when a commit_url exists.
 VERSION_INFO_LINKED = (
-    "<b>wwstatsbot</b>\n"
+    "<b>wwstatsbot</b> <code>v{version}</code>\n"
     "Branch: <code>{branch}</code>\n"
-    "Commit: <a href=\"{commit_url}\">{short_commit}</a> <code>{commit}</code>"
+    'Commit: <a href="{commit_url}">{short_commit}</a>'
 )
 VERSION_INFO_PLAIN = (
-    "<b>wwstatsbot</b>\n"
-    "Branch: <code>{branch}</code>\n"
-    "Commit: <code>{short_commit}</code>"
+    "<b>wwstatsbot</b> <code>v{version}</code>\nBranch: <code>{branch}</code>\nCommit: <code>{short_commit}</code>"
 )
 
-# --- HTML: /search achievement match list (main.py) ------------------------
+# --- HTML: /search achievement match list (handlers/search.py) -------------
 
 # Each matching achievement is tagged with whether the target user has it.
-SEARCH_HEADER = (
-    "Achievements matching <b>{query}</b> for "
-    "<a href='tg://user?id={user_id}'>{name}</a>:\n\n"
-)
+SEARCH_HEADER = "Achievements matching <b>{query}</b> for <a href='tg://user?id={user_id}'>{name}</a>:\n\n"
 SEARCH_ROW = "{mark} <code>{name}</code>\n"
 SEARCH_ATTAINED = "✅"
 SEARCH_NOT_ATTAINED = "☑️"
@@ -70,11 +69,7 @@ SEARCH_TRUNCATED = "\n<i>…and {extra} more. Refine your search to see them.</i
 
 # Head of the reply: the single achievement the query matched (shown clearly so
 # it's obvious what everyone is being checked against), then one of the lists.
-SCHALL_HEADER = (
-    "Achievement: <b>{name}</b>\n"
-    "<i>{desc}</i>\n\n"
-    "Checked {count} player{plural} for it:\n"
-)
+SCHALL_HEADER = "Achievement: <b>{name}</b>\n<i>{desc}</i>\n\nChecked {count} player{plural} for it:\n"
 # Section header for whichever list is on screen; only one shows at a time and
 # the button below swaps them (marks mirror /search: ☑️ not attained, ✅ attained).
 SCHALL_MISSING_HEADER = "\n☑️ <b>Not obtained ({count})</b>\n"
@@ -91,17 +86,13 @@ SCHALL_UNRESOLVED = "\n<i>Couldn't check: {names}</i>\n"
 # These name /sch, not /schall: /sch is the advertised spelling and routes here on
 # its own when it replies to a bot message that mentions players. /schall still
 # works when typed, it's just no longer the way anyone is told to reach this.
-SCHALL_NEED_REPLY = (
-    "Reply to a message that mentions players with "
-    "<code>/sch &lt;achievement&gt;</code>."
-)
+SCHALL_NEED_REPLY = "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>."
 SCHALL_USAGE = (
-    "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n"
-    "(reply to a message that mentions players)"
+    "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = "This list has expired. Please run /sch again."
 
-# --- HTML: /info achievement card pager (main.py) ---------------------------
+# --- HTML: /info achievement card pager (handlers/achievements.py) ---------
 
 # Group hand-off: one public message with a button, so several people can each
 # pull their own copy of the cards without re-running the command.
@@ -119,19 +110,15 @@ ALLINFO_NEXT = "Next ▶️"
 ALLINFO_SEND_ALL = "📄 Send all {count}"
 # Errors and button acknowledgements. Like the /sch strings above, these name
 # /info rather than the now-hidden /allinfo.
-ALLINFO_NEED_REPLY = (
-    "Reply to a 'Possible Achievements' message with <code>/info</code>."
-)
+ALLINFO_NEED_REPLY = "Reply to a 'Possible Achievements' message with <code>/info</code>."
 ALLINFO_NO_ACHIEVEMENTS = (
-    "No achievements found in that message. Make sure it contains lines like "
-    "<code>- Achievement Name</code>."
+    "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>."
 )
 ALLINFO_NO_MATCH = "No matching achievements found."
 ALLINFO_EXPIRED = "This request has expired. Please run /info again."
 ALLINFO_GONE = "Those achievements are no longer available."
 ALLINFO_NO_PM = (
-    "I can't message you yet. Start a private chat with me first "
-    "(tap my name, then Start), then tap the button again."
+    "I can't message you yet. Start a private chat with me first (tap my name, then Start), then tap the button again."
 )
 ALLINFO_SENT_PAGER = "Sent the achievement info to your PM ✅"
 ALLINFO_SENT_ALL = "Sent {count} card{plural} to your PM ✅"
