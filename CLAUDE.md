@@ -234,6 +234,14 @@ multi-player `display_search_all` when it replies to a bot message that mentions
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
 work but are deliberately absent from `PUBLIC_COMMANDS` — don't re-advertise them.
 
+**`/schall` has a second mode, and `/sch` deliberately does not.** A reply-based run caches
+the chat's `text_mention` user ids in `chat_data`, and `/schall <achv>` with *no* reply
+re-checks them for 60 minutes. `/sch` with no reply still means "check my own achievements":
+it is the advertised command, so silently turning it into a group query would surprise
+anyone asking about themselves. The cache is per-chat (one group's roster can never surface
+in another), expires after an hour because a game roster changes every round, and the reply
+always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
+
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
 Stored state (e.g. `/schall` player names) is kept **unescaped** and escaped only at

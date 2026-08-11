@@ -336,10 +336,13 @@ class FakeContext:
     and JSON-serializability tests exercise the real code path.
     """
 
-    def __init__(self, args=None, bot=None, bot_data=None, error=None):
+    def __init__(self, args=None, bot=None, bot_data=None, chat_data=None, error=None):
         self.args = args if args is not None else []
         self.bot = bot or FakeBot()
         self.bot_data = bot_data if bot_data is not None else {}
+        # Per-chat store, as PTB provides it. /schall's remembered player list lives here,
+        # so a fresh FakeContext means a chat with nothing remembered.
+        self.chat_data = chat_data if chat_data is not None else {}
         self.error = error
 
 
