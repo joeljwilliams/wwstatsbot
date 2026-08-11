@@ -18,18 +18,10 @@ from telegram.ext import ContextTypes
 import builders
 import db
 import notes
-import settings
 from handlers.achievements import _achv_from_reply
+from handlers.common import is_admin_user, is_superuser
 
 logger = structlog.get_logger(__name__)
-
-
-def is_superuser(user_id):
-    return settings.SUPERUSER_ID is not None and user_id == settings.SUPERUSER_ID
-
-
-async def is_admin_user(user_id):
-    return is_superuser(user_id) or await db.is_admin(user_id)
 
 
 def _resolve_admin_target(update, context):

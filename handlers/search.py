@@ -21,7 +21,7 @@ from unidecode import unidecode
 import api
 import builders
 import templates as t
-from handlers.common import resolve_target
+from handlers.common import is_admin_user, resolve_target
 
 logger = structlog.get_logger(__name__)
 
@@ -329,6 +329,10 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "missing": missing,
         "have": have,
         "unresolved": unresolved,
+        # Who may work the toggle. Stored rather than read from the callback's message,
+        # because Telegram does not tell us who sent the message a button is attached to.
+        "requested_by": requester_id,
+        "requested_by_name": update.message.from_user.first_name,
         # None on a fresh run. Frozen at run time on purpose — the toggle re-renders the
         # same result, so a growing age (eventually exceeding the TTL) would misdescribe it.
         "from_cache_age": None if cached_age is None else _describe_age(cached_age),
@@ -339,6 +343,25 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         msg, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
     )
+
+
+async def _may_toggle(user_id, payload):
+    """Whether `user_id` may flip this list's view.
+
+    The requester may, because it is their question. Admins may, because they moderate.
+    Anyone else taps and gets told — before this, whoever tapped last decided what
+    everyone else saw, which in a busy group meant a list flipping under the person who
+    asked for it.
+
+    Payloads stored before this existed carry no owner. Those stay open to everyone rather
+    than becoming unusable: with REDIS_URL set they survive a restart, and locking out the
+    requester of a live message would be the worse failure.
+    """
+    owner = payload.get("requested_by")
+    if owner is None or user_id == owner:
+        return True
+    # Only now is the database worth touching — the requester is the common case.
+    return await is_admin_user(user_id)
 
 
 async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -360,6 +383,15 @@ async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if payload is None:
         await query.answer(t.SCHALL_EXPIRED, show_alert=True)
+        return
+
+    if not await _may_toggle(user.id, payload):
+        # Answer without editing: the message keeps whichever view its owner chose.
+        logger.info("schall_toggle_denied", user_id=user.id, owner=payload.get("requested_by"))
+        await query.answer(
+            t.SCHALL_NOT_YOURS.format(name=payload.get("requested_by_name") or "the requester"),
+            show_alert=True,
+        )
         return
 
     msg, keyboard = _render_schall(payload, token, show_have)
