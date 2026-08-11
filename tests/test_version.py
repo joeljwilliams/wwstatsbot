@@ -1,4 +1,10 @@
-"""Build identification for /version.
+"""Release version and build identification for /version.
+
+Two independent things: VERSION, the human-chosen semantic version of the release, and
+the commit/branch that identify the exact build. VERSION lives in version.py as the
+single source of truth — neither importlib.metadata (no dist-info) nor parsing
+pyproject.toml (absent from the runtime image) works here — with pyproject.toml kept as a
+mirror that test_pyproject_version_matches below stops from drifting.
 
 version.py resolves the running commit once at import, trying Railway env vars, then
 generic GIT_* env, then the git CLI, then giving up. The resolution *order* is the
@@ -38,6 +44,7 @@ def test_info_shape_is_complete():
     """/version formats a template with **info, so every key must be present."""
     info = version._info("abcdef1234", "devel", "http://x", "test")
     assert info == {
+        "version": version.VERSION,
         "commit": "abcdef1234",
         "branch": "devel",
         "short_commit": "abcdef1",
@@ -115,6 +122,7 @@ def test_resolution_falls_all_the_way_through_to_unknown(monkeypatch):
     monkeypatch.setattr(version, "_from_git", lambda: None)
     info = version._resolve()
     assert info == {
+        "version": version.VERSION,
         "commit": version.UNKNOWN,
         "branch": version.UNKNOWN,
         "short_commit": version.UNKNOWN,
@@ -125,3 +133,47 @@ def test_resolution_falls_all_the_way_through_to_unknown(monkeypatch):
 
 def test_cached_info_is_returned(monkeypatch):
     assert version.get_version_info() is version._VERSION_INFO
+
+
+# --- The release version ----------------------------------------------------------
+
+
+def test_version_is_semver():
+    """major.minor.patch, all numeric — the /version output prefixes it with a literal v."""
+    parts = version.VERSION.split(".")
+    assert len(parts) == 3, version.VERSION
+    assert all(p.isdigit() for p in parts), version.VERSION
+
+
+def test_pyproject_version_matches():
+    """pyproject.toml mirrors VERSION for uv's benefit; this stops the two drifting.
+
+    version.py is authoritative because it is the only one of the two that exists at
+    runtime — pyproject.toml is copied into the builder stage only.
+    """
+    import pathlib
+    import tomllib
+
+    pyproject = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert declared == version.VERSION, (
+        "pyproject.toml says {!r} but version.VERSION says {!r} — bump both in one commit".format(
+            declared, version.VERSION
+        )
+    )
+
+
+def test_info_carries_the_release_version():
+    assert version._info("abc", "main", "", "test")["version"] == version.VERSION
+
+
+def test_get_version_info_includes_every_field_the_templates_need():
+    """/version formats a template with **info, so a missing key is a KeyError in a handler."""
+    import string
+
+    import templates as t
+
+    info = version.get_version_info()
+    for template in (t.VERSION_INFO_LINKED, t.VERSION_INFO_PLAIN):
+        needed = {f for _, f, _, _ in string.Formatter().parse(template) if f}
+        assert needed <= set(info), "missing from get_version_info(): {}".format(needed - set(info))

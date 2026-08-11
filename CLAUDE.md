@@ -41,7 +41,8 @@ curl localhost:8080/healthz   # liveness — 200 while the process lives
 curl localhost:8080/readyz    # readiness — 503 until DB init + set_my_commands finish
 ```
 
-A running instance can be inspected live: `/version` reports the deployed commit, and
+A running instance can be inspected live: `/version` reports the release version, branch
+and short commit, and
 `/db <sql>` (superuser only) is a raw SQL console against production Postgres.
 
 ## Testing
@@ -104,7 +105,24 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
 - **`redis_persistence.py`** — durable `DictPersistence` subclass for PTB (whole state
   blob under one Redis key).
 - **`health.py`**, **`logging_config.py`**, **`version.py`** — stdlib health server on a
-  daemon thread; structlog-over-stdlib setup; git/Railway commit resolution for `/version`.
+  daemon thread; structlog-over-stdlib setup; release version plus git/Railway commit
+  resolution for `/version`.
+
+### Releasing
+
+The version numbers carry the project's history: **2.x** is the async rewrite this fork
+carries (1.x was the original bot), and the **minor** counts feature releases since that
+rewrite. So `2.22.0` is the 22nd feature release of the rewrite, not a fresh start.
+
+`version.VERSION` is the single source of truth for the semantic version, and
+`pyproject.toml`'s `version` mirrors it for uv — `test_pyproject_version_matches` fails if
+they drift. **Bump both in the same commit.** Semver here means: major for a breaking change
+to commands or stored data, minor for a new command or capability, patch for fixes.
+
+It is not derived from git tags on purpose: the container has no `.git` and Railway injects
+commit metadata but not tags, so a tag-derived version would read `unknown` in production —
+exactly where it matters. `importlib.metadata` is unavailable too (no build backend, and
+`uv sync --no-install-project`).
 
 ### Things that will bite you
 
