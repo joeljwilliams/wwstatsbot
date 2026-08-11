@@ -9,6 +9,7 @@ suite can patch it in place.
 import asyncio
 import html
 import secrets
+import time
 
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
@@ -139,6 +140,60 @@ def _store_schall_result(context, payload):
     return token
 
 
+# /schall with no reply re-uses the players from this chat's last reply-based run, so
+# checking a second achievement against the same roster doesn't mean scrolling back to the
+# player list. It lives in chat_data, which is per-chat (one group's line-up can never leak
+# into another) and is persisted by RedisPersistence when REDIS_URL is set.
+#
+# It expires after an hour: a game group's roster changes every round, and silently checking
+# last night's players would be worse than refusing. The reply always says how old the list
+# is, so even inside the hour a remembered result is never mistaken for a fresh one.
+_SCHALL_CACHE_KEY = "schall_players"
+_SCHALL_CACHE_TTL = 60 * 60
+_SCHALL_CACHE_TTL_LABEL = "60 minutes"
+
+
+def _now():
+    """Wall clock, wrapped so tests can control the cache's age."""
+    return time.time()
+
+
+def _describe_age(seconds):
+    """Compact age for the cache notice: "just now", "12m ago"."""
+    minutes = int(seconds // 60)
+    return "just now" if minutes < 1 else "{}m ago".format(minutes)
+
+
+def _remember_players(context, users, unresolved):
+    """Cache this chat's player list. Stored JSON-serializable for persistence."""
+    context.chat_data[_SCHALL_CACHE_KEY] = {
+        "users": [[uid, name] for uid, name in users],
+        "unresolved": list(unresolved),
+        "at": _now(),
+    }
+
+
+def _recall_players(context):
+    """This chat's remembered players as (users, unresolved, age_seconds).
+
+    Returns None when nothing is remembered, and ("stale") when what is remembered is
+    older than the TTL — the caller distinguishes the two because "reply to a list" and
+    "your list expired" are different things to be told.
+    """
+    cached = context.chat_data.get(_SCHALL_CACHE_KEY)
+    if not cached:
+        return None
+    age = _now() - cached["at"]
+    if age > _SCHALL_CACHE_TTL:
+        # Drop it rather than leave it to be re-checked on every future call.
+        context.chat_data.pop(_SCHALL_CACHE_KEY, None)
+        return "stale"
+    # JSON turns the stored pairs into lists; normalise back to tuples so the rest of the
+    # handler cannot tell a cached run from a fresh one.
+    users = [(uid, name) for uid, name in cached["users"]]
+    return users, list(cached["unresolved"]), age
+
+
 def _render_schall(payload, token, show_have):
     """Render one view of a /schall result: (message_html, toggle_keyboard).
 
@@ -156,6 +211,9 @@ def _render_schall(payload, token, show_have):
         count=checked,
         plural="" if checked == 1 else "s",
     )
+    # Payloads stored before this field existed have no key, hence .get().
+    if payload.get("from_cache_age"):
+        msg += t.SCHALL_FROM_CACHE.format(age=payload["from_cache_age"])
     section = t.SCHALL_HAVE_HEADER if show_have else t.SCHALL_MISSING_HEADER
     msg += section.format(count=len(shown))
     msg += (
@@ -182,9 +240,12 @@ def _render_schall(payload, token, show_have):
 async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """<achievement> in reply to a message that mentions players.
 
-    Reached two ways: /sch (and /search) route here on their own when replying to
-    a bot message that mentions players — see _is_bot_player_reply — and /schall
-    still calls it directly for anyone with the old spelling in muscle memory.
+    Reached three ways: /sch (and /search) route here on their own when replying to a bot
+    message that mentions players — see _is_bot_player_reply — /schall calls it directly
+    with a reply, and /schall *without* a reply re-checks this chat's remembered list.
+
+    /sch with no reply deliberately still means "check my own achievements"; only /schall
+    reads the cache, so the advertised command keeps its established meaning.
 
     Matches a single achievement the same way /info does, then lists the mentioned
     players who have *not* obtained it, with a button to toggle to those who have.
@@ -197,14 +258,41 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     logger.info("command", command="schall", user_id=requester_id, user=unidecode(requester_name), args=args)
 
-    if replied is None:
-        await update.message.reply_text(t.SCHALL_NEED_REPLY, parse_mode=ParseMode.HTML)
-        return
     if not search:
         await update.message.reply_text(t.SCHALL_USAGE, parse_mode=ParseMode.HTML)
         return
     if len(search) < 3:
         await update.message.reply_text("Please enter at least 3 letters to search for!\n")
+        return
+
+    # Where the players come from: a reply, or this chat's remembered list.
+    cached_age = None
+    if replied is not None:
+        users, unresolved = _mentioned_users(replied)
+        if users:
+            # Only remember a list that is actually checkable, so replying to a message
+            # of bare @usernames cannot wipe a good one.
+            _remember_players(context, users, unresolved)
+    else:
+        remembered = _recall_players(context)
+        if remembered is None:
+            await update.message.reply_text(
+                t.SCHALL_NO_REPLY_NO_CACHE.format(ttl=_SCHALL_CACHE_TTL_LABEL), parse_mode=ParseMode.HTML
+            )
+            return
+        if remembered == "stale":
+            await update.message.reply_text(
+                t.SCHALL_CACHE_STALE.format(ttl=_SCHALL_CACHE_TTL_LABEL), parse_mode=ParseMode.HTML
+            )
+            return
+        users, unresolved, cached_age = remembered
+
+    if not users:
+        note = (
+            "Reply to a message that mentions players directly. "
+            "I can't check plain @username mentions (they carry no user id)."
+        )
+        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
         return
 
     # Single best match, exactly like /info (results are rank-ordered).
@@ -213,15 +301,6 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("No matching achievements found!\n")
         return
     achv = found[0]
-
-    users, unresolved = _mentioned_users(replied)
-    if not users:
-        note = (
-            "Reply to a message that mentions players directly. "
-            "I can't check plain @username mentions (they carry no user id)."
-        )
-        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
-        return
 
     # Look up every mentioned player's achievements concurrently. A failed lookup
     # (network/API) shouldn't sink the whole command, so those users are reported
@@ -250,6 +329,9 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "missing": missing,
         "have": have,
         "unresolved": unresolved,
+        # None on a fresh run. Frozen at run time on purpose — the toggle re-renders the
+        # same result, so a growing age (eventually exceeding the TTL) would misdescribe it.
+        "from_cache_age": None if cached_age is None else _describe_age(cached_age),
     }
     token = _store_schall_result(context, payload)
     msg, keyboard = _render_schall(payload, token, show_have=False)

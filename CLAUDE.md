@@ -9,6 +9,51 @@ Werewolf-for-Telegram public stats API (`tgwerewolf.com`) and renders them in ch
 Long-lived fork of an older bot, rewritten for python-telegram-bot v22 (async).
 Python 3.12 in the container; runs as a **long-polling** process (no webhook).
 
+## Workflow
+
+**Never commit directly to `devel` or `main`.** Both are protected by convention, and
+`main` is what Railway deploys — a commit there is a production deploy.
+
+Every change, however small, follows the same loop:
+
+```
+feature branch  ──PR──▶  devel  ──PR──▶  main  ──▶  auto-tag + release + deploy
+```
+
+1. **Branch off `devel`**, never off `main`. Prefix to match existing names: `feat/`,
+   `fix/`, `bugfix/`, `refactor/`, `chore/`, `test/`.
+2. **Open a PR into `devel`.** CI runs on every PR regardless of base, so stacking a
+   branch on another feature branch is fine and gets full checks.
+3. **Wait for the PR to be live-tested.** "Tested" here means the bot actually run against
+   Telegram with a real token — not CI going green. Don't merge on CI alone, and don't
+   report a change as verified when only CI has passed: the suite cannot catch anything at
+   the Telegram API boundary (a `parse_mode` rejection, a malformed keyboard).
+4. **`devel` → `main` is a release**, and deploys to production. See *Releasing*.
+
+Use a **merge commit**, not a squash, when promoting `devel` → `main`: squashing erases the
+`ruff format` SHA that `.git-blame-ignore-revs` references, and collapses history that is
+deliberately kept separate so "output changed" and "code moved" are never ambiguous in one
+diff.
+
+### Commits
+
+Conventional commits, one logical change each. Prefixes in use here:
+
+| Prefix | For |
+|---|---|
+| `feat(scope):` | new user-facing behaviour |
+| `fix(scope):` | bug fixes, including user-visible copy corrections |
+| `refactor:` | code motion or simplification with no behaviour change |
+| `test:` | tests only |
+| `ci:` / `chore:` | pipeline, tooling, dependencies |
+| `style:` | formatting only — reserved for whole-repo `ruff format` passes |
+
+Two rules that matter more than they look:
+
+- **Never mix a copy change with a refactor.** A golden-test diff is the review artifact
+  showing exactly which bytes users will see differently; mixing makes it unreadable.
+- **Bump the version and its mirror in the same commit** (see *Releasing*).
+
 ## Commands
 
 Dependencies are managed with **uv** (`pyproject.toml` + committed `uv.lock`); there is
@@ -114,10 +159,28 @@ The version numbers carry the project's history: **2.x** is the async rewrite th
 carries (1.x was the original bot), and the **minor** counts feature releases since that
 rewrite. So `2.22.0` is the 22nd feature release of the rewrite, not a fresh start.
 
-`version.VERSION` is the single source of truth for the semantic version, and
-`pyproject.toml`'s `version` mirrors it for uv — `test_pyproject_version_matches` fails if
-they drift. **Bump both in the same commit.** Semver here means: major for a breaking change
-to commands or stored data, minor for a new command or capability, patch for fixes.
+**A version bump touches exactly two places, in one commit:**
+
+| File | What |
+|---|---|
+| `version.py` | `VERSION = "X.Y.Z"` — the single source of truth, and the only one that exists at runtime |
+| `pyproject.toml` | `version = "X.Y.Z"` — a mirror, for uv |
+
+`test_pyproject_version_matches` fails if they drift, so a half-bump turns CI red rather
+than shipping a version that lies. Nothing else needs editing: the template reads
+`{version}` from `get_version_info()`, and the tag comes from `version.py` in CI.
+
+Which number moves:
+
+| Change | Bump |
+|---|---|
+| breaking change to commands or stored data | **major** |
+| new command or capability | **minor** |
+| bug fix, copy fix, internal refactor | **patch** |
+
+A refactor with no behaviour change still warrants a patch bump if it is deployed, so the
+running `/version` distinguishes builds. Changes that never reach the image need no bump at
+all — docs, tests, and CI are all `.dockerignore`d, so they cannot alter what is running.
 
 It is not derived from git tags on purpose: the container has no `.git` and Railway injects
 commit metadata but not tags, so a tag-derived version would read `unknown` in production —
@@ -143,6 +206,16 @@ this. Cached entries keep the legacy `ACHV` dict shape: `desc` (not `description
 `inactive`/`not_via_playing` keys **present only when true** (`a.get('inactive')`, never
 `a['inactive']`).
 
+**The search column is rebuilt, not patched.** `ensure_schema()` drops and recreates
+`search_tsv` on every startup. `ADD COLUMN IF NOT EXISTS` silently skips an existing column,
+so editing the generation expression changed nothing on a live database — and the test fixture
+drops the tables, so the whole suite passed while production kept the old definition. That gap
+shipped a broken initialism search (typing `SSS` found nothing for "Should've Said Something").
+The column is GENERATED, so a rebuild loses no data, and it costs ~4ms on ~110 rows. If you
+change the expression, `test_ensure_schema_rebuilds_a_stale_search_column` is what proves a
+live database actually picks it up — it is the one db test that does not start from dropped
+tables.
+
 **Search has two layers.** `build_info_results()` tries Postgres FTS
 (`search_achievements`) and falls back to a substring scan over the cache. The `search_tsv`
 generated column and the query must use the *same* `'english'` config — a mismatch silently
@@ -160,6 +233,14 @@ means payloads must stay **JSON-serializable** and tuples come back as lists.
 multi-player `display_search_all` when it replies to a bot message that mentions players;
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
 work but are deliberately absent from `PUBLIC_COMMANDS` — don't re-advertise them.
+
+**`/schall` has a second mode, and `/sch` deliberately does not.** A reply-based run caches
+the chat's `text_mention` user ids in `chat_data`, and `/schall <achv>` with *no* reply
+re-checks them for 60 minutes. `/sch` with no reply still means "check my own achievements":
+it is the advertised command, so silently turning it into a group query would surprise
+anyone asking about themselves. The cache is per-chat (one group's roster can never surface
+in another), expires after an hour because a game roster changes every round, and the reply
+always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
 
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
@@ -195,8 +276,7 @@ safe *only* because of its superuser gate — never call it from a new handler w
   code (`.format()` throughout) — stay consistent with the surrounding file.
 - Concurrent API fan-out uses `asyncio.gather(..., return_exceptions=True)` so one failed
   player lookup degrades to "couldn't check" rather than failing the command.
-- Conventional commits (`feat(commands):`, `fix(allinfo):`). Work happens on `devel`;
-  PRs merge into `main`.
+- Conventional commits — see **Workflow** below for the prefixes in use.
 - Ruff config selects `E`/`F`/`W`/`B`/`I` but **deliberately not `UP`** — pyupgrade would
   rewrite this codebase's consistent `.format()` style into f-strings. `E501` is off
   (111 lines already exceed 100 chars; the longest is 348).
