@@ -10,6 +10,7 @@ four stat cards, and typed text becomes an achievement search identical to /info
 
 from conftest import FakeContext, FakeInlineQuery, FakeUpdate, FakeUser
 
+import builders
 import main
 
 
@@ -65,7 +66,7 @@ async def test_text_query_searches_achievements(achievements, no_fts, stats_api)
 async def test_text_query_results_carry_the_full_card(achievements, no_fts, stats_api):
     inline = await answer("busy")
     text = inline.results[0].input_message_content.message_text
-    assert text == main.format_single_achv(next(a for a in achievements if a["name"] == "Busy Night"))
+    assert text == builders.format_single_achv(next(a for a in achievements if a["name"] == "Busy Night"))
 
 
 async def test_text_query_description_is_the_achievement_description(achievements, no_fts, stats_api):

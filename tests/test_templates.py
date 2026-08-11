@@ -1,13 +1,14 @@
 """Guards the template/call-site drift class.
 
-Every user-visible string lives in `templates.py` and is `.format()`-ed somewhere in
-`main.py` or `wwstats.py`. Nothing connects the two, so renaming a field on one side
-fails at runtime, inside a handler, in production.
+Every user-visible string lives in `templates.py` and is `.format()`-ed from one of the
+application modules. Nothing connects the two, so renaming a field on one side fails at
+runtime, inside a handler, in production.
 
-`main.py` is about to be split across several modules, which multiplies the number of
-places a template is referenced. These tests are cheap insurance: they don't verify
-wording, they verify that every template is *reachable and formattable*, and that no
-call site references a template that no longer exists.
+`main.py` is being split across several modules, which multiplies the number of places a
+template is referenced — the references are already spread over `main.py`, `builders.py`
+and `wwstats.py`. These tests are cheap insurance: they don't verify wording, they verify
+that every template is *reachable and formattable*, and that no call site references a
+template that no longer exists.
 """
 
 import ast
@@ -22,9 +23,14 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 def sources():
     """Every application module that could reference a template.
 
-    Discovered rather than listed: `main.py` is being split into modules, and a
-    hardcoded list would silently stop covering call sites as they move out — the
-    drift check would keep passing while checking less and less.
+    Discovered rather than listed, because `main.py` is being split into modules and a
+    hardcoded list goes stale on every slice. The two failure directions differ, and both
+    are avoided by globbing:
+
+    * `test_no_template_is_unreferenced` **fails loudly** when references move to a module
+      not on the list — the templates look orphaned. Noisy but safe.
+    * `test_every_referenced_template_exists` **degrades silently**: fewer sources scanned
+      means fewer call sites validated, and it keeps passing while checking less.
     """
     skip = {"conftest.py", "config.py", "configEXAMPLE.py"}
     found = [path for path in sorted(REPO.glob("*.py")) if path.name not in skip]
