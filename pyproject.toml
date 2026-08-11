@@ -22,6 +22,7 @@ dev = [
     "pytest-cov>=5.0",
     "fakeredis>=2.37",
     "ruff>=0.14",
+    "babel>=2.18.0",
 ]
 
 # The bot is an app, not an installable package: it's a flat set of modules run as
