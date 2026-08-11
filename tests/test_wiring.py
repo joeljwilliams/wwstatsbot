@@ -21,6 +21,8 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, InlineQueryHandle
 
 import main
 import settings
+from handlers import achievements as achv_handlers
+from handlers import admin, errors, inline, misc, search, stats
 
 # Commands advertised in Telegram's "/" menu. Sourced from main so the test tracks the
 # real list rather than a copy that could drift out of step with it.
@@ -88,24 +90,24 @@ def test_commands_are_wired_to_the_expected_callbacks():
     that leaves every command registered but some of them doing the wrong thing."""
     registered = command_map(application())
     expected = {
-        "start": main.startme,
-        "stats": main.display_stats,
-        "kills": main.display_kills,
-        "killedby": main.display_killed_by,
-        "deaths": main.display_deaths,
-        "search": main.display_search,
-        "schall": main.display_search_all,
-        "about": main.display_about,
-        "version": main.display_version,
-        "achievements": main.display_achv,
-        "info": main.display_achv_info,
-        "allinfo": main.all_info_cmd,
-        "addadmin": main.add_admin_cmd,
-        "deladmin": main.del_admin_cmd,
-        "admins": main.list_admins_cmd,
-        "setnote": main.set_note_cmd,
-        "clearnote": main.clear_note_cmd,
-        "db": main.db_console_cmd,
+        "start": misc.startme,
+        "stats": stats.display_stats,
+        "kills": stats.display_kills,
+        "killedby": stats.display_killed_by,
+        "deaths": stats.display_deaths,
+        "search": search.display_search,
+        "schall": search.display_search_all,
+        "about": misc.display_about,
+        "version": misc.display_version,
+        "achievements": achv_handlers.display_achv,
+        "info": achv_handlers.display_achv_info,
+        "allinfo": achv_handlers.all_info_cmd,
+        "addadmin": admin.add_admin_cmd,
+        "deladmin": admin.del_admin_cmd,
+        "admins": admin.list_admins_cmd,
+        "setnote": admin.set_note_cmd,
+        "clearnote": admin.clear_note_cmd,
+        "db": admin.db_console_cmd,
     }
     for command, callback in expected.items():
         assert registered[command] is callback, "/{} is wired to {}".format(command, registered[command])
@@ -148,39 +150,42 @@ def test_schall_toggle_button_reaches_its_handler():
     """Feeds the renderer's actual output through the registered patterns, so a prefix
     renamed on either side fails rather than silently producing a dead button."""
     payload = {"name": "X", "desc": "d", "missing": [(1, "A")], "have": [(2, "B")], "unresolved": []}
-    _, keyboard = main._render_schall(payload, "TOK", show_have=False)
+    _, keyboard = search._render_schall(payload, "TOK", show_have=False)
     data = keyboard.inline_keyboard[0][0].callback_data
 
-    assert handler_for_callback_data(application(), data) is main.schall_callback
+    assert handler_for_callback_data(application(), data) is search.schall_callback
 
 
 def test_every_allinfo_button_reaches_its_handler():
     app = application()
-    _, keyboard = main._render_allinfo_page(["A", "B", "C"], 0, "TOK")
+    _, keyboard = achv_handlers._render_allinfo_page(["A", "B", "C"], 0, "TOK")
     for row in keyboard.inline_keyboard:
         for button in row:
-            assert handler_for_callback_data(app, button.callback_data) is main.all_info_callback, (
+            assert handler_for_callback_data(app, button.callback_data) is achv_handlers.all_info_callback, (
                 "no handler matches {!r}".format(button.callback_data)
             )
 
 
 def test_the_group_pm_handoff_button_reaches_its_handler():
     """Built inline in all_info_cmd rather than by a renderer, so it needs its own check."""
-    data = "{}{}:{}".format(main._ALLINFO_PREFIX, main._ALLINFO_PM, "TOK")
-    assert handler_for_callback_data(application(), data) is main.all_info_callback
+    data = "{}{}:{}".format(achv_handlers._ALLINFO_PREFIX, achv_handlers._ALLINFO_PM, "TOK")
+    assert handler_for_callback_data(application(), data) is achv_handlers.all_info_callback
 
 
 def test_the_legacy_bare_token_callback_still_reaches_a_handler():
     """Buttons posted before the pager existed carried just a token, and their messages
     may still be sitting in a group."""
-    data = "{}{}".format(main._ALLINFO_PREFIX, "TOK")
-    assert handler_for_callback_data(application(), data) is main.all_info_callback
+    data = "{}{}".format(achv_handlers._ALLINFO_PREFIX, "TOK")
+    assert handler_for_callback_data(application(), data) is achv_handlers.all_info_callback
 
 
 def test_callback_patterns_do_not_overlap():
     """Overlapping patterns make dispatch order significant, which is fragile."""
     app = application()
-    for data, expected in [("allinfo:p:TOK:0", main.all_info_callback), ("schall:TOK:have", main.schall_callback)]:
+    for data, expected in [
+        ("allinfo:p:TOK:0", achv_handlers.all_info_callback),
+        ("schall:TOK:have", search.schall_callback),
+    ]:
         matches = [
             handler.callback
             for handler in callback_handlers(app)
@@ -195,13 +200,13 @@ def test_callback_patterns_do_not_overlap():
 def test_exactly_one_inline_query_handler_is_registered():
     handlers = [h for h in all_handlers(application()) if isinstance(h, InlineQueryHandler)]
     assert len(handlers) == 1
-    assert handlers[0].callback is main.inline_query
+    assert handlers[0].callback is inline.inline_query
 
 
 def test_an_error_handler_is_registered():
     """Without it, PTB logs to its own logger and the log-group report never happens."""
     app = application()
-    assert main.error_handler in app.error_handlers
+    assert errors.error_handler in app.error_handlers
 
 
 def test_lifecycle_hooks_are_attached():

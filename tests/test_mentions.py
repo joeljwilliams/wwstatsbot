@@ -8,7 +8,7 @@ pinning here.
 
 from conftest import FakeEntity, FakeUser, bot_message, message
 
-import main
+from handlers import search
 
 TEXT_MENTION = "text_mention"
 MENTION = "mention"
@@ -30,7 +30,7 @@ def test_extracts_text_mentions_with_ids():
             mention_entity(FakeUser(2, "Bob"), 6, 3),
         ],
     )
-    users, unresolved = main._mentioned_users(msg)
+    users, unresolved = search._mentioned_users(msg)
     assert users == [(1, "Alice"), (2, "Bob")]
     assert unresolved == []
 
@@ -44,7 +44,7 @@ def test_plain_username_mentions_are_returned_as_unresolved():
             username_entity(13, 5),  # @erin
         ],
     )
-    users, unresolved = main._mentioned_users(msg)
+    users, unresolved = search._mentioned_users(msg)
     assert users == []
     assert unresolved == ["@dave", "@erin"]
 
@@ -57,7 +57,7 @@ def test_mixed_mentions():
             username_entity(6, 5),
         ],
     )
-    users, unresolved = main._mentioned_users(msg)
+    users, unresolved = search._mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
 
@@ -71,7 +71,7 @@ def test_bots_are_skipped():
             mention_entity(FakeUser(42, "WerewolfBot", is_bot=True), 6, 11),
         ],
     )
-    users, _ = main._mentioned_users(msg)
+    users, _ = search._mentioned_users(msg)
     assert users == [(1, "Alice")]
 
 
@@ -83,13 +83,13 @@ def test_duplicate_users_are_deduped_first_seen_first():
             mention_entity(FakeUser(1, "Alice"), 6, 5),
         ],
     )
-    users, _ = main._mentioned_users(msg)
+    users, _ = search._mentioned_users(msg)
     assert users == [(1, "Alice")]
 
 
 def test_entity_without_a_user_object_is_ignored():
     msg = message("Alice", entities=[FakeEntity(TEXT_MENTION, 0, 5, user=None)])
-    assert main._mentioned_users(msg) == ([], [])
+    assert search._mentioned_users(msg) == ([], [])
 
 
 def test_reads_caption_entities_on_media_messages():
@@ -102,13 +102,13 @@ def test_reads_caption_entities_on_media_messages():
             username_entity(6, 5),
         ],
     )
-    users, unresolved = main._mentioned_users(msg)
+    users, unresolved = search._mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
 
 
 def test_no_entities_at_all():
-    assert main._mentioned_users(message("just text")) == ([], [])
+    assert search._mentioned_users(message("just text")) == ([], [])
 
 
 # --- The reply shape that reroutes /sch to the multi-player path ------------------
@@ -116,11 +116,11 @@ def test_no_entities_at_all():
 
 def test_bot_reply_with_players_is_detected():
     msg = bot_message("Alice", entities=[mention_entity(FakeUser(1, "Alice"), 0, 5)])
-    assert main._is_bot_player_reply(msg) is True
+    assert search._is_bot_player_reply(msg) is True
 
 
 def test_none_is_not_a_bot_player_reply():
-    assert main._is_bot_player_reply(None) is False
+    assert search._is_bot_player_reply(None) is False
 
 
 def test_human_reply_is_not_a_bot_player_reply():
@@ -128,19 +128,19 @@ def test_human_reply_is_not_a_bot_player_reply():
     msg = message(
         "Alice", from_user=FakeUser(1, "Alice", is_bot=False), entities=[mention_entity(FakeUser(2, "Bob"), 0, 5)]
     )
-    assert main._is_bot_player_reply(msg) is False
+    assert search._is_bot_player_reply(msg) is False
 
 
 def test_bot_reply_without_player_mentions_is_not_detected():
-    assert main._is_bot_player_reply(bot_message("no mentions here")) is False
+    assert search._is_bot_player_reply(bot_message("no mentions here")) is False
 
 
 def test_bot_reply_mentioning_only_usernames_is_not_detected():
     """@handles aren't checkable, so there is nothing to fan out to."""
     msg = bot_message("@dave", entities=[username_entity(0, 5)])
-    assert main._is_bot_player_reply(msg) is False
+    assert search._is_bot_player_reply(msg) is False
 
 
 def test_bot_reply_mentioning_only_bots_is_not_detected():
     msg = bot_message("SomeBot", entities=[mention_entity(FakeUser(43, "SomeBot", is_bot=True), 0, 7)])
-    assert main._is_bot_player_reply(msg) is False
+    assert search._is_bot_player_reply(msg) is False
