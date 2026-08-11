@@ -12,11 +12,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def display_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = "Use /stats for stats. Use /achievements or /achv for achivement list."
-    msg += "\n\nThis is an actively maintained fork of the original `@wolfcardbot` "
-    msg += "(originally by Carson True, later edited by @jeffffc)."
-    msg += "\nSource for this maintained version: [{repo}]({repo})".format(repo=version.GITHUB_REPO)
-    msg += "\nUse /version to see the exact running build."
+    msg = t.ABOUT.format(repo=version.GITHUB_REPO)
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
 
@@ -37,8 +33,6 @@ async def display_version(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def startme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.type == "private":
-        await update.message.reply_text(
-            "Thank you for starting me. Use /stats and /achievements to check your related stats!"
-        )
+        await update.message.reply_text(t.START_PRIVATE)
     else:
         return
