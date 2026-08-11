@@ -23,34 +23,44 @@ BASE = "https://www.tgwerewolf.com/Stats"
 client = httpx.AsyncClient(timeout=15)
 
 
-async def get_stats(user_id):
-    r = await client.get(BASE + "/PlayerStats/", params={"pid": user_id, "json": "true"})
+async def _get(path, user_id):
+    """GET one stats endpoint for a player and return the decoded JSON.
+
+    Every endpoint takes the same two query parameters, and `json=true` is not optional:
+    without it the API serves an HTML page and the decode fails somewhere downstream,
+    nowhere near the call that omitted it. Putting it in one place means it cannot be
+    forgotten when an endpoint is added.
+
+    `client` is looked up at call time rather than bound as a default, so the test suite's
+    MockTransport swap is seen.
+    """
+    r = await client.get(BASE + path, params={"pid": user_id, "json": "true"})
     return r.json()
 
 
-async def get_achievement_count(user_id):
-    r = await client.get(BASE + "/PlayerAchievements/", params={"pid": user_id, "json": "true"})
-    return len(r.json())
+async def get_stats(user_id):
+    return await _get("/PlayerStats/", user_id)
 
 
 async def get_kills(user_id):
-    r = await client.get(BASE + "/PlayerKills/", params={"pid": user_id, "json": "true"})
-    return r.json()
+    return await _get("/PlayerKills/", user_id)
 
 
 async def get_killed_by(user_id):
-    r = await client.get(BASE + "/PlayerKilledBy/", params={"pid": user_id, "json": "true"})
-    return r.json()
+    return await _get("/PlayerKilledBy/", user_id)
 
 
 async def get_deaths(user_id):
-    r = await client.get(BASE + "/PlayerDeaths/", params={"pid": user_id, "json": "true"})
-    return r.json()
+    return await _get("/PlayerDeaths/", user_id)
 
 
 async def get_achievements(user_id):
-    r = await client.get(BASE + "/PlayerAchievements/", params={"pid": user_id, "json": "true"})
-    return r.json()
+    return await _get("/PlayerAchievements/", user_id)
+
+
+async def get_achievement_count(user_id):
+    """The one fetcher that isn't a passthrough: /stats needs only the total."""
+    return len(await get_achievements(user_id))
 
 
 async def close():
