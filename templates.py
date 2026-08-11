@@ -13,7 +13,7 @@ helpers cover the patterns that repeat across builders.
 
 # --- HTML: stat builders (main.py) -----------------------------------------
 
-KILLS_HEADER = "Players <a href='tg://user?id={user_id}'> {name}</a> most killed:\n"
+KILLS_HEADER = "Players <a href='tg://user?id={user_id}'>{name}</a> most killed:\n"
 KILLED_BY_HEADER = "Players who killed <a href='tg://user?id={user_id}'>{name}</a> most:\n"
 DEATHS_HEADER = "Types of deaths that <a href='tg://user?id={user_id}'>{name}</a> most had:\n"
 
@@ -29,7 +29,7 @@ STATS_LOST = "<code>{total:<5}</code> Games Lost <code>({percent}%)</code>\n"
 STATS_SURVIVED = "<code>{total:<5}</code> Games Survived <code>({percent}%)</code>\n"
 STATS_TOTAL = "<code>{total:<5}</code> Total Games\n"
 STATS_MOST_KILLED = "<code>{times:<5}</code> times I've gleefully killed {name}\n"
-STATS_MOST_KILLED_BY = "<code>{times:<5}</code> times I've been slaughted by {name}\n\n"
+STATS_MOST_KILLED_BY = "<code>{times:<5}</code> times I've been slaughtered by {name}\n\n"
 NO_GAMES = "<a href='tg://user?id={user_id}'>{name}</a> has not played any games."
 NO_GAMES_BY_ID = "{name} has not played any games."
 

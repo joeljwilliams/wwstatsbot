@@ -12,11 +12,10 @@ refactor changes one character of user-visible output, a test fails.
 Only edit an expectation when you are intentionally changing what users see, and then
 say so in the commit message.
 
-Two expectations below encode pre-existing quirks (a stray space in the /kills header,
-"slaughted" in the most-killed-by line). They are pinned as-is on purpose: this file
-records current behaviour, and fixing cosmetics mid-characterization would defeat the
-comparison the refactor needs. Fix them in their own commit, and update the golden in
-that same commit.
+The corollary: a deliberate copy change means editing a golden, and that edit *is* the
+review artifact — it shows exactly which bytes users will see differently. Keep such
+changes in their own commit, never mixed with a refactor, so the two are never
+ambiguous in a diff.
 """
 
 from conftest import assert_json_roundtrips
@@ -204,8 +203,7 @@ async def test_stats_msg(stats_api):
         "<code>50   </code> Games Survived <code>(50%)</code>\n"
         "<code>100  </code> Total Games\n"
         "<code>7    </code> times I've gleefully killed Bob\n"
-        # "slaughted" is a pre-existing typo in templates.STATS_MOST_KILLED_BY.
-        "<code>3    </code> times I've been slaughted by Al &amp; Sons\n\n"
+        "<code>3    </code> times I've been slaughtered by Al &amp; Sons\n\n"
     )
 
 
@@ -231,10 +229,8 @@ async def test_stats_msg_omits_most_killed_lines_when_null(stats_api):
 
 
 async def test_kills_msg(stats_api):
-    # NOTE the space after `>` before {name}: templates.KILLS_HEADER has it and
-    # KILLED_BY_HEADER does not. Pinned as-is; pre-existing inconsistency.
     assert await main.build_kills_msg(7, "Alice") == (
-        "Players <a href='tg://user?id=7'> Alice</a> most killed:\n"
+        "Players <a href='tg://user?id=7'>Alice</a> most killed:\n"
         "<code>7    </code> <b>Bob</b>\n"
         "<code>3    </code> <b>Al &amp; Sons</b>\n"
     )
@@ -257,4 +253,4 @@ async def test_deaths_msg_derives_approximate_totals(stats_api):
 
 async def test_empty_lists_render_header_only(stats_api):
     stats_api.routes["/Stats/PlayerKills/"] = []
-    assert await main.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'> Alice</a> most killed:\n")
+    assert await main.build_kills_msg(7, "Alice") == ("Players <a href='tg://user?id=7'>Alice</a> most killed:\n")

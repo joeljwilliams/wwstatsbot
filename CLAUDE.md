@@ -57,9 +57,9 @@ touches the network.
 equality on every rendered message. `main.py` is being split into modules, and that is
 almost pure code motion over HTML built by concatenation with manual `html.escape()` — so
 if a golden fails, the refactor changed user-visible output and *that* is the bug. Only
-edit an expectation when the change to what users see is intentional and stated in the
-commit message. Two goldens deliberately pin pre-existing quirks (a stray space in
-`KILLS_HEADER`, "slaughted" in `STATS_MOST_KILLED_BY`).
+edit an expectation when the change to what users see is intentional — and keep that edit
+in its own commit, never mixed with a refactor, since the golden diff is the review
+artifact showing precisely which bytes users will see differently.
 
 Other things the suite is deliberately guarding, all of which a refactor could silently
 break: `test_templates.py` cross-checks every `t.NAME` reference against `templates.py`
