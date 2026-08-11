@@ -15,7 +15,6 @@ import html
 import re
 import secrets
 
-import httpx
 import structlog
 from telegram import (
     BotCommand,
@@ -37,6 +36,7 @@ from telegram.ext import (
 )
 from unidecode import unidecode
 
+import api
 import db
 import health
 import notes
@@ -48,51 +48,11 @@ from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
 
-BASE = "https://www.tgwerewolf.com/Stats"
-
-# Shared async HTTP client, reused across all handlers. Created at startup,
-# closed on shutdown (see main()).
-client = httpx.AsyncClient(timeout=15)
-
-
-# --- Stats API helpers (async) ---------------------------------------------
-
-
-async def get_stats(user_id):
-    r = await client.get(BASE + "/PlayerStats/", params={"pid": user_id, "json": "true"})
-    return r.json()
-
-
-async def get_achievement_count(user_id):
-    r = await client.get(BASE + "/PlayerAchievements/", params={"pid": user_id, "json": "true"})
-    return len(r.json())
-
-
-async def get_kills(user_id):
-    r = await client.get(BASE + "/PlayerKills/", params={"pid": user_id, "json": "true"})
-    return r.json()
-
-
-async def get_killed_by(user_id):
-    r = await client.get(BASE + "/PlayerKilledBy/", params={"pid": user_id, "json": "true"})
-    return r.json()
-
-
-async def get_deaths(user_id):
-    r = await client.get(BASE + "/PlayerDeaths/", params={"pid": user_id, "json": "true"})
-    return r.json()
-
-
-async def get_achievements(user_id):
-    r = await client.get(BASE + "/PlayerAchievements/", params={"pid": user_id, "json": "true"})
-    return r.json()
-
-
 # --- Message builders (reused by commands and inline query) ----------------
 
 
 async def build_kills_msg(user_id, name):
-    kills = await get_kills(user_id)
+    kills = await api.get_kills(user_id)
     msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
     for k in kills:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
@@ -100,7 +60,7 @@ async def build_kills_msg(user_id, name):
 
 
 async def build_killed_by_msg(user_id, name):
-    killedby = await get_killed_by(user_id)
+    killedby = await api.get_killed_by(user_id)
     msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
     for k in killedby:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
@@ -108,8 +68,8 @@ async def build_killed_by_msg(user_id, name):
 
 
 async def build_deaths_msg(user_id, name):
-    deaths = await get_deaths(user_id)
-    stats = await get_stats(user_id)
+    deaths = await api.get_deaths(user_id)
+    stats = await api.get_stats(user_id)
     msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
     for d in deaths:
         # The total per kill method is derived from the percentage in the JSON,
@@ -120,8 +80,8 @@ async def build_deaths_msg(user_id, name):
 
 
 async def build_stats_msg(user_id, name, by_id=False):
-    stats = await get_stats(user_id)
-    achievements = await get_achievement_count(user_id)
+    stats = await api.get_stats(user_id)
+    achievements = await api.get_achievement_count(user_id)
 
     if not stats:
         template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
@@ -235,7 +195,7 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "Please enter at least 3 letters to search for!\n"
     else:
         matches = await build_info_results(search)
-        attained_names = {a["name"] for a in await get_achievements(user_id)} if matches else set()
+        attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
         # Drop inactive achievements the user hasn't obtained: they can no longer
         # be earned, so listing them as "not yet" would be misleading. (Inactive
         # ones the user already has are kept, so their collection stays complete.)
@@ -300,7 +260,7 @@ def _is_bot_player_reply(message):
 
 async def _user_has_achievement(user_id, achv_name):
     """True if the player holds the named achievement per the stats API."""
-    attained = {a["name"] for a in await get_achievements(user_id)}
+    attained = {a["name"] for a in await api.get_achievements(user_id)}
     return achv_name in attained
 
 
@@ -538,7 +498,7 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("command", command="achievements", user_id=user_id, user=unidecode(name))
 
-    msgs = await wwstats.check(user_id, client)
+    msgs = await wwstats.check(user_id, api.client)
 
     try:
         for msg in msgs:
@@ -1167,7 +1127,7 @@ async def _post_init(application: Application):
 
 async def _post_shutdown(application: Application):
     health.set_ready(False)
-    await client.aclose()
+    await api.close()
     await db.close_pool()
 
 
