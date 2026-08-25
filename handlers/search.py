@@ -12,7 +12,7 @@ import secrets
 import time
 
 import structlog
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
@@ -21,7 +21,7 @@ from unidecode import unidecode
 import api
 import builders
 import templates as t
-from handlers.common import is_admin_user, resolve_target
+from handlers.common import is_admin_user, mentioned_users, resolve_target
 
 logger = structlog.get_logger(__name__)
 
@@ -70,38 +70,6 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
-def _mentioned_users(message):
-    """Extract (user_id, first_name) for every user directly mentioned in a message.
-
-    Only text_mention entities are usable: they carry a full User (id + name).
-    Plain @username mentions have no id, so the stats API (keyed by user id) can't
-    be queried for them — those are returned separately as unresolvable names so
-    the caller can report them rather than silently drop them.
-
-    Returns (users, unresolved) where users is a de-duplicated, first-seen-ordered
-    list of (id, name) and unresolved is a list of @username strings.
-    """
-    seen = set()
-    users = []
-    unresolved = []
-    # Media messages carry their text in `caption` with caption_entities; plain
-    # text messages use `text` with entities. Check both so either kind works.
-    entities = list(message.entities or ()) + list(message.caption_entities or ())
-    body = message.text if message.text is not None else (message.caption or "")
-    for ent in entities:
-        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
-            u = ent.user
-            # A mentioned bot has no player stats, so it could only ever land in
-            # the "hasn't obtained it" list — noise, not an answer. Skip bots.
-            if u.is_bot or u.id in seen:
-                continue
-            seen.add(u.id)
-            users.append((u.id, u.first_name))
-        elif ent.type == MessageEntity.MENTION:
-            unresolved.append(body[ent.offset : ent.offset + ent.length])
-    return users, unresolved
-
-
 def _is_bot_player_reply(message):
     """True if `message` is a bot post that directly mentions at least one player.
 
@@ -111,7 +79,7 @@ def _is_bot_player_reply(message):
     """
     if message is None or message.from_user is None or not message.from_user.is_bot:
         return False
-    users, _ = _mentioned_users(message)
+    users, _ = mentioned_users(message)
     return bool(users)
 
 
@@ -268,7 +236,7 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Where the players come from: a reply, or this chat's remembered list.
     cached_age = None
     if replied is not None:
-        users, unresolved = _mentioned_users(replied)
+        users, unresolved = mentioned_users(replied)
         if users:
             # Only remember a list that is actually checkable, so replying to a message
             # of bare @usernames cannot wipe a good one.
