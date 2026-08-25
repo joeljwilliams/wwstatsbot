@@ -149,3 +149,103 @@ NOT_VIA_PLAYING_HEADER = "*NOT DIRECTLY ATTAINABLE VIA PLAYING ({count}/{total})
 INACTIVE_HEADER = "*INACTIVE ({count}/{total}):*\n\n"
 # One achievement entry in the missing/not-via-playing/inactive sections.
 ACHV_LINE = "`- {name}`\n>>> _{desc}_\n"
+
+# --- HTML: privileged commands (handlers/admin.py) --------------------------
+
+# Refusals. Deliberately say which tier is required rather than just "denied", so an
+# ordinary admin hitting a superuser-only command knows why.
+ADMIN_ONLY_ADD = "Only the superuser can add admins."
+ADMIN_ONLY_REMOVE = "Only the superuser can remove admins."
+ADMIN_ONLY_LIST = "Only the superuser can list admins."
+ADMIN_ONLY_SQL = "Only the superuser can run raw SQL."
+ADMIN_ONLY_NOTES = "Only admins can edit notes."
+
+ADMIN_ADD_USAGE = "Usage: reply to a user with /addadmin, or /addadmin <user_id>."
+ADMIN_DEL_USAGE = "Usage: reply to a user with /deladmin, or /deladmin <user_id>."
+ADMIN_ADDED = "Added <a href='tg://user?id={user_id}'>{name}</a> as an admin."
+ADMIN_REMOVED = "Removed admin {user_id}."
+ADMIN_NOT_AN_ADMIN = "That user is not an admin."
+ADMIN_LIST_EMPTY = "No admins yet."
+ADMIN_LIST_HEADER = "<b>Admins:</b>"
+ADMIN_LIST_ROW = "<code>{user_id}</code> {name}{username}"
+ADMIN_LIST_UNKNOWN_NAME = "(unknown)"
+
+# /setnote and /clearnote.
+NOTE_SET_USAGE = (
+    "Reply to an achievement /info card with <code>/setnote &lt;note&gt;</code> "
+    "or <code>/setnote prob &lt;probability&gt;</code>."
+)
+NOTE_SET_NEEDS_TEXT = (
+    "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
+    "<code>/setnote prob &lt;probability&gt;</code>. Use /clearnote to remove a field."
+)
+NOTE_CLEAR_USAGE = (
+    "Reply to an achievement /info card with <code>/clearnote</code> (memo), "
+    "<code>/clearnote prob</code>, or <code>/clearnote all</code>."
+)
+NOTE_UNIDENTIFIED = "Could not identify the achievement from that message. Reply to a single /info card."
+NOTE_UPDATED = "Note updated.\n\n"
+
+# /db console.
+DB_USAGE = "Usage: <code>/db &lt;sql&gt;</code>\nRuns a single SQL statement."
+DB_ERROR = "<b>SQL error:</b>\n<pre>{error}</pre>"
+DB_RESULT = "<pre>{body}</pre>{footer}"
+DB_ROW_COUNT = "\n({count} row{plural})"
+DB_ROWS_SHOWN = ", showing first {count}"
+DB_TRUNCATED = "\n… (truncated)"
+DB_STATUS_OK = "OK"
+
+# --- HTML: search and achievement lookup usage errors ----------------------
+
+# Shared by /search and /info: same wording, different command named in the syntax line.
+SEARCH_USAGE = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
+INFO_USAGE = "Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n"
+QUERY_TOO_SHORT = "Please enter at least 3 letters to search for!\n"
+NO_MATCHES = "No matching achievements found!\n"
+SCHALL_NEEDS_DIRECT_MENTIONS = (
+    "Reply to a message that mentions players directly. I can't check plain @username mentions (they carry no user id)."
+)
+# Fallback when a stored payload has an owner id but no name.
+SCHALL_REQUESTER_FALLBACK = "the requester"
+# The cache lifetime, worded. A placeholder rather than a baked-in "60 minutes" so the
+# number has one source (handlers.search._SCHALL_CACHE_TTL) and the phrasing can be
+# translated around it. Becomes an ngettext call when plurals land.
+SCHALL_TTL_LABEL = "{count} minutes"
+
+# --- Markdown / plain: /achievements delivery, /start, /about ---------------
+
+ACHV_SENT_TO_PM = "I have sent you your achievement list in PM."
+ACHV_NEEDS_PM = "You have to start me in PM first."
+START_ME_BUTTON = "Start Me!"
+START_PRIVATE = "Thank you for starting me. Use /stats and /achievements to check your related stats!"
+ABOUT = (
+    "Use /stats for stats. Use /achievements or /achv for achivement list."
+    "\n\nThis is an actively maintained fork of the original `@wolfcardbot` "
+    "(originally by Carson True, later edited by @jeffffc)."
+    "\nSource for this maintained version: [{repo}]({repo})"
+    "\nUse /version to see the exact running build."
+)
+
+# --- Inline mode result titles (handlers/inline.py) ------------------------
+
+INLINE_MY_STATS = "My Stats"
+INLINE_MY_KILLS = "My Kills"
+INLINE_MY_KILLED_BY = "My Killed By"
+INLINE_MY_DEATHS = "My Deaths"
+INLINE_NO_MATCH_TITLE = "No matching achievements"
+INLINE_NO_MATCH_BODY = "No matching achievements found."
+
+# --- The "/" command menu (main.py) ----------------------------------------
+
+# Descriptions only; the command words themselves are not translated. Telegram accepts a
+# separate menu per language, so these are what a user sees in their own language.
+CMD_STATS = "Your game stats (or reply to another player)"
+CMD_KILLS = "Players you've killed the most"
+CMD_KILLEDBY = "Players who've killed you the most"
+CMD_DEATHS = "Your most common causes of death"
+CMD_SEARCH = "Search your achievements, or reply to a player list to check everyone"
+CMD_ACHIEVEMENTS = "List all achievements"
+CMD_INFO = "Look up an achievement, or reply to a list to get them all"
+CMD_ABOUT = "About this bot"
+CMD_VERSION = "Show the running bot version"
+CMD_START = "Start the bot in a private chat"

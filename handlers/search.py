@@ -47,9 +47,9 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # each match with whether the target user has already attained it.
     search = " ".join(args)
     if not search:
-        msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
+        msg = t.SEARCH_USAGE
     elif len(search) < 3:
-        msg = "Please enter at least 3 letters to search for!\n"
+        msg = t.QUERY_TOO_SHORT
     else:
         matches = await builders.build_info_results(search)
         attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
@@ -58,7 +58,7 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ones the user already has are kept, so their collection stays complete.)
         matches = [m for m in matches if not (m.get("inactive") and m["name"] not in attained_names)]
         if not matches:
-            msg = "No matching achievements found!\n"
+            msg = t.NO_MATCHES
         else:
             msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
             for m in matches[:_SEARCH_MAX_RESULTS]:
@@ -150,7 +150,7 @@ def _store_schall_result(context, payload):
 # is, so even inside the hour a remembered result is never mistaken for a fresh one.
 _SCHALL_CACHE_KEY = "schall_players"
 _SCHALL_CACHE_TTL = 60 * 60
-_SCHALL_CACHE_TTL_LABEL = "60 minutes"
+_SCHALL_CACHE_TTL_LABEL = t.SCHALL_TTL_LABEL.format(count=_SCHALL_CACHE_TTL // 60)
 
 
 def _now():
@@ -262,7 +262,7 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(t.SCHALL_USAGE, parse_mode=ParseMode.HTML)
         return
     if len(search) < 3:
-        await update.message.reply_text("Please enter at least 3 letters to search for!\n")
+        await update.message.reply_text(t.QUERY_TOO_SHORT)
         return
 
     # Where the players come from: a reply, or this chat's remembered list.
@@ -288,17 +288,13 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         users, unresolved, cached_age = remembered
 
     if not users:
-        note = (
-            "Reply to a message that mentions players directly. "
-            "I can't check plain @username mentions (they carry no user id)."
-        )
-        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.SCHALL_NEEDS_DIRECT_MENTIONS, parse_mode=ParseMode.HTML)
         return
 
     # Single best match, exactly like /info (results are rank-ordered).
     found = await builders.build_info_results(search)
     if not found:
-        await update.message.reply_text("No matching achievements found!\n")
+        await update.message.reply_text(t.NO_MATCHES)
         return
     achv = found[0]
 
@@ -389,7 +385,7 @@ async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Answer without editing: the message keeps whichever view its owner chose.
         logger.info("schall_toggle_denied", user_id=user.id, owner=payload.get("requested_by"))
         await query.answer(
-            t.SCHALL_NOT_YOURS.format(name=payload.get("requested_by_name") or "the requester"),
+            t.SCHALL_NOT_YOURS.format(name=payload.get("requested_by_name") or t.SCHALL_REQUESTER_FALLBACK),
             show_alert=True,
         )
         return
