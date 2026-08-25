@@ -109,6 +109,21 @@ def _achv_from_reply(replied):
 # onto an unrelated achievement).
 _ACHV_ROW = re.compile(r"^(?P<indent>[ \t]*)-+[ \t]+(?P<name>\S.*?)\s*$")
 
+# A row may carry a status marker between the dash and the name — the stand-in session's
+# own post uses one to separate "the game can produce this" from "…if you get lucky" and
+# "…if your role changes". Without stripping it the name never matches exactly, and the
+# fuzzy fallback then answers with a *different* achievement, which is worse than not
+# answering: the reader has no way to tell they were given the wrong card.
+#
+# Safe because no achievement name begins with punctuation — test_achv_parsing pins that
+# against the real list, so this can only ever remove a marker, never part of a name.
+#
+# The trailing alternation matters: _ACHV_ROW has already stripped the line's trailing
+# whitespace, so a row that is *only* a marker arrives as a bare glyph with no space after
+# it. Requiring the space would leave it standing as a one-character "name", which then
+# fuzzy-matches onto whatever it happens to be closest to.
+_ROW_MARKER = re.compile(r"^[^\w\s]+(?:\s+|$)")
+
 
 def _extract_possible_achievements(text):
     """Extract unique achievement names from a Possible Achievements message.
@@ -117,14 +132,18 @@ def _extract_possible_achievements(text):
     a message with none falls back to unindented ones, so text that lost its
     leading spaces on the way in (a copy-paste, a client that trims) still works —
     the dash-then-space requirement keeps dash-prefixed player names out either
-    way. Returns names in first-seen order, de-duplicated case-insensitively.
+    way. A leading status marker (" - ❓ Wuffie-Cult") is stripped. Returns names in
+    first-seen order, de-duplicated case-insensitively.
     """
     indented, flat = [], []
     for line in (text or "").splitlines():
         row = _ACHV_ROW.match(line)
         if row is None:
             continue
-        (indented if row.group("indent") else flat).append(row.group("name"))
+        name = _ROW_MARKER.sub("", row.group("name"))
+        if not name:
+            continue
+        (indented if row.group("indent") else flat).append(name)
 
     seen = set()
     names = []

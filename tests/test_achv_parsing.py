@@ -108,3 +108,54 @@ async def test_resolve_cards_falls_back_to_fuzzy_search(achievements, no_fts):
     cards, not_found = await achv_handlers._resolve_achievement_cards(["Liquid"])
     assert not_found == []
     assert "<b>Liquid Business</b>" in cards[0]
+
+
+# --- Status markers --------------------------------------------------------
+#
+# The stand-in session's own Possible Achievements post marks rows it is less sure about,
+# so /info has to read its posts as well as the incumbent's. An unstripped marker does not
+# fail loudly: the exact-name match misses, the fuzzy fallback finds *something*, and the
+# reader gets a confidently wrong card.
+
+MARKED_MESSAGE = """Possible Achievements:
+
+Joel
+ - Cold as Ice
+ - \N{BLACK QUESTION MARK ORNAMENT} Wuffie-Cult
+ - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} Triple Kill
+"""
+
+
+def test_a_status_marker_is_not_part_of_the_name():
+    assert achv_handlers._extract_possible_achievements(MARKED_MESSAGE) == [
+        "Cold as Ice",
+        "Wuffie-Cult",
+        "Triple Kill",
+    ]
+
+
+def test_no_achievement_name_starts_with_punctuation():
+    """The assumption the marker strip rests on, pinned against the real list.
+
+    If an achievement is ever added whose name opens with punctuation, stripping a leading
+    symbol run would eat part of it — so this fails here rather than in a live lookup.
+    """
+    from achvlist import ACHV
+
+    for achievement in ACHV:
+        first = achievement["name"][0]
+        assert first.isalnum(), achievement["name"]
+
+
+def test_a_row_that_is_only_a_marker_is_dropped():
+    """Stripping must not turn a junk row into an empty name that then fuzzy-matches."""
+    assert achv_handlers._extract_possible_achievements(" - \N{BLACK QUESTION MARK ORNAMENT} ") == []
+
+
+def test_names_containing_punctuation_are_untouched():
+    """Only a *leading* symbol run is a marker; the rest of the name is data."""
+    message = "Possible Achievements:\n\nRen\n - O HAI DER!\n - I'M NOT DRUN-- *BURPPP*\n"
+    assert achv_handlers._extract_possible_achievements(message) == [
+        "O HAI DER!",
+        "I'M NOT DRUN-- *BURPPP*",
+    ]
