@@ -96,6 +96,7 @@ async def test_every_command_is_silent_with_no_session(context, handler):
     await handler(FakeUpdate(message=msg), context)
     assert msg.replies == []
     assert context.bot.edits == []
+    assert context.job_queue.pending() == [], "nothing may be scheduled either"
 
 
 @pytest.mark.parametrize(
@@ -175,7 +176,9 @@ async def test_role_records_the_senders_reveal_and_updates_the_roster(context):
 
     assert session_data["players"]["1"]["roles"] == ["gunner"]
     assert msg.last_reply == "Ren's role was set to: Gunner \N{PISTOL}"
-    assert context.bot.edits, "the roster message should have been edited"
+    # The messages are updated on a trailing debounce, not inline — sixteen players
+    # revealing in a minute must not cost sixteen edits (see _DEBOUNCE_SECONDS).
+    assert context.job_queue.pending(), "an update should have been scheduled"
 
 
 async def test_a_second_role_overwrites_the_first(context):

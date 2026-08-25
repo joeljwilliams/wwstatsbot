@@ -28,13 +28,16 @@ import re
 import time
 
 import structlog
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
+import db
+import feasibility
 import roles
+import rulelist
 import session
 import templates as t
 from handlers.common import mentioned_users
@@ -259,6 +262,9 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # each reveal instead of updated.
     if posted is not None:
         session_data["state_message_id"] = posted.message_id
+    # A session nobody ever touches still has to expire, so the idle clock starts here
+    # rather than on the first reveal.
+    _schedule_idle(context, message.chat.id)
     logger.info("standin_started", chat_id=message.chat.id, players=len(players), unresolved=len(unresolved))
 
 
@@ -304,8 +310,7 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = user.id
 
     entry = session.set_roles(session_data, target_id, resolved)
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
 
     template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(resolved) > 1 else t.STANDIN_ROLE_SET
     await message.reply_text(
@@ -373,8 +378,7 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     session.set_model(session_data, target_id, model_id)
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
     await message.reply_text(
         t.STANDIN_MODEL_SET.format(
             name=html.escape(target["name"]),
@@ -427,8 +431,7 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
 
     if partner_id is None:
         await message.reply_text(t.STANDIN_LOVE_SET.format(name=html.escape(entry["name"])), parse_mode=ParseMode.HTML)
@@ -578,8 +581,7 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session.set_alive(session_data, target_id, False)
     changes = session.apply_transforms(session_data)
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
 
     reply = t.STANDIN_DEAD_MARKED.format(name=html.escape(entry["name"]))
     await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
@@ -657,8 +659,7 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             learned.append(entry["name"])
 
     changes = session.apply_transforms(session_data)
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
 
     if not died and not revived and not learned and not changes:
         await message.reply_text(t.STANDIN_AD_NO_CHANGE, parse_mode=ParseMode.HTML)
@@ -725,9 +726,247 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     stolen = _role_label(target)
     session.swap_roles(session_data, user.id, target_id)
-    session.touch(session_data, _now())
-    await _refresh_state(context, message.chat.id, session_data)
+    await _changed(context, message.chat.id, session_data)
     await message.reply_text(
         t.STANDIN_STEAL_DONE.format(thief=html.escape(thief["name"]), role=stolen, name=html.escape(target["name"])),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# --- The Possible Achievements post ----------------------------------------
+
+# Telegram caps a message at 4096 characters, and this list is the one thing here that can
+# genuinely overrun it: sixteen players with twenty-odd reachable achievements each is well
+# past it. So the renderer degrades in steps rather than truncating blindly — first fewer
+# rows each, then only the certain ones — because dropping *players* would be the one
+# outcome nobody could work around, while dropping the least certain rows still leaves
+# everyone able to see where they stand.
+_LIST_LIMIT = 3900
+_ROW_LADDER = (None, 8, 5, 3)
+
+_ROW_TEMPLATES = {
+    rulelist.CHECK: t.STANDIN_LIST_ROW,
+    rulelist.MAYBE: t.STANDIN_LIST_ROW_MAYBE,
+}
+
+
+def _entry_sort_key(entry):
+    """Certain rows first, then the lucky ones, then the ones needing a role change."""
+    if entry["swing"]:
+        return 2
+    return 0 if entry["tier"] == rulelist.CHECK else 1
+
+
+def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
+    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
+    msg = t.STANDIN_LIST_HEADER
+    listed = 0
+
+    # The roleless ones first, once. Sixteen copies of "Sunday Bloody Sunday" — one under
+    # each player — would say nothing sixteen times and crowd out the rows that are
+    # actually about somebody.
+    anyone = sorted(
+        (e for e in shared if e["tier"] != rulelist.ALWAYS),
+        key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1,
+    )
+    if anyone and include_uncertain:
+        msg += t.STANDIN_LIST_ANYONE
+        for entry in anyone:
+            msg += _ROW_TEMPLATES[entry["tier"]].format(name=html.escape(entry["name"]))
+        msg += "\n"
+
+    for uid, player_entry in session.players_in_order(session_data):
+        if not player_entry["alive"] or not player_entry["roles"]:
+            continue
+        entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
+        if not include_uncertain:
+            entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
+        if not entries:
+            continue
+
+        listed += 1
+        msg += t.STANDIN_LIST_PLAYER.format(name=html.escape(player_entry["name"]), role=_role_label(player_entry))
+        shown = entries if row_cap is None else entries[:row_cap]
+        for entry in shown:
+            template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
+            msg += template.format(name=html.escape(entry["name"]))
+        if len(entries) > len(shown):
+            msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
+        msg += "\n"
+
+    revealed, total = session.revealed_count(session_data)
+    if not listed and not (anyone and include_uncertain):
+        msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
+
+    msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
+    always = [e["name"] for e in shared if e["tier"] == rulelist.ALWAYS]
+    if always:
+        msg += t.STANDIN_LIST_UNIVERSAL.format(names=", ".join(html.escape(name) for name in always))
+    if not include_uncertain:
+        msg += t.STANDIN_LIST_TRIMMED
+    return msg
+
+
+def render_list(session_data):
+    """The Possible Achievements post.
+
+    Byte-compatible with the game's own manager — an unindented player name, then indented
+    " - " rows — so replying to it with /info returns the cards, exactly as it does for the
+    incumbent's post. The status markers sit *after* the dash for the same reason.
+    """
+    revealed = session.revealed_roles(session_data)
+    per_player, shared = feasibility.feasible(revealed, db.get_rules())
+
+    for row_cap in _ROW_LADDER:
+        msg = _build_list(session_data, per_player, shared, row_cap, include_uncertain=True)
+        if len(msg) <= _LIST_LIMIT:
+            return msg
+    # Still too long with three rows each: drop everything uncertain and say so, rather
+    # than let Telegram reject the message and leave the list frozen at its last edit.
+    return _build_list(session_data, per_player, shared, 3, include_uncertain=False)
+
+
+# --- Scheduling: one trailing debounce per chat ----------------------------
+
+# Reveals arrive in a burst — sixteen players typing /role within a minute of each other —
+# and every one of them changes both live messages. Editing on each would be sixteen edits
+# a minute per message, which is how a bot meets Telegram's rate limiter.
+#
+# A *trailing* debounce is what the group asked for and is also the right shape: the first
+# change schedules a publish five seconds out, and every change until then simply lands in
+# the session and is picked up when it fires. Sixteen reveals in three seconds cost one
+# edit, not sixteen, and nobody waits more than five seconds to see their reveal.
+_DEBOUNCE_SECONDS = 5
+_PUBLISH_JOB = "standin_publish:{}"
+
+# A session that outlives its game keeps capturing /role in a chat where the real manager
+# has come back online, which is worse than one that ended early — so it expires on
+# silence, with a warning first so a quiet stretch mid-game is survivable.
+_IDLE_WARNING_SECONDS = 10 * 60
+_IDLE_GRACE_SECONDS = 2 * 60
+_IDLE_JOB = "standin_idle:{}"
+
+
+def _job_queue(context):
+    """The JobQueue, or None when the bot was built without one."""
+    return getattr(context, "job_queue", None)
+
+
+def _schedule_publish(context, chat_id):
+    """Ask for a publish in five seconds, unless one is already pending."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _PUBLISH_JOB.format(chat_id)
+    if queue.get_jobs_by_name(name):
+        # Already pending. It will render whatever the session says when it fires, which
+        # includes this change — re-scheduling would only push the whole burst later.
+        return
+    queue.run_once(_publish, _DEBOUNCE_SECONDS, chat_id=chat_id, name=name)
+
+
+def _schedule_idle(context, chat_id):
+    """Restart the idle countdown. Any activity pushes the end of the session back."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _IDLE_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_idle_warning, _IDLE_WARNING_SECONDS, chat_id=chat_id, name=name)
+
+
+async def _changed(context, chat_id, session_data):
+    """Record activity and schedule the messages to catch up. Called after every write."""
+    session.touch(session_data, _now())
+    _schedule_publish(context, chat_id)
+    _schedule_idle(context, chat_id)
+
+
+async def _publish(context):
+    """Bring both live messages up to date. The debounce's callback."""
+    chat_id = context.job.chat_id
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        # Ended between the schedule and the fire. Nothing to say.
+        return
+
+    await _refresh_state(context, chat_id, session_data)
+
+    msg = render_list(session_data)
+    message_id = session_data.get("list_message_id")
+    if message_id is None:
+        posted = await context.bot.send_message(
+            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
+        if posted is not None:
+            session_data["list_message_id"] = posted.message_id
+        return
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=msg,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except BadRequest:
+        # Identical to what is already there — a change that unlocked nothing.
+        pass
+
+
+async def _idle_warning(context):
+    """Ten minutes of silence: say the session is about to end, and set the grace timer."""
+    chat_id = context.job.chat_id
+    if session.get(context.chat_data) is None:
+        return
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t.STANDIN_IDLE_WARNING.format(minutes=_IDLE_WARNING_SECONDS // 60, grace=_IDLE_GRACE_SECONDS // 60),
+        parse_mode=ParseMode.HTML,
+    )
+    queue = _job_queue(context)
+    if queue is not None:
+        queue.run_once(_idle_end, _IDLE_GRACE_SECONDS, chat_id=chat_id, name=_IDLE_JOB.format(chat_id))
+
+
+async def _idle_end(context):
+    """The grace period ran out. End the session rather than leave it capturing /role."""
+    chat_id = context.job.chat_id
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        return
+    session.end(context.chat_data)
+    await _finish(context, chat_id, session_data)
+    await context.bot.send_message(chat_id=chat_id, text=t.STANDIN_IDLE_ENDED, parse_mode=ParseMode.HTML)
+    logger.info("standin_expired", chat_id=chat_id)
+
+
+# --- /la -------------------------------------------------------------------
+
+
+async def list_achievements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/la` — point at the live list rather than posting a second copy of it.
+
+    The list already exists and already updates itself, so re-posting it would leave two in
+    the chat, one of them going stale. A reply pointing at the live one is both shorter and
+    correct a minute later.
+    """
+    session_data = _session_for(update, context)
+    if session_data is None:
+        return
+
+    message = update.message
+    logger.info("command", command="la", user_id=message.from_user.id, user=unidecode(message.from_user.first_name))
+
+    message_id = session_data.get("list_message_id")
+    if message_id is None:
+        await message.reply_text(t.STANDIN_LA_NOTHING_YET, parse_mode=ParseMode.HTML)
+        return
+
+    await context.bot.send_message(
+        chat_id=message.chat.id,
+        text=t.STANDIN_LA_POINTER,
+        reply_parameters=ReplyParameters(message_id=message_id, allow_sending_without_reply=True),
         parse_mode=ParseMode.HTML,
     )

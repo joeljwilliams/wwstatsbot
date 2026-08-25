@@ -277,9 +277,9 @@ def test_the_exempted_rules_really_are_unsatisfiable_there():
 def test_an_empty_game_lists_nothing_for_anybody():
     """Composition-level rules with no gate still "pass" with no players — what matters is
     that nothing is rendered, because there is nobody to render it under."""
-    per_player, universal = feasibility.feasible({}, CATALOGUE)
+    per_player, shared = feasibility.feasible({}, CATALOGUE)
     assert per_player == {}
-    assert universal, "the always-achievements are still true of the game itself"
+    assert shared, "the roleless achievements are still true of the game itself"
 
 
 def test_skipped_rules_never_pass():
@@ -312,11 +312,25 @@ def test_the_same_achievement_disappears_without_its_condition():
     assert "Cold as Ice" not in names_for(per_player, "wolf")
 
 
-def test_universal_achievements_are_returned_once_not_per_player():
-    per_player, universal = feasibility.feasible({"a": ("villager",), "b": ("seer",)}, CATALOGUE)
-    assert "Welcome to Hell" in universal
+def test_achievements_anyone_can_earn_are_returned_once_not_per_player():
+    """Repeating a roleless achievement under each of sixteen players says the same thing
+    sixteen times and crowds out the rows that are actually about that player."""
+    game = {"a": ("villager",), "b": ("seer",), "c": ("hunter",), "d": ("gunner",)}
+    per_player, shared = feasibility.feasible(game, CATALOGUE)
+    names = {entry["name"] for entry in shared}
+
+    assert "Welcome to Hell" in names, "no role gate at all"
+    assert "Sunday Bloody Sunday" in names, "gated on the composition, but on nobody's role"
     for key in per_player:
-        assert "Welcome to Hell" not in names_for(per_player, key)
+        assert not names_for(per_player, key) & names
+
+
+def test_shared_entries_keep_their_tier():
+    """The renderer marks them the same way it marks anything else."""
+    _, shared = feasibility.feasible({"a": ("villager",), "b": ("tanner",), "c": ("cupid",)}, CATALOGUE)
+    tiers = {entry["name"]: entry["tier"] for entry in shared}
+    assert tiers["Welcome to Hell"] == rulelist.ALWAYS
+    assert tiers["Romeo and Juliet"] == rulelist.MAYBE
 
 
 def test_a_swing_reachable_row_is_marked_as_such():

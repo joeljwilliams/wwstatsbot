@@ -8,7 +8,7 @@ requires-python = ">=3.12"
 # a dependency?" unanswerable. uv.lock is committed and the image builds --frozen.
 dependencies = [
     "httpx==0.28.1",
-    "python-telegram-bot==22.8",
+    "python-telegram-bot[job-queue]==22.8",
     "asyncpg==0.31.0",
     "unidecode==1.4.0",
     "structlog==26.1.0",

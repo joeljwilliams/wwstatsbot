@@ -294,14 +294,26 @@ def feasible(player_roles, rules):
 
     * `per_player` — key -> list of {name, tier, swing} in the rules' own order, where
       `swing` marks a row reachable only through a role change;
-    * `universal` — the `always` achievements, which have no role gate at all. They are
-      returned separately rather than repeated under every player: four identical rows
-      under each of twenty players is noise, and the renderer says them once.
+    * `shared` — the achievements whose subject is *anyone*, as {name, tier}.
+
+    The split exists because "anyone can earn this" and "you can earn this" look identical
+    once printed under a name. A rule like Sunday Bloody Sunday belongs to no role at all,
+    so repeating it under each of sixteen players says the same thing sixteen times and
+    crowds out the rows that are actually about that player. Said once, it reads as what it
+    is: a fact about the game.
     """
     composition = Composition(player_roles.values())
     passing = passing_rules(composition, rules)
 
-    universal = [name for name, rule in passing.items() if rule["tier"] == rulelist.ALWAYS]
+    # Subject "any" is the whole test for shared, which also covers every `always` rule —
+    # those are written with subject `any` too, because "no role gate" and "every role is
+    # a subject" are the same statement.
+    shared = [
+        {"name": name, "tier": rule["tier"]}
+        for name, rule in passing.items()
+        if rule["subject"].strip() == rulelist.ANY
+    ]
+    shared_names = {entry["name"] for entry in shared}
 
     per_player = {}
     for key, candidates in player_roles.items():
@@ -310,7 +322,7 @@ def feasible(player_roles, rules):
         own = set(candidates)
         entries = []
         for name, rule in passing.items():
-            if rule["tier"] == rulelist.ALWAYS:
+            if name in shared_names:
                 continue
             subject = rulelist.subject_roles(rule["subject"], roles_registry)
             if not subject.intersection(reachable):
@@ -325,7 +337,7 @@ def feasible(player_roles, rules):
                 }
             )
         per_player[key] = entries
-    return per_player, universal
+    return per_player, shared
 
 
 # Every role at once. Used by validate() as a probe, and by the tests as the composition in

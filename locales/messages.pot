@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-25 19:17+0200\n"
+"POT-Creation-Date: 2026-08-25 19:30+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -877,5 +877,84 @@ msgstr ""
 #: templates.py:383
 #, python-brace-format
 msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
+msgstr ""
+
+#: templates.py:393
+msgid ""
+"Possible Achievements:\n"
+"\n"
+msgstr ""
+
+#: templates.py:394
+#, python-brace-format
+msgid "{name} ({role})\n"
+msgstr ""
+
+#: templates.py:397
+#, python-brace-format
+msgid " - {name}\n"
+msgstr ""
+
+#: templates.py:398
+#, python-brace-format
+msgid " - ❓ {name}\n"
+msgstr ""
+
+#: templates.py:399
+#, python-brace-format
+msgid " - 🔁 {name}\n"
+msgstr ""
+
+#: templates.py:400
+#, python-brace-format
+msgid " - <i>…and {count} more</i>\n"
+msgstr ""
+
+#: templates.py:401
+msgid "<i>Nothing yet — no roles revealed.</i>\n"
+msgstr ""
+
+#: templates.py:405
+msgid "<i>Nothing available yet from what has been revealed.</i>\n"
+msgstr ""
+
+#: templates.py:407
+#, python-brace-format
+msgid ""
+"\n"
+"🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
+msgstr ""
+
+#: templates.py:416
+msgid "Anyone:\n"
+msgstr ""
+
+#: templates.py:420
+#, python-brace-format
+msgid "<i>Always possible: {names}</i>\n"
+msgstr ""
+
+#: templates.py:423
+msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
+msgstr ""
+
+#: templates.py:425
+msgid "The list is here, and updates as roles come in."
+msgstr ""
+
+#: templates.py:426
+msgid "Nobody has revealed a role yet — the list appears once someone does."
+msgstr ""
+
+#: templates.py:429
+#, python-brace-format
+msgid ""
+"No updates for {minutes} minutes. I'll end the stand-in session in "
+"{grace} minutes unless something happens — any <code>/role</code>, "
+"<code>/dead</code> or <code>/ad</code> keeps it alive."
+msgstr ""
+
+#: templates.py:432
+msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

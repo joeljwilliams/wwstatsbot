@@ -381,3 +381,52 @@ STANDIN_STEAL_NOT_THIEF = N_("Only the Thief \N{SMILING FACE WITH HORNS} can ste
 # reporting rather than a swap worth recording.
 STANDIN_STEAL_IMMUNE = N_("The Thief can't steal from {name} — {role} is out of reach.")
 STANDIN_STEAL_DONE = N_("{thief} stole {role} from {name}, who is now the Thief \N{SMILING FACE WITH HORNS}.")
+
+
+# --- HTML: the Possible Achievements post (handlers/gamesession.py) ---------
+#
+# Deliberately the same shape the game's achievement manager posts, because /info already
+# parses that shape (handlers/achievements.py::_extract_possible_achievements): an
+# unindented player name, then indented " - " rows. Reply to this post with /info and the
+# cards come back, exactly as they do for the incumbent's.
+
+STANDIN_LIST_HEADER = N_("Possible Achievements:\n\n")
+STANDIN_LIST_PLAYER = N_("{name} ({role})\n")
+# Three row shapes, one prefix each. The dash and the space are load-bearing — they are
+# what /info matches on — so a marker always follows them rather than replacing them.
+STANDIN_LIST_ROW = N_(" - {name}\n")
+STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
+STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
+STANDIN_LIST_MORE = N_(" - <i>…and {count} more</i>\n")
+STANDIN_LIST_NOBODY = N_("<i>Nothing yet — no roles revealed.</i>\n")
+# Not the same thing, and saying the first when the second is true reads as a bug: early on
+# a lone revealed Villager really does have nothing available, because almost everything
+# needs some *other* role to be in play.
+STANDIN_LIST_NOTHING_POSSIBLE = N_("<i>Nothing available yet from what has been revealed.</i>\n")
+STANDIN_LIST_FOOTER = N_(
+    "\n\N{CLOCK FACE ONE OCLOCK} {revealed} of {total} revealed · "
+    "\N{BLACK QUESTION MARK ORNAMENT} needs luck · "
+    "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} if your role changes\n"
+)
+# Said once rather than repeated under every player: four identical rows under each of
+# sixteen players is noise, and they are true of any game at all.
+# Achievements nobody's role gates. Rendered as a block with a name-like header rather
+# than an aside, so /info picks the rows up exactly as it does a player's — the reader can
+# reply and get the cards for these too.
+STANDIN_LIST_ANYONE = N_("Anyone:\n")
+# The handful that are true of literally any game (playing one, surviving an hour) stay a
+# single aside: they carry no information about *this* game, and a block of them at the top
+# would push the rows that do further down.
+STANDIN_LIST_UNIVERSAL = N_("<i>Always possible: {names}</i>\n")
+# Shown when the full list will not fit in one Telegram message and the uncertain rows
+# were dropped to make room. Silently truncating would read as "this is everything".
+STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of them.</i>\n")
+
+STANDIN_LA_POINTER = N_("The list is here, and updates as roles come in.")
+STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears once someone does.")
+
+STANDIN_IDLE_WARNING = N_(
+    "No updates for {minutes} minutes. I'll end the stand-in session in {grace} minutes unless "
+    "something happens — any <code>/role</code>, <code>/dead</code> or <code>/ad</code> keeps it alive."
+)
+STANDIN_IDLE_ENDED = N_("Stand-in session ended — nothing happened for a while.")
