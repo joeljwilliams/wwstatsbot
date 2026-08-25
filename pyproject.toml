@@ -13,6 +13,7 @@ dependencies = [
     "unidecode==1.4.0",
     "structlog==26.1.0",
     "redis==8.1.0",
+    "simpleeval==1.0.3",
 ]
 
 [dependency-groups]
