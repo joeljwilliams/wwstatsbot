@@ -312,3 +312,38 @@ def test_in_team_and_with_tag_agree_with_the_registry():
     assert set(roles.in_team(roles.SOLO)) == {"serial_killer", "arsonist", "tanner", "doppelganger", "thief"}
     for role_id in roles.in_team(roles.VILLAGE):
         assert roles.team_of(role_id) == roles.VILLAGE
+
+
+# --- What the achievement manager prints -----------------------------------
+
+# Taken from a live game's state message. Standing in convincingly means a player reading
+# our list sees the same words they are used to, so these are pinned rather than left to
+# drift: display() feeds the roster message, and a role rendered differently from the
+# incumbent is the first thing anyone would notice.
+MANAGER_DISPLAY = {
+    "wolfman": "Wolf Man 👱🌚",
+    "serial_killer": "Serial Killer 🔪",
+    "sorcerer": "Sorcerer 🔮",
+    "villager": "Villager 👱",
+    "wild_child": "Wild Child 👶",
+    "traitor": "Traitor 🖕",
+    "cultist_hunter": "Cultist Hunter 💂",
+    "thief": "Thief 😈",
+    "arsonist": "Arsonist 🔥",
+    "tanner": "Tanner 👺",
+    "cupid": "Cupid 🏹",
+    "wolf_cub": "Wolf Cub 🐶",
+    "cultist": "Cultist 👤",
+    "fool": "Fool 🃏",
+}
+
+
+def test_roles_render_the_way_the_manager_renders_them():
+    for role_id, expected in MANAGER_DISPLAY.items():
+        assert roles.display(role_id) == expected, role_id
+
+
+def test_the_manager_spelling_and_the_rolelist_spelling_both_resolve():
+    """ "Wolf Man" is what players see; "WolfMan" is what /rolelist calls it."""
+    assert roles.resolve("Wolf Man") == ("wolfman",)
+    assert roles.resolve("WolfMan") == ("wolfman",)

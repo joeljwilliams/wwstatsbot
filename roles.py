@@ -164,7 +164,10 @@ ROLES = {
     "oracle": {"name": "Oracle", "emoji": "🌀", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     # A lowly villager the Seer misreads as a wolf. Village team, no transformation of its
     # own — being bitten by the Alpha is something that can happen to anyone.
-    "wolfman": {"name": "WolfMan", "emoji": "👱🌚", "team": VILLAGE, "tags": _tags(), "aliases": ("wm",)},
+    # Spelled with a space because that is how the achievement manager renders it in play
+    # ("Wolf Man 👱🌚"); /rolelist's own "WolfMan" is kept as an alias. Both normalise to the
+    # same key, so this changes display only.
+    "wolfman": {"name": "Wolf Man", "emoji": "👱🌚", "team": VILLAGE, "tags": _tags(), "aliases": ("wm",)},
     "pacifist": {"name": "Pacifist", "emoji": "☮️", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "wise_elder": {
         "name": "Wise Elder",
