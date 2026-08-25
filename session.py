@@ -38,6 +38,11 @@ def _blank_player(name):
         "lover": False,
         "partner": None,
         "alive": True,
+        # Achievements this player already holds, from the stats API. None means "not
+        # fetched" and is treated as "we don't know", which shows everything: over-offering
+        # is recoverable by the player, and hiding an achievement they could still earn is
+        # the failure this whole list exists to prevent.
+        "attained": None,
     }
 
 
@@ -203,6 +208,28 @@ def sync_alive(session, alive_ids):
             revived.append(uid)
         entry["alive"] = should_be_alive
     return died, revived
+
+
+def set_attained(session, user_id, names):
+    """Record what a player has already earned. Returns the entry, or None if unknown."""
+    entry = player(session, user_id)
+    if entry is None:
+        return None
+    entry["attained"] = sorted(names)
+    return entry
+
+
+def already_has(session, user_id, achievement):
+    """Whether a player already holds an achievement.
+
+    False when their list was never fetched: an unknown answer must not hide a row. The
+    stats API is the sort of thing that is briefly unavailable, and a game played during
+    one of those minutes should still get a list.
+    """
+    entry = player(session, user_id)
+    if entry is None or entry["attained"] is None:
+        return False
+    return achievement in entry["attained"]
 
 
 # --- Reads for the feasibility layer ---------------------------------------

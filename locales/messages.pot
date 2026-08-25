@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-25 19:30+0200\n"
+"POT-Creation-Date: 2026-08-25 19:43+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -885,68 +885,71 @@ msgid ""
 "\n"
 msgstr ""
 
-#: templates.py:394
+#: templates.py:396
 #, python-brace-format
-msgid "{name} ({role})\n"
-msgstr ""
-
-#: templates.py:397
-#, python-brace-format
-msgid " - {name}\n"
-msgstr ""
-
-#: templates.py:398
-#, python-brace-format
-msgid " - ❓ {name}\n"
+msgid "{name}\n"
 msgstr ""
 
 #: templates.py:399
 #, python-brace-format
-msgid " - 🔁 {name}\n"
+msgid " - {name}\n"
 msgstr ""
 
 #: templates.py:400
 #, python-brace-format
-msgid " - <i>…and {count} more</i>\n"
+msgid " - ❓ {name}\n"
 msgstr ""
 
 #: templates.py:401
+#, python-brace-format
+msgid " - 🔁 {name}\n"
+msgstr ""
+
+#: templates.py:402
+#, python-brace-format
+msgid " - <i>…and {count} more</i>\n"
+msgstr ""
+
+#: templates.py:403
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:405
+#: templates.py:407
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:407
+#: templates.py:414
+#, python-brace-format
+msgid "{name} ({count}):\n"
+msgstr ""
+
+#: templates.py:415
+#, python-brace-format
+msgid ""
+"{names}\n"
+"\n"
+msgstr ""
+
+#: templates.py:418
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:416
-msgid "Anyone:\n"
-msgstr ""
-
-#: templates.py:420
-#, python-brace-format
-msgid "<i>Always possible: {names}</i>\n"
-msgstr ""
-
-#: templates.py:423
+#: templates.py:424
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:425
+#: templates.py:426
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:426
+#: templates.py:427
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:429
+#: templates.py:430
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -954,7 +957,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:432
+#: templates.py:433
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

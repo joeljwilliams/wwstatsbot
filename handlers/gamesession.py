@@ -23,6 +23,7 @@ that let a passer-by edit a live roster on the strength of a stray message would
 than one that ignored them.
 """
 
+import asyncio
 import html
 import re
 import time
@@ -34,6 +35,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
+import api
 import db
 import feasibility
 import roles
@@ -250,6 +252,7 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     session_data = session.start(context.chat_data, user.id, players, unresolved, _now())
+    await _load_attained(session_data, players)
     msg, keyboard = render_state(session_data)
     posted = await context.bot.send_message(
         chat_id=message.chat.id,
@@ -266,6 +269,30 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # rather than on the first reveal.
     _schedule_idle(context, message.chat.id)
     logger.info("standin_started", chat_id=message.chat.id, players=len(players), unresolved=len(unresolved))
+
+
+async def _load_attained(session_data, players):
+    """Fetch what every player already holds, once, when the session opens.
+
+    Nobody is hunting an achievement they finished months ago, so the post has to subtract
+    them — and that is only affordable as one batch here rather than per render: a publish
+    happens every few seconds during a busy round, and sixteen API calls each time would be
+    both slow and rude to a stats API that owes us nothing.
+
+    Failures degrade to "we don't know", which shows the player everything. The stats API
+    is occasionally unavailable, and a game played during one of those minutes should still
+    get a list — an achievement wrongly offered is a moment's confusion, one wrongly hidden
+    is the thing this feature exists to prevent.
+    """
+    results = await asyncio.gather(*[api.get_achievements(uid) for uid, _ in players], return_exceptions=True)
+    failed = 0
+    for (uid, _), result in zip(players, results, strict=True):
+        if isinstance(result, Exception):
+            failed += 1
+            continue
+        session.set_attained(session_data, uid, [a["name"] for a in result])
+    if failed:
+        logger.warning("standin_attained_lookup_failed", players=failed)
 
 
 # --- /role -----------------------------------------------------------------
@@ -762,49 +789,64 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
     msg = t.STANDIN_LIST_HEADER
     listed = 0
 
-    # The roleless ones first, once. Sixteen copies of "Sunday Bloody Sunday" — one under
-    # each player — would say nothing sixteen times and crowd out the rows that are
-    # actually about somebody.
-    anyone = sorted(
-        (e for e in shared if e["tier"] != rulelist.ALWAYS),
-        key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1,
-    )
-    if anyone and include_uncertain:
-        msg += t.STANDIN_LIST_ANYONE
-        for entry in anyone:
-            msg += _ROW_TEMPLATES[entry["tier"]].format(name=html.escape(entry["name"]))
-        msg += "\n"
-
     for uid, player_entry in session.players_in_order(session_data):
         if not player_entry["alive"] or not player_entry["roles"]:
             continue
         entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
+        # Nobody is hunting an achievement they already hold, so what a player has earned
+        # is dropped before anything else. This is why the roster's attained lists are
+        # fetched at /gs: without them the post is a list of things half the room finished
+        # months ago.
+        entries = [e for e in entries if not session.already_has(session_data, uid, e["name"])]
         if not include_uncertain:
             entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
         if not entries:
             continue
 
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=html.escape(player_entry["name"]), role=_role_label(player_entry))
+        msg += t.STANDIN_LIST_PLAYER.format(name=html.escape(player_entry["name"]))
         shown = entries if row_cap is None else entries[:row_cap]
         for entry in shown:
             template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
             msg += template.format(name=html.escape(entry["name"]))
         if len(entries) > len(shown):
             msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
-        msg += "\n"
+        msg += "\n\n"
+
+    groups = _group_sections(session_data, shared, include_uncertain)
 
     revealed, total = session.revealed_count(session_data)
-    if not listed and not (anyone and include_uncertain):
+    if not listed and not groups:
         msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
 
+    msg += groups
     msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
-    always = [e["name"] for e in shared if e["tier"] == rulelist.ALWAYS]
-    if always:
-        msg += t.STANDIN_LIST_UNIVERSAL.format(names=", ".join(html.escape(name) for name in always))
     if not include_uncertain:
         msg += t.STANDIN_LIST_TRIMMED
     return msg
+
+
+def _group_sections(session_data, shared, include_uncertain):
+    """The bottom of the post: each roleless achievement, and who can still get it.
+
+    Every living player is a candidate, revealed or not — these depend on no role, so a
+    player who has not said what they are is as able to earn one as anybody. An achievement
+    nobody is missing is left out entirely rather than printed with an empty list.
+    """
+    out = ""
+    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
+        if not include_uncertain and entry["tier"] != rulelist.CHECK:
+            continue
+        eligible = [
+            player_entry["name"]
+            for uid, player_entry in session.players_in_order(session_data)
+            if player_entry["alive"] and not session.already_has(session_data, uid, entry["name"])
+        ]
+        if not eligible:
+            continue
+        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(entry["name"]), count=len(eligible))
+        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(html.escape(n) for n in eligible))
+    return out
 
 
 def render_list(session_data):

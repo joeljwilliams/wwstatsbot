@@ -112,15 +112,20 @@ async def test_a_swing_reachable_row_is_marked_differently(context):
     assert "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} No Sorcery!" in ren
 
 
-async def test_universal_achievements_are_said_once(context):
-    """Four identical rows under each of sixteen players is noise."""
+async def test_roleless_achievements_are_named_once_with_everyone_who_can_get_them(context):
+    """The manager's own shape: a section at the bottom, not a row under each player.
+
+    Sixteen copies of one roleless achievement says the same thing sixteen times and
+    crowds out the rows that are about somebody in particular.
+    """
     session_data = await start_session(context)
     await reveal(context, 1, "villager")
     await reveal(context, 2, "seer")
 
     rendered = gamesession.render_list(session_data)
     assert rendered.count("Welcome to Hell") == 1
-    assert "Always possible:" in rendered
+    assert "Welcome to Hell (4):" in rendered, "named once, with a count"
+    assert "Ren, omu, J J" in rendered, "and the players who can still get it"
 
 
 async def test_an_unrevealed_player_is_left_out(context):
@@ -158,9 +163,13 @@ async def test_the_post_says_how_far_along_the_reveal_is(context):
     assert "1 of 4 revealed" in gamesession.render_list(session_data)
 
 
-async def test_an_empty_game_says_so_rather_than_rendering_nothing(context):
+async def test_before_anyone_reveals_only_the_roleless_sections_show(context):
+    """Nothing role-gated can be judged yet, but "play a game" is already true."""
     session_data = await start_session(context)
-    assert "no roles revealed" in gamesession.render_list(session_data)
+    rendered = gamesession.render_list(session_data)
+
+    assert "Welcome to Hell (4):" in rendered
+    assert "0 of 4 revealed" in rendered
 
 
 # --- Fitting in one message -------------------------------------------------
@@ -210,7 +219,7 @@ async def test_trimming_drops_rows_not_players(context):
     session_data = await big_game(context)
     rendered = gamesession.render_list(session_data)
     for _uid, entry in session.players_in_order(session_data):
-        assert "{} (".format(entry["name"]) in rendered, entry["name"]
+        assert entry["name"] in rendered, entry["name"]
 
 
 async def test_trimming_says_that_it_trimmed(context):
@@ -427,3 +436,112 @@ async def test_feasibility_sees_only_living_revealed_players(context):
     per_player, _ = feasibility.feasible(revealed, db.get_rules())
     names = {entry["name"] for entry in per_player[1]}
     assert "Should Have Known" not in names, "no living beholder to reveal"
+
+
+# --- Already earned ---------------------------------------------------------
+#
+# Nobody is hunting an achievement they finished months ago. The attained lists are
+# fetched once when the session opens and subtracted from every render — without them the
+# post is largely a list of things half the room already has, which is worse than no post:
+# it buries the two or three rows that are actually news.
+
+
+async def test_an_achievement_a_player_already_has_is_not_offered(context):
+    session_data = await start_session(context)
+    await reveal(context, 1, "snow_wolf")
+    await reveal(context, 2, "harlot")
+    assert "Cold as Ice" in gamesession.render_list(session_data)
+
+    session.set_attained(session_data, 1, ["Cold as Ice"])
+    assert "Cold as Ice" not in gamesession.render_list(session_data)
+
+
+async def test_one_players_collection_does_not_hide_it_from_another(context):
+    """Two Snow Wolves, one of whom has it: the other must still be told."""
+    session_data = await start_session(context, players=[(1, "Ren"), (2, "omu"), (3, "J J")])
+    await reveal(context, 1, "snow_wolf")
+    await reveal(context, 2, "snow_wolf")
+    await reveal(context, 3, "harlot")
+
+    session.set_attained(session_data, 1, ["Cold as Ice"])
+    rendered = gamesession.render_list(session_data)
+
+    ren, _, rest = rendered.partition("omu\n")
+    assert "Cold as Ice" not in ren
+    assert "Cold as Ice" in rest
+
+
+async def test_a_roleless_achievement_lists_only_the_players_missing_it(context):
+    session_data = await start_session(context)
+    await reveal(context, 1, "villager")
+    session.set_attained(session_data, 1, ["Welcome to Hell"])
+    session.set_attained(session_data, 2, ["Welcome to Hell"])
+
+    rendered = gamesession.render_list(session_data)
+    assert "Welcome to Hell (2):" in rendered
+    assert "Ren" not in rendered.split("Welcome to Hell (2):")[1].split("\n")[1]
+
+
+async def test_an_achievement_everybody_already_has_is_left_out_entirely(context):
+    """Printed with an empty list it would read as a row nobody can earn."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "villager")
+    for uid in (1, 2, 3, 4):
+        session.set_attained(session_data, uid, ["Welcome to Hell"])
+
+    assert "Welcome to Hell" not in gamesession.render_list(session_data)
+
+
+async def test_an_unknown_collection_shows_everything(context):
+    """The stats API is occasionally unavailable. A game played during one of those
+    minutes should still get a list — hiding a row nobody can verify is the worse error."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "snow_wolf")
+    await reveal(context, 2, "harlot")
+
+    assert session_data["players"]["1"]["attained"] is None
+    assert "Cold as Ice" in gamesession.render_list(session_data)
+
+
+async def test_the_session_fetches_every_players_collection_once(context, monkeypatch):
+    """One batch at /gs, not one per render: a publish happens every few seconds."""
+    calls = []
+
+    async def fake_get(user_id):
+        calls.append(user_id)
+        return [{"name": "Welcome to Hell"}]
+
+    monkeypatch.setattr(gamesession.api, "get_achievements", fake_get)
+    session_data = await start_session(context)
+
+    assert sorted(calls) == [1, 2, 3, 4]
+    assert session_data["players"]["1"]["attained"] == ["Welcome to Hell"]
+
+    await reveal(context, 1, "villager")
+    await publish(context)
+    assert sorted(calls) == [1, 2, 3, 4], "rendering must not re-query"
+
+
+async def test_a_failed_lookup_leaves_that_player_unknown_rather_than_empty(context, monkeypatch):
+    """One player's failure must not be read as "they have nothing", nor sink the session."""
+
+    async def flaky(user_id):
+        if user_id == 2:
+            raise RuntimeError("stats API down")
+        return [{"name": "Welcome to Hell"}]
+
+    monkeypatch.setattr(gamesession.api, "get_achievements", flaky)
+    session_data = await start_session(context)
+
+    assert session_data["players"]["1"]["attained"] == ["Welcome to Hell"]
+    assert session_data["players"]["2"]["attained"] is None
+    assert session.get(context.chat_data) is not None
+
+
+async def test_attained_lists_survive_a_persistence_round_trip(context):
+    from conftest import assert_json_roundtrips
+
+    session_data = await start_session(context)
+    session.set_attained(session_data, 1, ["Cold as Ice"])
+    restored = assert_json_roundtrips(session_data)
+    assert session.already_has(restored, 1, "Cold as Ice")
