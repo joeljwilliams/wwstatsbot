@@ -51,6 +51,9 @@ UNADVERTISED = [
     "rm",
     "love",
     "gsend",
+    "dead",
+    "ad",
+    "steal",
 ]
 
 # Aliases that must keep working alongside their primary verb.

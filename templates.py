@@ -340,3 +340,44 @@ STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
 STANDIN_UNKNOWN_TARGET = N_(
     "I need a player from this game — reply to them, or mention them so their name carries a user id."
 )
+
+
+# --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
+
+STANDIN_DEAD_USAGE = N_(
+    "Usage: <code>/dead &lt;player&gt;</code>, or reply to them. "
+    "To follow the whole roster at once, reply to the game bot's player list with <code>/ad</code>."
+)
+STANDIN_DEAD_MARKED = N_("{name} is dead.")
+STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
+
+STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
+# The roster states its own counts ("Players Alive: 11/16"), so a parse can be checked
+# before it is applied. It is applied as a full reset — anyone the game bot lists is alive,
+# anyone it doesn't is dead — which is exactly why a misread must change nothing at all.
+STANDIN_AD_MISMATCH = N_(
+    "That roster says {claimed} of {total} alive, but I can only see {found} player{plural} in it. "
+    "Nothing changed — the list may be from a different game, or it didn't mention everyone directly."
+)
+STANDIN_AD_NO_CHANGE = N_("Roster matches what I have — nobody's status changed.")
+STANDIN_AD_SUMMARY = N_("Roster followed.\n")
+STANDIN_AD_DIED = N_("\N{SKULL} Now dead: {names}\n")
+STANDIN_AD_REVIVED = N_("\N{SLIGHTLY SMILING FACE} Back among the living: {names}\n")
+STANDIN_AD_ROLES_LEARNED = N_("Learned from the death notices: {names}\n")
+
+# Role changes the deaths triggered, appended to whichever command caused them.
+STANDIN_TRANSFORM_HEADER = N_("\n")
+STANDIN_TRANSFORM_ROW = N_(
+    "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name} is now {role} ({reason})\n"
+)
+STANDIN_TRANSFORM_SORROW = N_("\N{BROKEN HEART} {name} dies of sorrow.\n")
+STANDIN_REASON_MODEL_DIED = N_("their rolemodel died")
+STANDIN_REASON_SEER_DIED = N_("the seer is gone")
+STANDIN_REASON_WOLVES_DEAD = N_("the wolves are gone")
+
+STANDIN_STEAL_USAGE = N_("Usage: <code>/steal &lt;player&gt;</code>, or reply to them.")
+STANDIN_STEAL_NOT_THIEF = N_("Only the Thief \N{SMILING FACE WITH HORNS} can steal a role.")
+# The game protects these outright, so a /steal against one is a rules mistake worth
+# reporting rather than a swap worth recording.
+STANDIN_STEAL_IMMUNE = N_("The Thief can't steal from {name} — {role} is out of reach.")
+STANDIN_STEAL_DONE = N_("{thief} stole {role} from {name}, who is now the Thief \N{SMILING FACE WITH HORNS}.")

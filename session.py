@@ -17,6 +17,8 @@ targeted, or die. Anyone else is not in the game, and a stand-in that let a pass
 into a live roster would be worse than one that ignored them.
 """
 
+import roles
+
 KEY = "standin"
 
 
@@ -228,3 +230,122 @@ def revealed_count(session):
     total = len(session["order"])
     revealed = sum(1 for _, entry in players_in_order(session) if entry["roles"])
     return revealed, total
+
+
+# --- Transforms ------------------------------------------------------------
+#
+# Roles change when people die, and the manager is expected to keep up: a Wild Child whose
+# role model was eaten is a wolf from that moment, and listing them as a Wild Child for the
+# rest of the game would give them the wrong achievements twice over — theirs, and not the
+# pack's.
+#
+# Each rule below is stated in the game's own terms and applied to a fixed point, because
+# transforms cascade: a lover dying of sorrow can be the death that promotes an Apprentice
+# Seer, whose promotion changes nothing else but might have. The iteration cap is a
+# backstop against a cycle nobody anticipated (two Doppelgängers shadowing each other),
+# because a stand-in that hangs is worse than one that stops transforming.
+
+_TRANSFORM_PASSES = 10
+
+# Why a role changed, for the reply. Kept as plain identifiers rather than prose so the
+# handler owns the wording and this module stays free of user-visible strings.
+BY_MODEL_DEATH = "model_died"
+BY_SEER_DEATH = "seer_died"
+BY_LAST_WOLF_DEATH = "wolves_dead"
+BY_SORROW = "sorrow"
+
+
+def _has(entry, *role_ids):
+    return any(role_id in entry["roles"] for role_id in role_ids)
+
+
+def _any_alive_with_tag(session, tag):
+    return any(
+        entry["alive"] and any(roles.has_tag(role_id, tag) for role_id in entry["roles"])
+        for _, entry in players_in_order(session)
+    )
+
+
+def _any_dead_with_tag(session, tag):
+    return any(
+        not entry["alive"] and any(roles.has_tag(role_id, tag) for role_id in entry["roles"])
+        for _, entry in players_in_order(session)
+    )
+
+
+def _dead(session, user_id):
+    entry = player(session, user_id)
+    return entry is not None and not entry["alive"]
+
+
+def apply_transforms(session):
+    """Run every death-triggered role change until nothing more fires.
+
+    Returns a list of {user_id, roles, reason} describing what changed, so the caller can
+    report it. An empty list means the deaths that just landed changed nobody's role.
+    """
+    changes = []
+    for _ in range(_TRANSFORM_PASSES):
+        changed = False
+
+        for uid, entry in list(players_in_order(session)):
+            # A lover dies of sorrow. First, because the death it causes can trigger any
+            # of the others below.
+            if entry["alive"] and entry["partner"] is not None and _dead(session, entry["partner"]):
+                entry["alive"] = False
+                changes.append({"user_id": uid, "roles": list(entry["roles"]), "reason": BY_SORROW})
+                changed = True
+                continue
+
+            if not entry["alive"] or entry["model"] is None or not _dead(session, entry["model"]):
+                continue
+
+            # The Wild Child turns when their role model dies — a plain Werewolf, never an
+            # Alpha; the pack gains a member, not a leader.
+            if _has(entry, "wild_child"):
+                entry["roles"] = ["werewolf"]
+                changes.append({"user_id": uid, "roles": ["werewolf"], "reason": BY_MODEL_DEATH})
+                changed = True
+            # The Doppelgänger becomes whatever their model was. Their *current* roles, so
+            # a model who had already transformed is copied as they ended up.
+            elif _has(entry, "doppelganger"):
+                model = player(session, entry["model"])
+                if model is not None and model["roles"]:
+                    entry["roles"] = list(model["roles"])
+                    entry["model"] = None
+                    changes.append({"user_id": uid, "roles": list(entry["roles"]), "reason": BY_MODEL_DEATH})
+                    changed = True
+
+        # The Apprentice Seer is promoted once no Seer is left alive. Written as "no living
+        # seer, but there was one" rather than "the seer died" so it cannot fire in a game
+        # that never had a Seer to lose.
+        if not _any_alive_with_role(session, "seer") and _any_dead_with_role(session, "seer"):
+            for uid, entry in players_in_order(session):
+                if entry["alive"] and _has(entry, "apprentice_seer"):
+                    entry["roles"] = ["seer"]
+                    changes.append({"user_id": uid, "roles": ["seer"], "reason": BY_SEER_DEATH})
+                    changed = True
+                    break
+
+        # The Traitor becomes a wolf once the pack is gone. Same shape: a game with no
+        # wolves at all must not promote them on the first death.
+        if not _any_alive_with_tag(session, roles.PACK) and _any_dead_with_tag(session, roles.PACK):
+            for uid, entry in players_in_order(session):
+                if entry["alive"] and _has(entry, "traitor"):
+                    entry["roles"] = ["werewolf"]
+                    changes.append({"user_id": uid, "roles": ["werewolf"], "reason": BY_LAST_WOLF_DEATH})
+                    changed = True
+                    break
+
+        if not changed:
+            break
+
+    return changes
+
+
+def _any_alive_with_role(session, role_id):
+    return any(entry["alive"] and role_id in entry["roles"] for _, entry in players_in_order(session))
+
+
+def _any_dead_with_role(session, role_id):
+    return any(not entry["alive"] and role_id in entry["roles"] for _, entry in players_in_order(session))

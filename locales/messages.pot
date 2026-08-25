@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-25 18:54+0200\n"
+"POT-Creation-Date: 2026-08-25 19:17+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -779,5 +779,103 @@ msgstr ""
 msgid ""
 "I need a player from this game — reply to them, or mention them so their "
 "name carries a user id."
+msgstr ""
+
+#: templates.py:348
+msgid ""
+"Usage: <code>/dead &lt;player&gt;</code>, or reply to them. To follow the"
+" whole roster at once, reply to the game bot's player list with "
+"<code>/ad</code>."
+msgstr ""
+
+#: templates.py:351
+#, python-brace-format
+msgid "{name} is dead."
+msgstr ""
+
+#: templates.py:352
+#, python-brace-format
+msgid "{name} is already dead."
+msgstr ""
+
+#: templates.py:354
+msgid ""
+"Reply to the game bot's player list with <code>/ad</code> and I'll follow"
+" it."
+msgstr ""
+
+#: templates.py:359
+#, python-brace-format
+msgid ""
+"That roster says {claimed} of {total} alive, but I can only see {found} "
+"player{plural} in it. Nothing changed — the list may be from a different "
+"game, or it didn't mention everyone directly."
+msgstr ""
+
+#: templates.py:362
+msgid "Roster matches what I have — nobody's status changed."
+msgstr ""
+
+#: templates.py:363
+msgid "Roster followed.\n"
+msgstr ""
+
+#: templates.py:364
+#, python-brace-format
+msgid "💀 Now dead: {names}\n"
+msgstr ""
+
+#: templates.py:365
+#, python-brace-format
+msgid "🙂 Back among the living: {names}\n"
+msgstr ""
+
+#: templates.py:366
+#, python-brace-format
+msgid "Learned from the death notices: {names}\n"
+msgstr ""
+
+#: templates.py:369
+msgid "\n"
+msgstr ""
+
+#: templates.py:371
+#, python-brace-format
+msgid "🔁 {name} is now {role} ({reason})\n"
+msgstr ""
+
+#: templates.py:373
+#, python-brace-format
+msgid "💔 {name} dies of sorrow.\n"
+msgstr ""
+
+#: templates.py:374
+msgid "their rolemodel died"
+msgstr ""
+
+#: templates.py:375
+msgid "the seer is gone"
+msgstr ""
+
+#: templates.py:376
+msgid "the wolves are gone"
+msgstr ""
+
+#: templates.py:378
+msgid "Usage: <code>/steal &lt;player&gt;</code>, or reply to them."
+msgstr ""
+
+#: templates.py:379
+msgid "Only the Thief 😈 can steal a role."
+msgstr ""
+
+#: templates.py:382
+#, python-brace-format
+msgid "The Thief can't steal from {name} — {role} is out of reach."
+msgstr ""
+
+#: templates.py:383
+#, python-brace-format
+msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
 msgstr ""
 

@@ -24,6 +24,7 @@ than one that ignored them.
 """
 
 import html
+import re
 import time
 
 import structlog
@@ -506,3 +507,227 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_data["stop_armed_by"] = user.id
     session_data["stop_armed_at"] = _now()
     await query.answer(t.STANDIN_STOP_ARM, show_alert=True)
+
+
+# --- Deaths ----------------------------------------------------------------
+
+# The game bot's roster states its own counts — "Players Alive: 11/16" — which is what
+# makes /ad safe to apply as a full reset: the claim can be checked against what we parsed
+# before anything is written.
+_ROSTER_COUNTS = re.compile(r"Players\s+Alive:\s*(?P<alive>\d+)\s*/\s*(?P<total>\d+)", re.IGNORECASE)
+
+# A dead row carries the role the player was: "omu: 💀 Dead - the Serial Killer 🔪". Worth
+# reading, because a player who never got round to /role still contributes their role to
+# everyone else's achievements from the moment they die.
+_DEAD_ROW = re.compile(r"^(?P<name>.+?):\s*\S*\s*Dead\b\s*[-–—]\s*(?P<role>.+?)\s*$", re.IGNORECASE)
+
+
+def _transform_lines(session_data, changes):
+    """Render the role changes a set of deaths triggered."""
+    if not changes:
+        return ""
+    reasons = {
+        session.BY_MODEL_DEATH: t.STANDIN_REASON_MODEL_DIED,
+        session.BY_SEER_DEATH: t.STANDIN_REASON_SEER_DIED,
+        session.BY_LAST_WOLF_DEATH: t.STANDIN_REASON_WOLVES_DEAD,
+    }
+    out = t.STANDIN_TRANSFORM_HEADER
+    for change in changes:
+        name = html.escape(session.name_of(session_data, change["user_id"]) or "")
+        if change["reason"] == session.BY_SORROW:
+            out += t.STANDIN_TRANSFORM_SORROW.format(name=name)
+            continue
+        out += t.STANDIN_TRANSFORM_ROW.format(
+            name=name,
+            role=" / ".join(roles.display(role_id) for role_id in change["roles"]),
+            reason=reasons[change["reason"]],
+        )
+    return out
+
+
+async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/dead <player>` or a reply — mark one player dead and run what that triggers."""
+    session_data = _session_for(update, context)
+    if session_data is None:
+        return
+
+    message = update.message
+    logger.info(
+        "command",
+        command="dead",
+        user_id=message.from_user.id,
+        user=unidecode(message.from_user.first_name),
+        args=context.args,
+    )
+
+    target_id = _replied_player(update, session_data)
+    if target_id is None and context.args:
+        target_id = _find_player(session_data, " ".join(context.args))
+    if target_id is None:
+        await message.reply_text(
+            t.STANDIN_DEAD_USAGE if not context.args else t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML
+        )
+        return
+
+    entry = session.player(session_data, target_id)
+    if not entry["alive"]:
+        await message.reply_text(
+            t.STANDIN_ALREADY_DEAD.format(name=html.escape(entry["name"])), parse_mode=ParseMode.HTML
+        )
+        return
+
+    session.set_alive(session_data, target_id, False)
+    changes = session.apply_transforms(session_data)
+    session.touch(session_data, _now())
+    await _refresh_state(context, message.chat.id, session_data)
+
+    reply = t.STANDIN_DEAD_MARKED.format(name=html.escape(entry["name"]))
+    await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
+
+
+def _dead_rows(text):
+    """(name, role_text) for every "… : 💀 Dead - the X" line in a roster."""
+    rows = []
+    for line in (text or "").splitlines():
+        found = _DEAD_ROW.match(line.strip())
+        if found is not None:
+            rows.append((found.group("name").strip(), found.group("role").strip()))
+    return rows
+
+
+async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/ad` in reply to the game bot's roster — follow it wholesale.
+
+    A **full reset**, not a diff: the game bot's list is the authority, so anyone it shows
+    as alive *is* alive, including a player a mistyped /dead killed off. Being able to undo
+    that matters more than guarding against a misparse — and the roster's own header is a
+    better guard anyway, so a list whose counts disagree with what we read changes nothing
+    at all. Half-applying a roster would be worse than refusing one.
+    """
+    session_data = _session_for(update, context)
+    if session_data is None:
+        return
+
+    message = update.message
+    logger.info("command", command="ad", user_id=message.from_user.id, user=unidecode(message.from_user.first_name))
+
+    replied = message.reply_to_message
+    if replied is None:
+        await message.reply_text(t.STANDIN_AD_USAGE, parse_mode=ParseMode.HTML)
+        return
+
+    # Alive players are the mentions: the game bot links every living player's name and
+    # leaves the dead as plain text, so this needs no text parsing at all.
+    alive, _ = mentioned_users(replied)
+    alive_ids = [uid for uid, _ in alive if session.player(session_data, uid) is not None]
+
+    body = replied.text or replied.caption or ""
+    counts = _ROSTER_COUNTS.search(body)
+    if counts is None or int(counts.group("alive")) != len(alive_ids):
+        claimed = counts.group("alive") if counts else "?"
+        total = counts.group("total") if counts else "?"
+        await message.reply_text(
+            t.STANDIN_AD_MISMATCH.format(
+                claimed=claimed,
+                total=total,
+                found=len(alive_ids),
+                plural="" if len(alive_ids) == 1 else "s",
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    died, revived = session.sync_alive(session_data, alive_ids)
+
+    # Dead rows name the role the player was. They carry no user id — the game bot stops
+    # linking a player once they are out — so they are matched by display name, and an
+    # ambiguous or unknown one skips *the role* only. Aliveness came from the mentions
+    # above and is never at risk from this.
+    learned = []
+    for name, role_text in _dead_rows(body):
+        uid = _find_player(session_data, name)
+        if uid is None:
+            continue
+        entry = session.player(session_data, uid)
+        if entry["roles"]:
+            continue
+        resolved = roles.resolve(role_text)
+        if resolved:
+            session.set_roles(session_data, uid, resolved)
+            learned.append(entry["name"])
+
+    changes = session.apply_transforms(session_data)
+    session.touch(session_data, _now())
+    await _refresh_state(context, message.chat.id, session_data)
+
+    if not died and not revived and not learned and not changes:
+        await message.reply_text(t.STANDIN_AD_NO_CHANGE, parse_mode=ParseMode.HTML)
+        return
+
+    def names(ids):
+        return ", ".join(html.escape(session.name_of(session_data, uid) or "") for uid in ids)
+
+    reply = t.STANDIN_AD_SUMMARY
+    if died:
+        reply += t.STANDIN_AD_DIED.format(names=names(died))
+    if revived:
+        reply += t.STANDIN_AD_REVIVED.format(names=names(revived))
+    if learned:
+        reply += t.STANDIN_AD_ROLES_LEARNED.format(names=", ".join(html.escape(n) for n in learned))
+    reply += _transform_lines(session_data, changes)
+    await message.reply_text(reply, parse_mode=ParseMode.HTML)
+
+
+# --- /steal ----------------------------------------------------------------
+
+
+async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/steal <player>` — the Thief's theft, as one command instead of two /roles.
+
+    Swaps both roles, so the robbed player becomes the new Thief, and carries the role
+    model across with the role it belongs to: a stolen Wild Child means nothing without
+    whoever the Wild Child was watching.
+    """
+    session_data = _session_for(update, context)
+    if session_data is None:
+        return
+
+    message = update.message
+    user = message.from_user
+    logger.info("command", command="steal", user_id=user.id, user=unidecode(user.first_name), args=context.args)
+
+    thief = session.player(session_data, user.id)
+    if "thief" not in thief["roles"]:
+        await message.reply_text(t.STANDIN_STEAL_NOT_THIEF, parse_mode=ParseMode.HTML)
+        return
+
+    target_id = _replied_player(update, session_data)
+    if target_id is None and context.args:
+        target_id = _find_player(session_data, " ".join(context.args))
+    if target_id is None:
+        await message.reply_text(
+            t.STANDIN_STEAL_USAGE if not context.args else t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML
+        )
+        return
+
+    target = session.player(session_data, target_id)
+    if not target["roles"]:
+        await message.reply_text(
+            t.STANDIN_MODEL_NEEDS_ROLE.format(name=html.escape(target["name"])), parse_mode=ParseMode.HTML
+        )
+        return
+    if any(roles.has_tag(role_id, roles.STEAL_IMMUNE) for role_id in target["roles"]):
+        await message.reply_text(
+            t.STANDIN_STEAL_IMMUNE.format(name=html.escape(target["name"]), role=_role_label(target)),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    stolen = _role_label(target)
+    session.swap_roles(session_data, user.id, target_id)
+    session.touch(session_data, _now())
+    await _refresh_state(context, message.chat.id, session_data)
+    await message.reply_text(
+        t.STANDIN_STEAL_DONE.format(thief=html.escape(thief["name"]), role=stolen, name=html.escape(target["name"])),
+        parse_mode=ParseMode.HTML,
+    )

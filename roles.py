@@ -295,6 +295,12 @@ _SEER_FOOL_ALIASES = ("sf", "s/f", "seerfool", "seer/fool", "foolseer")
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]")
 
+# The game names roles with an article — /rolelist says "the Seer", "a Villager", and a
+# death line reads "Dead - the Serial Killer". Stripped before punctuation is removed,
+# since by then "the seer" has become "theseer" and the article is unrecoverable. No role
+# name begins with a word that is only an article, so this can never eat part of one.
+_ARTICLE = re.compile(r"^(?:the|a|an)\s+")
+
 
 def normalise(text):
     """Fold a typed role name to its lookup key.
@@ -302,11 +308,14 @@ def normalise(text):
     Case, spacing and punctuation all vary in play ("Alpha Wolf", "alpha-wolf", "ALPHAWOLF"),
     and the game's own names carry accents and emoji the keyboard makes awkward — hence
     unidecode, which is already a dependency: it maps "Doppelgänger" to "doppelganger" so
-    the obvious ASCII spelling resolves. Returns "" for input with nothing to match on.
+    the obvious ASCII spelling resolves, and drops the trailing emoji from "Serial Killer 🔪"
+    so a role copied out of a game message resolves too. Returns "" for input with nothing
+    to match on.
     """
     if not text:
         return ""
-    return _NON_ALNUM.sub("", unidecode(text).lower())
+    folded = _ARTICLE.sub("", unidecode(text).lower().strip())
+    return _NON_ALNUM.sub("", folded)
 
 
 def _build_alias_index():
