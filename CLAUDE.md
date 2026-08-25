@@ -68,6 +68,11 @@ uv run python main.py             # env vars override config.py values
 
 LOG_FORMAT=console LOG_LEVEL=DEBUG uv run python main.py   # human-readable logs (auto on a TTY)
 
+# Translations (Babel is a dev-only tool; the runtime uses stdlib gettext)
+uv run pybabel extract -F babel.cfg -o locales/messages.pot .   # after editing templates.py
+uv run pybabel update -i locales/messages.pot -d locales        # merge into existing .po
+uv run pybabel compile -d locales                               # .po -> .mo (not committed)
+
 # Test / lint
 uv run pytest                     # 175 tests; the 28 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test

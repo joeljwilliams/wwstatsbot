@@ -10,3 +10,7 @@ __pycache__
 .pytest_cache
 .coverage
 htmlcov
+
+# Compiled message catalogs — build output. .po is the source of truth; these are
+# produced by `pybabel compile` in the Docker builder and by the test fixture.
+locales/**/*.mo
