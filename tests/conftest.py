@@ -250,7 +250,9 @@ class FakeMessage:
         entities=None,
         caption=None,
         caption_entities=None,
+        message_id=1,
     ):
+        self.message_id = message_id
         self.text = text
         self.caption = caption
         self.from_user = from_user or FakeUser()
@@ -307,16 +309,32 @@ class FakeInlineQuery:
 
 
 class FakeBot:
-    def __init__(self, username="wwstatsbot", send_error=None):
+    def __init__(self, username="wwstatsbot", send_error=None, edit_error=None):
         self.username = username
         self.sent = []
+        self.edits = []
+        self.markup_edits = []
         self.commands = None
         self._send_error = send_error
+        self._edit_error = edit_error
+        self._next_message_id = 100
 
     async def send_message(self, chat_id, text, **kwargs):
         if self._send_error is not None:
             raise self._send_error
         self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        # Returned so callers that keep a message id — the stand-in session edits one
+        # roster message for the length of a game — get a stable, distinct one.
+        self._next_message_id += 1
+        return FakeMessage(text=text, message_id=self._next_message_id)
+
+    async def edit_message_text(self, chat_id=None, message_id=None, text="", **kwargs):
+        if self._edit_error is not None:
+            raise self._edit_error
+        self.edits.append({"chat_id": chat_id, "message_id": message_id, "text": text, **kwargs})
+
+    async def edit_message_reply_markup(self, chat_id=None, message_id=None, reply_markup=None):
+        self.markup_edits.append({"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup})
 
     async def set_my_commands(self, commands):
         self.commands = commands

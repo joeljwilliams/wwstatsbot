@@ -265,3 +265,78 @@ CMD_INFO = N_("Look up an achievement, or reply to a list to get them all")
 CMD_ABOUT = N_("About this bot")
 CMD_VERSION = N_("Show the running bot version")
 CMD_START = N_("Start the bot in a private chat")
+
+
+# --- HTML: the stand-in game session (handlers/gamesession.py) --------------
+#
+# Worded to match the achievement manager this stands in for, because standing in
+# convincingly is mostly a matter of nobody noticing: its own posts say "GAME RUNNING!",
+# "Players (16 / 16):" and "<name>'s role was set to: <Role>", and a replacement that
+# invented its own phrasing would read as a different tool at exactly the moment people
+# are looking for a familiar one.
+#
+# The one place we deliberately differ is the instruction line. The manager says "reveal
+# your roles by saying them", which it can do because it reads ordinary messages; we only
+# ever see commands, so ours names /role explicitly rather than promising something that
+# would silently not work.
+
+STANDIN_HEADER = N_("<b>GAME RUNNING!</b>\n\n")
+STANDIN_INTRO = N_(
+    "Standing in for the achievement manager. Reveal your role with <code>/role &lt;role&gt;</code> — "
+    'e.g. <code>/role gunner</code> or <code>/role sk</code>. Hit "Stop" when the game ends.\n\n'
+)
+STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
+STANDIN_PLAYER_ROW = N_("{name}: {role}\n")
+STANDIN_PLAYER_UNREVEALED = N_("{name}: <i>not revealed</i>\n")
+# The role model rides inline in parentheses, the way the manager renders it:
+#   J J: Wild Child 👶 (omu)
+STANDIN_MODEL = N_(" ({name})")
+# A heart on each partner rather than a couple line — again the manager's own convention,
+# and it is why lover status is a per-player flag with an optional partner.
+STANDIN_LOVER = N_(" \N{HEAVY BLACK HEART}")
+STANDIN_DEAD_HEADER = N_("\n<b>Dead Players:</b>\n")
+STANDIN_UNRESOLVED = N_("\n<i>Not tracked (no user id): {names}</i>\n")
+STANDIN_STOP_BUTTON = N_("Stop")
+# Two presses, so the first only arms. The manager's Stop takes one, and it sits under a
+# dozen thumbs for a whole game.
+STANDIN_STOP_ARM = N_("Press Stop again to end the session.")
+STANDIN_STOP_NOT_YOURS = N_("Only players in this game can stop it.")
+STANDIN_STOP_EXPIRED = N_("That session has already ended.")
+
+STANDIN_ALREADY_RUNNING = N_(
+    "A stand-in session is already running in this chat. Stop it first, or use <code>/gsend</code>."
+)
+STANDIN_NEEDS_ROSTER = N_(
+    "Reply to the game bot's player list with <code>/gs@{username}</code> so I know who is playing."
+)
+STANDIN_NO_PLAYERS = N_(
+    "That message doesn't mention any players I can track. I need direct mentions — plain "
+    "@username mentions carry no user id."
+)
+STANDIN_ENDED = N_("Stand-in session ended.")
+
+# Confirmations. "<name>'s role was set to: <Role>" is the manager's exact wording.
+STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
+STANDIN_ROLE_SET_AMBIGUOUS = N_("{name}'s role was set to: {role}\n<i>Both are being counted until you know which.</i>")
+STANDIN_ROLE_USAGE = N_("Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>.")
+STANDIN_ROLE_UNKNOWN = N_("I don't know a role called <b>{role}</b>.")
+STANDIN_ROLE_DID_YOU_MEAN = N_("\nDid you mean: {names}?")
+STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
+STANDIN_MODEL_USAGE = N_(
+    "Usage: <code>/rm &lt;rolemodel&gt;</code> (yours), or in reply to a player, "
+    "or <code>/rm &lt;player&gt; &lt;rolemodel&gt;</code>."
+)
+# Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
+# reported rather than stored, because a stored one would never fire a transform and the
+# mistake would only surface much later as an achievement that failed to appear.
+STANDIN_MODEL_WRONG_ROLE = N_(
+    "{name} is {role}, which has no rolemodel. Only the Wild Child \N{BABY} and the "
+    "Doppelg\N{LATIN SMALL LETTER A WITH DIAERESIS}nger \N{PERFORMING ARTS} do."
+)
+STANDIN_MODEL_NEEDS_ROLE = N_("{name} hasn't revealed yet, so I can't tell if they have a rolemodel.")
+STANDIN_LOVE_SET = N_("{name} is now in love.")
+STANDIN_LOVE_PAIR_SET = N_("{name} and {partner} are now in love.")
+STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
+STANDIN_UNKNOWN_TARGET = N_(
+    "I need a player from this game — reply to them, or mention them so their name carries a user id."
+)

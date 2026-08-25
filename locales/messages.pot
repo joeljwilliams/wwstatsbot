@@ -1,14 +1,14 @@
-# Translations template for wwstatsbot.
-# Copyright (C) 2026 wwstatsbot contributors
-# This file is distributed under the same license as the wwstatsbot project.
+# Translations template for PROJECT.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: wwstatsbot VERSION\n"
+"Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-11 21:17+0200\n"
+"POT-Creation-Date: 2026-08-25 18:54+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -617,5 +617,167 @@ msgstr ""
 
 #: templates.py:267
 msgid "Start the bot in a private chat"
+msgstr ""
+
+#: templates.py:283
+msgid ""
+"<b>GAME RUNNING!</b>\n"
+"\n"
+msgstr ""
+
+#: templates.py:285
+msgid ""
+"Standing in for the achievement manager. Reveal your role with "
+"<code>/role &lt;role&gt;</code> — e.g. <code>/role gunner</code> or "
+"<code>/role sk</code>. Hit \"Stop\" when the game ends.\n"
+"\n"
+msgstr ""
+
+#: templates.py:288
+#, python-brace-format
+msgid "<b>Players ({revealed} / {total}):</b>\n"
+msgstr ""
+
+#: templates.py:289
+#, python-brace-format
+msgid "{name}: {role}\n"
+msgstr ""
+
+#: templates.py:290
+#, python-brace-format
+msgid "{name}: <i>not revealed</i>\n"
+msgstr ""
+
+#: templates.py:293
+#, python-brace-format
+msgid " ({name})"
+msgstr ""
+
+#: templates.py:296
+msgid " ❤"
+msgstr ""
+
+#: templates.py:297
+msgid ""
+"\n"
+"<b>Dead Players:</b>\n"
+msgstr ""
+
+#: templates.py:298
+#, python-brace-format
+msgid ""
+"\n"
+"<i>Not tracked (no user id): {names}</i>\n"
+msgstr ""
+
+#: templates.py:299
+msgid "Stop"
+msgstr ""
+
+#: templates.py:302
+msgid "Press Stop again to end the session."
+msgstr ""
+
+#: templates.py:303
+msgid "Only players in this game can stop it."
+msgstr ""
+
+#: templates.py:304
+msgid "That session has already ended."
+msgstr ""
+
+#: templates.py:307
+msgid ""
+"A stand-in session is already running in this chat. Stop it first, or use"
+" <code>/gsend</code>."
+msgstr ""
+
+#: templates.py:310
+#, python-brace-format
+msgid ""
+"Reply to the game bot's player list with <code>/gs@{username}</code> so I"
+" know who is playing."
+msgstr ""
+
+#: templates.py:313
+msgid ""
+"That message doesn't mention any players I can track. I need direct "
+"mentions — plain @username mentions carry no user id."
+msgstr ""
+
+#: templates.py:316
+msgid "Stand-in session ended."
+msgstr ""
+
+#: templates.py:319
+#, python-brace-format
+msgid "{name}'s role was set to: {role}"
+msgstr ""
+
+#: templates.py:320
+#, python-brace-format
+msgid ""
+"{name}'s role was set to: {role}\n"
+"<i>Both are being counted until you know which.</i>"
+msgstr ""
+
+#: templates.py:321
+msgid "Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>."
+msgstr ""
+
+#: templates.py:322
+#, python-brace-format
+msgid "I don't know a role called <b>{role}</b>."
+msgstr ""
+
+#: templates.py:323
+#, python-brace-format
+msgid ""
+"\n"
+"Did you mean: {names}?"
+msgstr ""
+
+#: templates.py:324
+#, python-brace-format
+msgid "{name}'s rolemodel is now {model}"
+msgstr ""
+
+#: templates.py:326
+msgid ""
+"Usage: <code>/rm &lt;rolemodel&gt;</code> (yours), or in reply to a "
+"player, or <code>/rm &lt;player&gt; &lt;rolemodel&gt;</code>."
+msgstr ""
+
+#: templates.py:333
+#, python-brace-format
+msgid ""
+"{name} is {role}, which has no rolemodel. Only the Wild Child 👶 and the "
+"Doppelgänger 🎭 do."
+msgstr ""
+
+#: templates.py:336
+#, python-brace-format
+msgid "{name} hasn't revealed yet, so I can't tell if they have a rolemodel."
+msgstr ""
+
+#: templates.py:337
+#, python-brace-format
+msgid "{name} is now in love."
+msgstr ""
+
+#: templates.py:338
+#, python-brace-format
+msgid "{name} and {partner} are now in love."
+msgstr ""
+
+#: templates.py:339
+#, python-brace-format
+msgid "{name} isn't in this game's player list."
+msgstr ""
+
+#: templates.py:341
+msgid ""
+"I need a player from this game — reply to them, or mention them so their "
+"name carries a user id."
 msgstr ""
 
