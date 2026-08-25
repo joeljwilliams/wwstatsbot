@@ -60,6 +60,10 @@ async def _post_init(application: Application):
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
+    # Rules reference achievements by name, so they can only be seeded once the
+    # achievements themselves exist.
+    await db.seed_rules()
+    await db.load_rules_cache()
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 

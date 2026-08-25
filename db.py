@@ -10,6 +10,7 @@ import asyncpg
 import structlog
 
 from achvlist import ACHV
+from rulelist import RULES
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +19,11 @@ _pool: asyncpg.Pool = None
 # In-memory cache of the achievements table, ordered by sort_order. Each item is
 # a dict shaped like the old achvlist.ACHV entries (name/desc/type/notes + flags).
 _ACHIEVEMENTS = []
+
+# In-memory cache of achievement_rules, keyed by achievement name. Read once per rendered
+# player per achievement, so it gets the same treatment as _ACHIEVEMENTS: loaded at
+# startup, reloaded after every write.
+_RULES = {}
 
 _SCHEMA = r"""
 CREATE TABLE IF NOT EXISTS achievements (
@@ -81,6 +87,35 @@ ALTER TABLE achievements
 -- Dropping the column above drops this index with it, so it is always recreated.
 CREATE INDEX IF NOT EXISTS achievements_search_tsv_idx
     ON achievements USING GIN (search_tsv);
+
+-- Feasibility rules: which achievements a given role composition can still produce, and
+-- for whom. Deliberately its own table rather than columns on `achievements`, for one
+-- decisive reason: seed_achievements() is ON CONFLICT DO NOTHING, so on any database that
+-- has already been seeded -- which is every deployed one -- a rule shipped as a new
+-- achievements column would never actually be written. A separate table gets its own
+-- upsert semantics (see seed_rules) instead of inheriting ones designed to protect
+-- hand-edited notes.
+--
+-- Keyed by achievement *name* because that is the only stable identifier: `id` is a
+-- SERIAL and differs between databases. ON UPDATE CASCADE keeps a rule attached through a
+-- rename via the /db console; ON DELETE CASCADE means removing an achievement takes its
+-- rule with it rather than leaving an orphan that blocks the delete.
+CREATE TABLE IF NOT EXISTS achievement_rules (
+    achievement TEXT PRIMARY KEY
+        REFERENCES achievements(name) ON UPDATE CASCADE ON DELETE CASCADE,
+    -- check | maybe | always | skip -- see rulelist.TIERS.
+    tier        TEXT NOT NULL,
+    -- Who can earn it: 'any', role ids, 'tag:<tag>', 'team:<team>', comma-separated.
+    subject     TEXT NOT NULL DEFAULT '',
+    -- Boolean expression over the composition, evaluated in a sandbox.
+    expr        TEXT NOT NULL DEFAULT 'True',
+    note        TEXT NOT NULL DEFAULT '',
+    -- Set by /setrule. Deploys skip edited rows, so a live correction is not undone by
+    -- the next release; /resetrule clears it and the next startup restores the canonical
+    -- rule.
+    edited      BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -166,6 +201,120 @@ async def load_cache():
 def get_achievements():
     """Return the cached achievement list (synchronous, hot-path accessor)."""
     return _ACHIEVEMENTS
+
+
+# --- Feasibility rules ------------------------------------------------------
+
+
+async def seed_rules():
+    """Idempotently seed achievement_rules from rulelist.RULES.
+
+    Deliberately *not* the DO NOTHING used for achievements. Rules are code-shaped data:
+    when a rule is found to be wrong, the fix has to reach every deployment, and DO NOTHING
+    would mean the corrected rule never landed anywhere the old one already existed.
+
+    `WHERE edited = FALSE` is what makes that safe to combine with live editing. A deploy
+    refreshes every rule nobody has touched; a rule corrected mid-game with /setrule is
+    left exactly as the admin left it, rather than being silently reverted by the next
+    release. /resetrule clears the flag to opt a rule back into the canonical version.
+
+    Must run after seed_achievements(): the foreign key means a rule for an achievement
+    that does not exist yet is rejected. tests/test_rules.py pins both lists against each
+    other so that mismatch is caught in CI rather than at a production startup.
+    """
+    async with _pool.acquire() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO achievement_rules (achievement, tier, subject, expr, note)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (achievement) DO UPDATE
+                SET tier = EXCLUDED.tier,
+                    subject = EXCLUDED.subject,
+                    expr = EXCLUDED.expr,
+                    note = EXCLUDED.note,
+                    updated_at = now()
+                WHERE achievement_rules.edited = FALSE
+            """,
+            [(r["name"], r["tier"], r["subject"], r["expr"], r["note"]) for r in RULES],
+        )
+    count = await _scalar("SELECT count(*) FROM achievement_rules")
+    edited = await _scalar("SELECT count(*) FROM achievement_rules WHERE edited")
+    logger.info("rules_seeded", rows=count, edited=edited)
+
+
+async def load_rules_cache():
+    """Reload the in-memory rule cache. Same contract as load_cache(): call after writes."""
+    global _RULES
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT r.achievement, r.tier, r.subject, r.expr, r.note, r.edited
+            FROM achievement_rules r
+            JOIN achievements a ON a.name = r.achievement
+            ORDER BY a.sort_order, a.id
+            """
+        )
+    _RULES = {
+        r["achievement"]: {
+            "tier": r["tier"],
+            "subject": r["subject"],
+            "expr": r["expr"],
+            "note": r["note"],
+            "edited": r["edited"],
+        }
+        for r in rows
+    }
+    logger.info("rule_cache_loaded", entries=len(_RULES))
+
+
+def get_rules():
+    """The cached rules, keyed by achievement name (synchronous, hot-path accessor).
+
+    Ordered by the achievements' own sort_order, so a rendered list comes out in the same
+    order as /achievements rather than alphabetically or by insertion.
+    """
+    return _RULES
+
+
+async def update_rule(achievement, tier, subject, expr, note):
+    """Overwrite one rule and mark it hand-edited. Returns True if a row matched.
+
+    The `edited` flag is the whole point: it opts this rule out of being overwritten by
+    the next deploy's seed. Callers must be superuser-gated -- `expr` is evaluated at
+    render time, so this is closer to /db than to /setnote.
+    """
+    async with _pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE achievement_rules
+               SET tier = $2, subject = $3, expr = $4, note = $5,
+                   edited = TRUE, updated_at = now()
+             WHERE achievement = $1
+            """,
+            achievement,
+            tier,
+            subject,
+            expr,
+            note,
+        )
+    matched = result != "UPDATE 0"
+    if matched:
+        await load_rules_cache()
+    return matched
+
+
+async def reset_rule(achievement):
+    """Clear the hand-edited flag so the next startup restores the canonical rule.
+
+    Does not restore it here: seeding is what owns the canonical values, and having one
+    place that writes them keeps "what will this be after a restart" answerable.
+    """
+    async with _pool.acquire() as conn:
+        result = await conn.execute("UPDATE achievement_rules SET edited = FALSE WHERE achievement = $1", achievement)
+    matched = result != "UPDATE 0"
+    if matched:
+        await load_rules_cache()
+    return matched
 
 
 async def update_notes(name, notes):
