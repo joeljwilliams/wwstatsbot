@@ -160,7 +160,7 @@ ROLES = {
         "tags": _tags(),
         "aliases": ("bs", "smith"),
     },
-    "sandman": {"name": "Sandman", "emoji": "💤", "team": VILLAGE, "tags": _tags(), "aliases": ()},
+    "sandman": {"name": "Sandman", "emoji": "💤", "team": VILLAGE, "tags": _tags(), "aliases": ("sm",)},
     "oracle": {"name": "Oracle", "emoji": "🌀", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     # A lowly villager the Seer misreads as a wolf. Village team, no transformation of its
     # own — being bitten by the Alpha is something that can happen to anyone.
@@ -182,7 +182,7 @@ ROLES = {
         "emoji": "👨‍🔬",
         "team": VILLAGE,
         "tags": _tags(VISITOR, KILLER),
-        "aliases": (),
+        "aliases": ("chem",),
     },
     "grave_digger": {
         "name": "Grave Digger",
