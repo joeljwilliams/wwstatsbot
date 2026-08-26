@@ -25,6 +25,7 @@ of required-field noise for no extra coverage.
 
 import json
 import os
+from types import SimpleNamespace
 
 # --- 1. Stub config BEFORE importing the app ------------------------------------
 # Must precede `import main` (and anything that imports it). Values are inert
@@ -309,8 +310,11 @@ class FakeInlineQuery:
 
 
 class FakeBot:
-    def __init__(self, username="wwstatsbot", send_error=None, edit_error=None):
+    def __init__(self, username="wwstatsbot", send_error=None, edit_error=None, chat_admins=()):
         self.username = username
+        # Telegram chat administrators, by user id. The stand-in session asks so that an
+        # admin who is not playing can still stop a game that outlived its round.
+        self.chat_admins = set(chat_admins)
         self.sent = []
         self.edits = []
         self.markup_edits = []
@@ -338,6 +342,10 @@ class FakeBot:
 
     async def set_my_commands(self, commands):
         self.commands = commands
+
+    async def get_chat_member(self, chat_id, user_id):
+        status = "administrator" if user_id in self.chat_admins else "member"
+        return SimpleNamespace(status=status, user=FakeUser(user_id))
 
 
 class FakeJob:

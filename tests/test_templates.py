@@ -140,6 +140,13 @@ _NOT_PROSE = {
     # Postgres' own spelling of the value in the /db console. A translated console must not
     # misrepresent what the database returned.
     "NULL",
+    # What a player *types*, not what the bot says: the long spellings of the Beholder's
+    # claim about the Seer (handlers/gamesession.py). Translating a command argument would
+    # stop the English one working, which is the one everybody in the group actually uses.
+    "beholder no seer",
+    "beholdernoseer",
+    "bh no seer",
+    "no seer",
 }
 
 

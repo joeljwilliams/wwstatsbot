@@ -103,6 +103,25 @@ def test_no_alias_claims_two_roles():
             claims[key] = role_id
 
 
+# The short forms players actually type, gathered from live games. None of these are
+# /about codes, so nothing but this table keeps them working — and a shorthand that stops
+# resolving is a player mid-game getting "did you mean" instead of a recorded role.
+SHORTHAND_IN_PLAY = {
+    "bh": "beholder",
+    "chem": "chemist",
+    "ch": "cultist_hunter",
+    "bk": "barkeep",
+    "tm": "troublemaker",
+    "sm": "sandman",
+    "arso": "arsonist",
+}
+
+
+def test_every_shorthand_seen_in_play_resolves():
+    for typed, expected in SHORTHAND_IN_PLAY.items():
+        assert roles.resolve(typed) == (expected,), typed
+
+
 def test_shorthand_seen_in_play_resolves():
     """`bk` came from a real /role in the group — it is not an /about code."""
     assert roles.resolve("bk") == ("barkeep",)
