@@ -155,6 +155,38 @@ def _find_player(session_data, token):
     return None
 
 
+def _find_target_and_role(session_data, text):
+    """Read "<player> <role>", or just "<role>". Returns (user_id or None, roles, role_text).
+
+    Roles have spaces in them ("wolf cub", "grave digger") and so do names ("incendies 🤖"),
+    so neither half can be found by position. The whole string is tried as a role first —
+    which keeps `/role wolf cub` meaning the Wolf Cub rather than a player called "wolf" —
+    and only then split at each point looking for a player on the left and a role on the
+    right.
+
+    `role_text` is whatever was read as the role, so an unrecognised one can be reported
+    and suggested against on its own rather than with a player's name stuck to the front.
+    """
+    whole = roles.resolve(text)
+    if whole:
+        return None, whole, text
+
+    words = text.split()
+    unresolved_for = text
+    for cut in range(1, len(words)):
+        player = _find_player(session_data, " ".join(words[:cut]))
+        if player is None:
+            continue
+        remainder = " ".join(words[cut:])
+        found = roles.resolve(remainder)
+        if found:
+            return player, found, remainder
+        # A player matched but the rest is not a role. Worth remembering: the complaint
+        # should be about the role they fumbled, not the whole line.
+        unresolved_for = remainder
+    return None, (), unresolved_for
+
+
 def _find_target_and_model(session_data, text):
     """Split "<target> <model>" — or read the whole thing as one name. Returns a pair.
 
@@ -393,21 +425,23 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _beholder_claim(update, context, session_data, typed):
         return
 
-    resolved = roles.resolve(typed)
+    named_id, resolved, role_text = _find_target_and_role(session_data, typed)
     if not resolved:
-        msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(typed))
-        suggestions = roles.suggest(typed)
+        msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(role_text))
+        suggestions = roles.suggest(role_text)
         if suggestions:
             msg += t.STANDIN_ROLE_DID_YOU_MEAN.format(names=", ".join(suggestions))
         await message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
 
-    target_id = _replied_player(update, session_data)
-    if target_id is None and message.reply_to_message is not None:
-        # Replied to someone who is not in this game — better to say so than to silently
-        # record the role against the sender instead.
-        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
-        return
+    target_id = named_id
+    if target_id is None:
+        target_id = _replied_player(update, session_data)
+        if target_id is None and message.reply_to_message is not None:
+            # Replied to someone who is not in this game — better to say so than to
+            # silently record the role against the sender instead.
+            await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+            return
     if target_id is None:
         target_id = user.id
 

@@ -830,3 +830,67 @@ async def test_love_handles_a_two_word_name_too(context):
 
     assert session_data["players"]["2"]["partner"] == 3
     assert session_data["players"]["3"]["partner"] == 2
+
+
+# --- /role naming somebody else ---------------------------------------------
+#
+# From a live game: `/role incendies 🤖 vg` — "set incendies 🤖 to Villager" — was read as
+# one long role name and refused. Both halves can contain spaces, so neither can be found
+# by position: roles have them ("wolf cub") and so do display names.
+
+
+async def role_for(context, text, user_id=1, name="Ren", reply_to=None):
+    msg = player_message("/role " + text, user_id=user_id, name=name, reply_to=reply_to)
+    context.args = text.split()
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
+async def test_role_can_name_the_player_it_is_for(context):
+    session_data = await start_session(context, players=[(1, "Ren"), (2, "incendies \N{ROBOT FACE}")])
+    msg = await role_for(context, "incendies \N{ROBOT FACE} vg")
+
+    assert session_data["players"]["2"]["roles"] == ["villager"]
+    assert session_data["players"]["1"]["roles"] == [], "not the sender's"
+    assert "was set to" in msg.last_reply
+
+
+async def test_a_multi_word_role_still_beats_the_split_reading(context):
+    """`/role wolf cub` is the Wolf Cub, not a player called "wolf"."""
+    session_data = await start_session(context, players=[(1, "Ren"), (2, "wolf")])
+    await role_for(context, "wolf cub")
+
+    assert session_data["players"]["1"]["roles"] == ["wolf_cub"]
+    assert session_data["players"]["2"]["roles"] == []
+
+
+async def test_naming_a_player_and_a_multi_word_role(context):
+    session_data = await start_session(context)
+    await role_for(context, "omu grave digger")
+    assert session_data["players"]["2"]["roles"] == ["grave_digger"]
+
+
+async def test_a_named_player_wins_over_the_reply(context):
+    """Saying who it is for is more deliberate than what you happened to reply to."""
+    session_data = await start_session(context)
+    theirs = message("hi", from_user=FakeUser(3, "J J"))
+    await role_for(context, "omu seer", reply_to=theirs)
+
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+    assert session_data["players"]["3"]["roles"] == []
+
+
+async def test_an_unknown_role_after_a_known_player_complains_about_the_role(context):
+    """Not about the whole line — the player half was fine and repeating it is noise."""
+    await start_session(context)
+    msg = await role_for(context, "omu blacksmit")
+
+    assert "blacksmit" in msg.last_reply
+    assert "omu blacksmit" not in msg.last_reply
+    assert "Blacksmith" in msg.last_reply, "and it still suggests the near miss"
+
+
+async def test_a_line_naming_nobody_is_still_reported_whole(context):
+    await start_session(context)
+    msg = await role_for(context, "incendies vg")
+    assert "incendies vg" in msg.last_reply
