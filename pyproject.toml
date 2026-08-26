@@ -1,6 +1,6 @@
 [project]
 name = "wwstatsbot"
-version = "2.26.1"
+version = "2.26.2"
 description = "Werewolf for Telegram stats bot (@wwstatsbot)"
 requires-python = ">=3.12"
 # Pinned to the versions the bot is known to run on today. This is a snapshot of

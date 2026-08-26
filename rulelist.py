@@ -254,8 +254,11 @@ RULES = [
         "I Helped!",
         MAYBE,
         "wolf_cub",
-        "pack_count() >= 2",
-        "The pack has to outlive the cub to make the two eats.",
+        "max_possible_wolves() >= 2",
+        "The pack has to outlive the cub to make the two eats — but the wolf that outlives "
+        "it need not be one at the start. A game dealt a lone Wolf Cub reaches a second wolf "
+        "the moment the cub dies and the Traitor turns, which is exactly when this fires. "
+        "Counting the pack as dealt missed that and never offered it.",
     ),
     _rule(
         "It Was a Busy Night!",

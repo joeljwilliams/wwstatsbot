@@ -359,3 +359,39 @@ def test_entries_keep_the_catalogue_order():
     listed = [entry["name"] for entry in per_player["a"]]
     order = [r["name"] for r in RULES]
     assert listed == sorted(listed, key=order.index)
+
+
+# --- Regression: the game that missed "I Helped!" ---------------------------
+
+# A real eight-player game. It was dealt exactly one pack member — the Wolf Cub — with the
+# second wolf arriving only when the Traitor turned, which happens the moment the cub dies.
+# That is precisely when "I Helped!" fires ("the alive pack has 2 successful eat attempts
+# after you die"), and counting the pack as *dealt* meant it was never offered.
+GAME_THAT_MISSED_I_HELPED = [
+    "doppelganger",
+    "sorcerer",
+    "serial_killer",
+    "drunk",
+    "wolfman",
+    "traitor",
+    "wolf_cub",
+    "harlot",
+]
+
+
+def test_i_helped_is_offered_when_the_second_wolf_can_only_arrive_by_turning():
+    composition = feasibility.Composition([(role,) for role in GAME_THAT_MISSED_I_HELPED])
+    assert composition.count_tag(roles.PACK) == 1, "the cub was the whole pack"
+
+    per_player, _ = feasibility.feasible(
+        {uid: (role,) for uid, role in enumerate(GAME_THAT_MISSED_I_HELPED)}, CATALOGUE
+    )
+    cub = GAME_THAT_MISSED_I_HELPED.index("wolf_cub")
+    assert "I Helped!" in {entry["name"] for entry in per_player[cub]}
+
+
+def test_i_helped_is_not_offered_to_a_cub_with_no_possible_second_wolf():
+    """A lone cub in a game with nothing that can turn has no pack to outlive it."""
+    lone = ["wolf_cub", "villager", "seer", "harlot"]
+    per_player, _ = feasibility.feasible({uid: (role,) for uid, role in enumerate(lone)}, CATALOGUE)
+    assert "I Helped!" not in {entry["name"] for entry in per_player[0]}
