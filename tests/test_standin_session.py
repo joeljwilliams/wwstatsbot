@@ -59,6 +59,16 @@ def player_message(text, user_id=1, name="Ren", reply_to=None):
     return message(text, from_user=FakeUser(user_id, name), reply_to_message=reply_to)
 
 
+def mention(user_id, name):
+    """How a player's name appears in anything the bot says about them.
+
+    Every message that names somebody links them, the way the rest of this bot's output
+    does — a roster of sixteen plain names is untappable and impossible to disambiguate
+    when two people have chosen similar ones.
+    """
+    return "<a href='tg://user?id={}'>{}</a>".format(user_id, name)
+
+
 # --- Silence: the property that keeps us out of the real manager's way -------
 
 
@@ -175,7 +185,7 @@ async def test_role_records_the_senders_reveal_and_updates_the_roster(context):
     await gamesession.role_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["roles"] == ["gunner"]
-    assert msg.last_reply == "Ren's role was set to: Gunner \N{PISTOL}"
+    assert msg.last_reply == mention(1, "Ren") + "'s role was set to: Gunner \N{PISTOL}"
     # The messages are updated on a trailing debounce, not inline — sixteen players
     # revealing in a minute must not cost sixteen edits (see _DEBOUNCE_SECONDS).
     assert context.job_queue.pending(), "an update should have been scheduled"
@@ -268,7 +278,7 @@ async def test_rm_with_one_argument_sets_the_callers_rolemodel(context):
     await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["model"] == 2
-    assert msg.last_reply == "Ren's rolemodel is now omu"
+    assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(1, "Ren"), mention(2, "omu"))
 
 
 async def test_rm_with_one_argument_in_reply_sets_the_replied_to_players(context):
@@ -305,7 +315,7 @@ async def test_rm_two_argument_form_with_unambiguous_names(context):
     await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["2"]["model"] == 1
-    assert msg.last_reply == "omu's rolemodel is now Ren"
+    assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(2, "omu"), mention(1, "Ren"))
 
 
 async def test_rm_refuses_a_role_that_has_no_rolemodel(context):
@@ -360,7 +370,7 @@ async def test_bare_love_marks_the_sender(context):
     await gamesession.love_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["lover"] is True
-    assert msg.last_reply == "Ren is now in love."
+    assert msg.last_reply == "{} is now in love.".format(mention(1, "Ren"))
 
 
 async def test_love_naming_two_players_pairs_them_both_ways(context):
@@ -373,7 +383,7 @@ async def test_love_naming_two_players_pairs_them_both_ways(context):
     assert session_data["players"]["1"]["partner"] == 2
     assert session_data["players"]["2"]["partner"] == 1
     assert session_data["players"]["2"]["lover"] is True
-    assert msg.last_reply == "Ren and omu are now in love."
+    assert msg.last_reply == "{} and {} are now in love.".format(mention(1, "Ren"), mention(2, "omu"))
 
 
 async def test_love_in_reply_marks_the_player_replied_to(context):
@@ -403,8 +413,10 @@ async def test_gsend_ends_the_session_and_kills_the_button(context):
     await gamesession.end_session_cmd(FakeUpdate(message=msg), context)
 
     assert session.get(context.chat_data) is None
-    assert msg.last_reply == "Stand-in session ended."
-    assert context.bot.markup_edits, "the live button must not outlive the session"
+    assert context.bot.sent[-1]["text"] == "{} has considered the game stopped!".format(mention(1, "Ren"))
+    ended = context.bot.edits[-1]
+    assert "GAME ENDED" in ended["text"], "the roster must stop claiming the game is running"
+    assert ended["reply_markup"] is None, "the live button must not outlive the session"
 
 
 def stop_query(user_id=1, name="Ren"):
@@ -471,7 +483,7 @@ async def test_the_roster_mirrors_the_managers_layout(context):
 
     assert rendered.startswith("<b>GAME RUNNING!</b>")
     assert "<b>Players (1 / 4):</b>" in rendered
-    assert "Ren: Alpha Wolf \N{HIGH VOLTAGE SIGN}" in rendered
+    assert mention(1, "Ren") + ": Alpha Wolf \N{HIGH VOLTAGE SIGN}" in rendered
     assert "<b>Dead Players:</b>" in rendered
     assert keyboard.inline_keyboard[0][0].text == "Stop"
 
@@ -479,7 +491,7 @@ async def test_the_roster_mirrors_the_managers_layout(context):
 async def test_an_unrevealed_player_is_shown_as_such(context):
     session_data = await start_session(context)
     rendered, _ = gamesession.render_state(session_data)
-    assert "omu: <i>not revealed</i>" in rendered
+    assert mention(2, "omu") + ": <i>not revealed</i>" in rendered
 
 
 async def test_a_rolemodel_renders_inline_in_parentheses(context):
@@ -488,7 +500,7 @@ async def test_a_rolemodel_renders_inline_in_parentheses(context):
     await reveal(context, 3, "wc")
     session.set_model(session_data, 3, 2)
     rendered, _ = gamesession.render_state(session_data)
-    assert "J J: Wild Child \N{BABY} (omu)" in rendered
+    assert mention(3, "J J") + ": Wild Child \N{BABY} (" + mention(2, "omu") + ")" in rendered
 
 
 async def test_lovers_are_marked_with_a_heart_on_each_partner(context):
@@ -533,5 +545,181 @@ async def test_the_session_survives_a_persistence_round_trip(context):
 
     restored = assert_json_roundtrips(session_data)
     rendered, _ = gamesession.render_state(restored)
-    assert "Ren: Wild Child \N{BABY} (omu)" in rendered
+    assert mention(1, "Ren") + ": Wild Child \N{BABY} (" + mention(2, "omu") + ")" in rendered
     assert session.is_member(restored, 1)
+
+
+# --- The Beholder settles the Seer/Fool question -----------------------------
+#
+# A player told they are the Seer cannot know they are not the Fool — but the Beholder is
+# *shown* the real Seer when the game starts, so their claim is the one that answers it for
+# everybody. Recording an unsure player as possibly-Seer after that hands them achievements
+# they cannot earn while withholding the Fool's.
+
+
+async def claim(context, text, user_id=1, name="Ren"):
+    msg = player_message("/role " + text, user_id=user_id, name=name)
+    context.args = text.split()
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
+async def test_bh_alone_is_just_the_role(context):
+    session_data = await start_session(context)
+    await claim(context, "bh")
+
+    assert session_data["players"]["1"]["roles"] == ["beholder"]
+    assert session_data["no_seer"] is False
+    assert session_data["seer_id"] is None
+
+
+async def test_bhns_records_the_beholder_and_that_there_is_no_seer(context):
+    session_data = await start_session(context)
+    msg = await claim(context, "bhns")
+
+    assert session_data["players"]["1"]["roles"] == ["beholder"]
+    assert session_data["no_seer"] is True
+    assert "there is no Seer" in msg.last_reply
+
+
+async def test_the_long_spelling_of_no_seer_works_too(context):
+    """Players type what they say out loud, not only the shorthand."""
+    for text in ("beholder no seer", "bh no seer", "no seer"):
+        context.chat_data.clear()
+        session_data = await start_session(context)
+        await claim(context, text)
+        assert session_data["no_seer"] is True, text
+
+
+async def test_with_no_seer_an_unsure_claim_becomes_the_fool(context):
+    session_data = await start_session(context)
+    await claim(context, "bhns")
+
+    msg = await claim(context, "sf", user_id=2, name="omu")
+    assert session_data["players"]["2"]["roles"] == ["fool"]
+    assert "Fool" in msg.last_reply
+
+
+async def test_an_unsure_claim_made_first_is_settled_retroactively(context):
+    """Reveals arrive in any order, and leaving them ambiguous keeps offering the Seer's
+    achievements to somebody who provably cannot earn one."""
+    session_data = await start_session(context)
+    await claim(context, "sf", user_id=2, name="omu")
+    assert session_data["players"]["2"]["roles"] == ["seer", "fool"]
+
+    msg = await claim(context, "bhns")
+    assert session_data["players"]["2"]["roles"] == ["fool"]
+    assert "settled as the Fool" in msg.last_reply
+
+
+async def test_bhws_names_the_seer(context):
+    session_data = await start_session(context)
+    msg = await claim(context, "bhws omu")
+
+    assert session_data["players"]["1"]["roles"] == ["beholder"]
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+    assert session_data["seer_id"] == 2
+    assert "is the Seer" in msg.last_reply
+
+
+async def test_beholder_naming_a_player_works_in_longhand(context):
+    session_data = await start_session(context)
+    await claim(context, "beholder omu")
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+
+
+async def test_naming_the_seer_makes_every_other_unsure_player_the_fool(context):
+    """The Beholder saw who it was, so anyone else's "seer or fool" is answered."""
+    session_data = await start_session(context)
+    await claim(context, "sf", user_id=3, name="J J")
+    await claim(context, "bhws omu")
+
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+    assert session_data["players"]["3"]["roles"] == ["fool"]
+
+
+async def test_the_named_seer_keeps_their_role_if_they_claimed_sf(context):
+    session_data = await start_session(context)
+    await claim(context, "sf", user_id=2, name="omu")
+    await claim(context, "bhws omu")
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+
+
+async def test_bhws_naming_nobody_in_the_game_is_reported(context):
+    session_data = await start_session(context)
+    msg = await claim(context, "bhws Nobody")
+
+    assert "player from this game" in msg.last_reply
+    assert session_data["seer_id"] is None
+
+
+async def test_a_role_that_merely_starts_with_beholder_still_gets_did_you_mean(context):
+    """ "beholder" plus an unrecognised word is more likely a fumbled role name than a
+    claim about the Seer, so it falls through rather than erroring about targets."""
+    session_data = await start_session(context)
+    msg = await claim(context, "beholder blacksmit")
+
+    assert "Did you mean" in msg.last_reply
+    assert session_data["seer_id"] is None
+
+
+# --- Stopping ----------------------------------------------------------------
+
+
+async def test_a_group_admin_who_is_not_playing_can_stop_the_game(context):
+    """Usually the person who notices the session outlived its round."""
+    await start_session(context)
+    context.bot.chat_admins = {999}
+
+    for _ in range(2):
+        await gamesession.stop_callback(stop_query(user_id=999, name="Chair"), context)
+
+    assert session.get(context.chat_data) is None
+    assert context.bot.sent[-1]["text"] == mention(999, "Chair") + " has considered the game stopped!"
+
+
+async def test_an_ordinary_bystander_still_cannot_stop_the_game(context):
+    await start_session(context)
+    context.bot.chat_admins = set()
+
+    await gamesession.stop_callback(stop_query(user_id=999, name="Passer By"), context)
+    assert session.get(context.chat_data) is not None
+
+
+async def test_an_unreachable_admin_check_denies_rather_than_allows(context):
+    """If Telegram will not say who administrates the chat, nobody gains a stop."""
+
+    async def unavailable(chat_id, user_id):
+        raise RuntimeError("Bad Gateway")
+
+    await start_session(context)
+    context.bot.get_chat_member = unavailable
+
+    await gamesession.stop_callback(stop_query(user_id=999, name="Passer By"), context)
+    assert session.get(context.chat_data) is not None
+
+
+async def test_stopping_says_in_the_chat_who_did_it(context):
+    """The button's toast is only seen by whoever tapped; the game ending is everyone's."""
+    await start_session(context)
+    context.bot.sent.clear()
+
+    for _ in range(2):
+        await gamesession.stop_callback(stop_query(), context)
+
+    assert context.bot.sent[-1]["text"] == mention(1, "Ren") + " has considered the game stopped!"
+
+
+async def test_the_roster_stops_saying_the_game_is_running(context):
+    """It stays in the chat as the record of the game, so it must not go on announcing one."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "seer")
+    msg = player_message("/gsend")
+    await gamesession.end_session_cmd(FakeUpdate(message=msg), context)
+
+    ended = context.bot.edits[-1]
+    assert "GAME ENDED" in ended["text"]
+    assert "GAME RUNNING" not in ended["text"]
+    assert "Reveal your role" not in ended["text"], "no instructions for a session that is over"
+    assert mention(1, "Ren") + ": Seer" in ended["text"], "but the record of the game stays"
+    assert session_data["players"]["1"]["roles"] == ["seer"]

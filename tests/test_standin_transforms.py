@@ -14,7 +14,7 @@ checked before anything is written, and a disagreement changes nothing at all.
 """
 
 from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
-from test_standin_session import player_message, reveal, start_session
+from test_standin_session import mention, player_message, reveal, start_session
 
 import session
 from handlers import gamesession
@@ -63,7 +63,7 @@ async def test_a_wild_childs_rolemodel_dying_makes_them_a_wolf(context):
     msg = await dead(context, "omu")
 
     assert session_data["players"]["3"]["roles"] == ["werewolf"]
-    assert "J J is now Werewolf" in msg.last_reply
+    assert mention(3, "J J") + " is now Werewolf" in msg.last_reply
     assert "rolemodel died" in msg.last_reply
 
 
@@ -189,7 +189,7 @@ async def test_nothing_transforms_when_nothing_should(context):
     await start_session(context)
     await reveal(context, 1, "villager")
     msg = await dead(context, "Ren")
-    assert msg.last_reply == "Ren is dead."
+    assert msg.last_reply == mention(1, "Ren") + " is dead."
 
 
 # --- /dead ------------------------------------------------------------------
