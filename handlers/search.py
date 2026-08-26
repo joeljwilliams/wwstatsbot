@@ -12,7 +12,7 @@ import secrets
 import time
 
 import structlog
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
@@ -21,7 +21,7 @@ from unidecode import unidecode
 import api
 import builders
 import templates as t
-from handlers.common import is_admin_user, resolve_target
+from handlers.common import is_admin_user, mentioned_users, resolve_target
 
 logger = structlog.get_logger(__name__)
 
@@ -47,9 +47,9 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # each match with whether the target user has already attained it.
     search = " ".join(args)
     if not search:
-        msg = "Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n"
+        msg = t.SEARCH_USAGE
     elif len(search) < 3:
-        msg = "Please enter at least 3 letters to search for!\n"
+        msg = t.QUERY_TOO_SHORT
     else:
         matches = await builders.build_info_results(search)
         attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
@@ -58,7 +58,7 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ones the user already has are kept, so their collection stays complete.)
         matches = [m for m in matches if not (m.get("inactive") and m["name"] not in attained_names)]
         if not matches:
-            msg = "No matching achievements found!\n"
+            msg = t.NO_MATCHES
         else:
             msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
             for m in matches[:_SEARCH_MAX_RESULTS]:
@@ -70,38 +70,6 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
-def _mentioned_users(message):
-    """Extract (user_id, first_name) for every user directly mentioned in a message.
-
-    Only text_mention entities are usable: they carry a full User (id + name).
-    Plain @username mentions have no id, so the stats API (keyed by user id) can't
-    be queried for them — those are returned separately as unresolvable names so
-    the caller can report them rather than silently drop them.
-
-    Returns (users, unresolved) where users is a de-duplicated, first-seen-ordered
-    list of (id, name) and unresolved is a list of @username strings.
-    """
-    seen = set()
-    users = []
-    unresolved = []
-    # Media messages carry their text in `caption` with caption_entities; plain
-    # text messages use `text` with entities. Check both so either kind works.
-    entities = list(message.entities or ()) + list(message.caption_entities or ())
-    body = message.text if message.text is not None else (message.caption or "")
-    for ent in entities:
-        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
-            u = ent.user
-            # A mentioned bot has no player stats, so it could only ever land in
-            # the "hasn't obtained it" list — noise, not an answer. Skip bots.
-            if u.is_bot or u.id in seen:
-                continue
-            seen.add(u.id)
-            users.append((u.id, u.first_name))
-        elif ent.type == MessageEntity.MENTION:
-            unresolved.append(body[ent.offset : ent.offset + ent.length])
-    return users, unresolved
-
-
 def _is_bot_player_reply(message):
     """True if `message` is a bot post that directly mentions at least one player.
 
@@ -111,7 +79,7 @@ def _is_bot_player_reply(message):
     """
     if message is None or message.from_user is None or not message.from_user.is_bot:
         return False
-    users, _ = _mentioned_users(message)
+    users, _ = mentioned_users(message)
     return bool(users)
 
 
@@ -150,7 +118,7 @@ def _store_schall_result(context, payload):
 # is, so even inside the hour a remembered result is never mistaken for a fresh one.
 _SCHALL_CACHE_KEY = "schall_players"
 _SCHALL_CACHE_TTL = 60 * 60
-_SCHALL_CACHE_TTL_LABEL = "60 minutes"
+_SCHALL_CACHE_TTL_LABEL = t.SCHALL_TTL_LABEL.format(count=_SCHALL_CACHE_TTL // 60)
 
 
 def _now():
@@ -262,13 +230,13 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(t.SCHALL_USAGE, parse_mode=ParseMode.HTML)
         return
     if len(search) < 3:
-        await update.message.reply_text("Please enter at least 3 letters to search for!\n")
+        await update.message.reply_text(t.QUERY_TOO_SHORT)
         return
 
     # Where the players come from: a reply, or this chat's remembered list.
     cached_age = None
     if replied is not None:
-        users, unresolved = _mentioned_users(replied)
+        users, unresolved = mentioned_users(replied)
         if users:
             # Only remember a list that is actually checkable, so replying to a message
             # of bare @usernames cannot wipe a good one.
@@ -288,17 +256,13 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         users, unresolved, cached_age = remembered
 
     if not users:
-        note = (
-            "Reply to a message that mentions players directly. "
-            "I can't check plain @username mentions (they carry no user id)."
-        )
-        await update.message.reply_text(note, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(t.SCHALL_NEEDS_DIRECT_MENTIONS, parse_mode=ParseMode.HTML)
         return
 
     # Single best match, exactly like /info (results are rank-ordered).
     found = await builders.build_info_results(search)
     if not found:
-        await update.message.reply_text("No matching achievements found!\n")
+        await update.message.reply_text(t.NO_MATCHES)
         return
     achv = found[0]
 
@@ -389,7 +353,7 @@ async def schall_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Answer without editing: the message keeps whichever view its owner chose.
         logger.info("schall_toggle_denied", user_id=user.id, owner=payload.get("requested_by"))
         await query.answer(
-            t.SCHALL_NOT_YOURS.format(name=payload.get("requested_by_name") or "the requester"),
+            t.SCHALL_NOT_YOURS.format(name=payload.get("requested_by_name") or t.SCHALL_REQUESTER_FALLBACK),
             show_alert=True,
         )
         return

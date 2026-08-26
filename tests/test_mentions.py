@@ -8,7 +8,7 @@ pinning here.
 
 from conftest import FakeEntity, FakeUser, bot_message, message
 
-from handlers import search
+from handlers import common, search
 
 TEXT_MENTION = "text_mention"
 MENTION = "mention"
@@ -30,7 +30,7 @@ def test_extracts_text_mentions_with_ids():
             mention_entity(FakeUser(2, "Bob"), 6, 3),
         ],
     )
-    users, unresolved = search._mentioned_users(msg)
+    users, unresolved = common.mentioned_users(msg)
     assert users == [(1, "Alice"), (2, "Bob")]
     assert unresolved == []
 
@@ -44,7 +44,7 @@ def test_plain_username_mentions_are_returned_as_unresolved():
             username_entity(13, 5),  # @erin
         ],
     )
-    users, unresolved = search._mentioned_users(msg)
+    users, unresolved = common.mentioned_users(msg)
     assert users == []
     assert unresolved == ["@dave", "@erin"]
 
@@ -57,7 +57,7 @@ def test_mixed_mentions():
             username_entity(6, 5),
         ],
     )
-    users, unresolved = search._mentioned_users(msg)
+    users, unresolved = common.mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
 
@@ -71,7 +71,7 @@ def test_bots_are_skipped():
             mention_entity(FakeUser(42, "WerewolfBot", is_bot=True), 6, 11),
         ],
     )
-    users, _ = search._mentioned_users(msg)
+    users, _ = common.mentioned_users(msg)
     assert users == [(1, "Alice")]
 
 
@@ -83,13 +83,13 @@ def test_duplicate_users_are_deduped_first_seen_first():
             mention_entity(FakeUser(1, "Alice"), 6, 5),
         ],
     )
-    users, _ = search._mentioned_users(msg)
+    users, _ = common.mentioned_users(msg)
     assert users == [(1, "Alice")]
 
 
 def test_entity_without_a_user_object_is_ignored():
     msg = message("Alice", entities=[FakeEntity(TEXT_MENTION, 0, 5, user=None)])
-    assert search._mentioned_users(msg) == ([], [])
+    assert common.mentioned_users(msg) == ([], [])
 
 
 def test_reads_caption_entities_on_media_messages():
@@ -102,13 +102,13 @@ def test_reads_caption_entities_on_media_messages():
             username_entity(6, 5),
         ],
     )
-    users, unresolved = search._mentioned_users(msg)
+    users, unresolved = common.mentioned_users(msg)
     assert users == [(1, "Alice")]
     assert unresolved == ["@dave"]
 
 
 def test_no_entities_at_all():
-    assert search._mentioned_users(message("just text")) == ([], [])
+    assert common.mentioned_users(message("just text")) == ([], [])
 
 
 # --- The reply shape that reroutes /sch to the multi-player path ------------------

@@ -250,7 +250,9 @@ class FakeMessage:
         entities=None,
         caption=None,
         caption_entities=None,
+        message_id=1,
     ):
+        self.message_id = message_id
         self.text = text
         self.caption = caption
         self.from_user = from_user or FakeUser()
@@ -307,19 +309,90 @@ class FakeInlineQuery:
 
 
 class FakeBot:
-    def __init__(self, username="wwstatsbot", send_error=None):
+    def __init__(self, username="wwstatsbot", send_error=None, edit_error=None):
         self.username = username
         self.sent = []
+        self.edits = []
+        self.markup_edits = []
         self.commands = None
         self._send_error = send_error
+        self._edit_error = edit_error
+        self._next_message_id = 100
 
     async def send_message(self, chat_id, text, **kwargs):
         if self._send_error is not None:
             raise self._send_error
         self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        # Returned so callers that keep a message id — the stand-in session edits one
+        # roster message for the length of a game — get a stable, distinct one.
+        self._next_message_id += 1
+        return FakeMessage(text=text, message_id=self._next_message_id)
+
+    async def edit_message_text(self, chat_id=None, message_id=None, text="", **kwargs):
+        if self._edit_error is not None:
+            raise self._edit_error
+        self.edits.append({"chat_id": chat_id, "message_id": message_id, "text": text, **kwargs})
+
+    async def edit_message_reply_markup(self, chat_id=None, message_id=None, reply_markup=None):
+        self.markup_edits.append({"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup})
 
     async def set_my_commands(self, commands):
         self.commands = commands
+
+
+class FakeJob:
+    """One scheduled job, as PTB's JobQueue would hand it back."""
+
+    def __init__(self, callback, when, chat_id=None, name=None):
+        self.callback = callback
+        self.when = when
+        self.chat_id = chat_id
+        self.name = name
+        self.removed = False
+        self.ran = False
+
+    def schedule_removal(self):
+        self.removed = True
+
+
+class FakeJobQueue:
+    """Records scheduled jobs and runs them on demand.
+
+    Real enough for the property that matters: get_jobs_by_name is what the stand-in
+    session's trailing debounce checks to decide whether a publish is already pending, so a
+    fake that always returned nothing would make the coalescing test pass while the real
+    thing edited once per reveal.
+    """
+
+    def __init__(self):
+        self.jobs = []
+
+    def run_once(self, callback, when, chat_id=None, name=None, **kwargs):
+        job = FakeJob(callback, when, chat_id=chat_id, name=name)
+        self.jobs.append(job)
+        return job
+
+    def get_jobs_by_name(self, name):
+        return tuple(job for job in self.jobs if job.name == name and not job.removed and not job.ran)
+
+    def pending(self, name=None):
+        return [j for j in self.jobs if not j.removed and not j.ran and (name is None or j.name == name)]
+
+    async def run_pending(self, context, elapsed=5):
+        """Fire the jobs due within `elapsed` seconds, oldest first.
+
+        The delay is honoured rather than ignored, because the stand-in session schedules
+        two very different jobs against one chat: a five-second publish and a ten-minute
+        idle timer. A fake that ran "everything pending" would fire the idle warning as
+        part of every debounce test and quietly make them assert the wrong thing.
+        """
+        for job in list(self.pending()):
+            if job.when > elapsed:
+                continue
+            job.ran = True
+            context.job = job
+            await job.callback(context)
+        context.job = None
 
 
 class FakeUpdate:
@@ -336,8 +409,12 @@ class FakeContext:
     and JSON-serializability tests exercise the real code path.
     """
 
-    def __init__(self, args=None, bot=None, bot_data=None, chat_data=None, error=None):
+    def __init__(self, args=None, bot=None, bot_data=None, chat_data=None, error=None, job_queue=None):
         self.args = args if args is not None else []
+        # The stand-in session schedules its message updates; a chat with no queue is
+        # the shape of a bot built without the job-queue extra, which must still work.
+        self.job_queue = FakeJobQueue() if job_queue is None else job_queue
+        self.job = None
         self.bot = bot or FakeBot()
         self.bot_data = bot_data if bot_data is not None else {}
         # Per-chat store, as PTB provides it. /schall's remembered player list lives here,

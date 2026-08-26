@@ -23,7 +23,8 @@ import api
 import db
 import health
 import settings
-from handlers import achievements, admin, errors, inline, misc, search, stats
+import templates as t
+from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats
 from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
@@ -36,17 +37,20 @@ logger = structlog.get_logger(__name__)
 # same reason: /search and /info now switch to that behaviour themselves when
 # they reply to a bot message, so the explicit spellings are only kept working
 # for muscle memory, not advertised.
+# The command word itself is never translated — Telegram matches on it — so only the
+# descriptions come from templates. Telegram accepts a separate menu per language, which is
+# what makes a localised "/" list possible (see _post_init).
 PUBLIC_COMMANDS = [
-    BotCommand("stats", "Your game stats (or reply to another player)"),
-    BotCommand("kills", "Players you've killed the most"),
-    BotCommand("killedby", "Players who've killed you the most"),
-    BotCommand("deaths", "Your most common causes of death"),
-    BotCommand("search", "Search your achievements, or reply to a player list to check everyone"),
-    BotCommand("achievements", "List all achievements"),
-    BotCommand("info", "Look up an achievement, or reply to a list to get them all"),
-    BotCommand("about", "About this bot"),
-    BotCommand("version", "Show the running bot version"),
-    BotCommand("start", "Start the bot in a private chat"),
+    BotCommand("stats", t.CMD_STATS),
+    BotCommand("kills", t.CMD_KILLS),
+    BotCommand("killedby", t.CMD_KILLEDBY),
+    BotCommand("deaths", t.CMD_DEATHS),
+    BotCommand("search", t.CMD_SEARCH),
+    BotCommand("achievements", t.CMD_ACHIEVEMENTS),
+    BotCommand("info", t.CMD_INFO),
+    BotCommand("about", t.CMD_ABOUT),
+    BotCommand("version", t.CMD_VERSION),
+    BotCommand("start", t.CMD_START),
 ]
 
 
@@ -56,6 +60,10 @@ async def _post_init(application: Application):
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
+    # Rules reference achievements by name, so they can only be seeded once the
+    # achievements themselves exist.
+    await db.seed_rules()
+    await db.load_rules_cache()
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
@@ -106,6 +114,19 @@ def build_application():
     app.add_handler(CommandHandler("setnote", admin.set_note_cmd))
     app.add_handler(CommandHandler("clearnote", admin.clear_note_cmd))
     app.add_handler(CommandHandler("db", admin.db_console_cmd))
+    # The stand-in achievement manager. These four command words belong to the *real*
+    # manager, and Telegram delivers every slash command to every bot in the group, so each
+    # handler stays silent unless this chat has a session (see handlers/gamesession.py).
+    app.add_handler(CommandHandler("gs", gamesession.start_session_cmd))
+    app.add_handler(CommandHandler("role", gamesession.role_cmd))
+    app.add_handler(CommandHandler("rm", gamesession.rolemodel_cmd))
+    app.add_handler(CommandHandler("love", gamesession.love_cmd))
+    app.add_handler(CommandHandler("dead", gamesession.dead_cmd))
+    app.add_handler(CommandHandler("ad", gamesession.follow_roster_cmd))
+    app.add_handler(CommandHandler("steal", gamesession.steal_cmd))
+    app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
+    app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
+    app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 

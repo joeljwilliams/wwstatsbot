@@ -65,11 +65,13 @@ async def pool():
     """
     await db.init_pool(TEST_DATABASE_URL)
     async with db._pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS achievements, admins")
+        # achievement_rules holds a foreign key onto achievements, so it has to be named
+        # here too: dropping achievements alone fails while a dependent table exists.
+        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins")
     await db.ensure_schema()
     yield db._pool
     async with db._pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS achievements, admins")
+        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins")
     await db.close_pool()
 
 
@@ -431,3 +433,89 @@ async def test_ensure_schema_is_idempotent_over_repeated_startups(seeded):
     assert entry["notes"] == "\N{MEMO} keep me", "a rebuild must not touch source data"
     names = [a["name"] for a in await db.search_achievements("sss")]
     assert "Should've Said Something" in names
+
+
+# --- Feasibility rules -----------------------------------------------------------
+#
+# The rules table exists to be *both* deployable and editable, and those pull in opposite
+# directions: a deploy must be able to correct a wrong rule everywhere, while a rule
+# corrected live with /setrule must survive the next release. `ON CONFLICT DO UPDATE ...
+# WHERE edited = FALSE` is the whole mechanism, so these tests pin both halves of it.
+
+
+@pytest.fixture
+async def ruled(seeded):
+    await db.seed_rules()
+    await db.load_rules_cache()
+    return seeded
+
+
+async def test_seed_rules_populates_every_achievement(ruled):
+    from rulelist import RULES
+
+    assert len(db.get_rules()) == len(RULES) == len(ACHV)
+
+
+async def test_seed_rules_is_idempotent(ruled):
+    """It runs on every startup, so a second pass must not duplicate or raise."""
+    await db.seed_rules()
+    await db.seed_rules()
+    await db.load_rules_cache()
+    assert len(db.get_rules()) == len(ACHV)
+
+
+async def test_a_deploy_updates_a_rule_nobody_has_edited(ruled):
+    """The half that DO NOTHING could not do: a corrected rule has to reach a live database."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("UPDATE achievement_rules SET expr = 'False' WHERE achievement = 'Cold as Ice'")
+    await db.seed_rules()
+    await db.load_rules_cache()
+    assert db.get_rules()["Cold as Ice"]["expr"] == "ispresent('harlot')"
+
+
+async def test_a_deploy_leaves_a_hand_edited_rule_alone(ruled):
+    """A rule fixed mid-game must not be silently reverted by the next release."""
+    await db.update_rule("Cold as Ice", "check", "snow_wolf", "ispresent('cupid')", "edited live")
+    await db.seed_rules()
+    await db.load_rules_cache()
+
+    rule = db.get_rules()["Cold as Ice"]
+    assert rule["expr"] == "ispresent('cupid')"
+    assert rule["edited"] is True
+
+
+async def test_resetting_a_rule_lets_the_next_deploy_restore_it(ruled):
+    await db.update_rule("Cold as Ice", "check", "snow_wolf", "ispresent('cupid')", "edited live")
+    assert await db.reset_rule("Cold as Ice")
+    await db.seed_rules()
+    await db.load_rules_cache()
+
+    rule = db.get_rules()["Cold as Ice"]
+    assert rule["expr"] == "ispresent('harlot')"
+    assert rule["edited"] is False
+
+
+async def test_update_rule_reports_an_unknown_achievement(ruled):
+    assert await db.update_rule("No Such Achievement", "check", "any", "True", "") is False
+    assert await db.reset_rule("No Such Achievement") is False
+
+
+async def test_rules_come_back_in_achievement_order(ruled):
+    """Rendered lists follow /achievements' order, not the alphabet or insertion order."""
+    assert list(db.get_rules()) == [a["name"] for a in ACHV]
+
+
+async def test_a_rule_cannot_outlive_its_achievement(ruled):
+    """ON DELETE CASCADE: an orphaned rule would block the delete or linger unreachable."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("DELETE FROM achievements WHERE name = 'Cold as Ice'")
+        remaining = await conn.fetchval("SELECT count(*) FROM achievement_rules WHERE achievement = 'Cold as Ice'")
+    assert remaining == 0
+
+
+async def test_a_rename_carries_the_rule_with_it(ruled):
+    """ON UPDATE CASCADE: /db can rename an achievement without orphaning its rule."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("UPDATE achievements SET name = 'Cold as Ice 2' WHERE name = 'Cold as Ice'")
+        expr = await conn.fetchval("SELECT expr FROM achievement_rules WHERE achievement = 'Cold as Ice 2'")
+    assert expr == "ispresent('harlot')"

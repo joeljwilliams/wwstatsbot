@@ -13,6 +13,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 import builders
+import templates as t
 
 
 def _article(result_id, title, html_text, description=None):
@@ -42,16 +43,16 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             builders.build_deaths_msg(user.id, name),
         )
         results = [
-            _article("stats", "My Stats", stats_msg),
-            _article("kills", "My Kills", kills_msg),
-            _article("killedby", "My Killed By", killedby_msg),
-            _article("deaths", "My Deaths", deaths_msg),
+            _article("stats", t.INLINE_MY_STATS, stats_msg),
+            _article("kills", t.INLINE_MY_KILLS, kills_msg),
+            _article("killedby", t.INLINE_MY_KILLED_BY, killedby_msg),
+            _article("deaths", t.INLINE_MY_DEATHS, deaths_msg),
         ]
     else:
         # Typed text: achievement search, same behaviour as /info.
         matches = await builders.build_info_results(query)
         if not matches:
-            results = [_article("none", "No matching achievements", "No matching achievements found.")]
+            results = [_article("none", t.INLINE_NO_MATCH_TITLE, t.INLINE_NO_MATCH_BODY)]
         else:
             results = [
                 _article(m["name"], m["name"], builders.format_single_achv(m), description=m["desc"])
