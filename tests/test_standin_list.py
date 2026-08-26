@@ -372,7 +372,9 @@ async def test_the_session_ends_after_the_grace_period(context):
     await gamesession._idle_end(_job_context(context))
 
     assert session.get(context.chat_data) is None
-    assert context.bot.markup_edits, "the live button must not outlive the session"
+    ended = context.bot.edits[-1]
+    assert "GAME ENDED" in ended["text"]
+    assert ended["reply_markup"] is None, "the live button must not outlive the session"
 
 
 async def test_expiry_of_an_already_ended_session_says_nothing(context):

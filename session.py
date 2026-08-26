@@ -65,6 +65,11 @@ def start(chat_data, user_id, players, unresolved, now):
         "list_message_id": None,
         "stop_armed_by": None,
         "stop_armed_at": None,
+        # What the Beholder told us. The Beholder is *shown* the real Seer at the start of
+        # the game, which makes them the one player whose claim settles the Seer/Fool
+        # question for everybody else — see set_no_seer/set_seer.
+        "no_seer": False,
+        "seer_id": None,
         "last_activity": now,
     }
     chat_data[KEY] = session
@@ -132,8 +137,64 @@ def set_roles(session, user_id, role_ids):
     entry = player(session, user_id)
     if entry is None:
         return None
-    entry["roles"] = list(role_ids)
+    entry["roles"] = _settle_seer_fool(session, user_id, role_ids)
     return entry
+
+
+def _settle_seer_fool(session, user_id, role_ids):
+    """Resolve an unsure "seer or fool" claim when the Beholder has already answered it.
+
+    A player told they are the Seer cannot know they are not the Fool — but the Beholder
+    can, because the game shows them the real Seer. So once the Beholder has said there is
+    no Seer, or named someone else as it, a later `/role sf` is not ambiguous at all: that
+    player is the Fool, and recording them as possibly-Seer would hand them achievements
+    they cannot earn while withholding the Fool's.
+
+    Applied here rather than at the call site so no command can bypass it.
+    """
+    role_ids = list(role_ids)
+    if set(role_ids) != set(roles.SEER_FOOL):
+        return role_ids
+    named_someone_else = session.get("seer_id") not in (None, user_id)
+    if session.get("no_seer") or named_someone_else:
+        return ["fool"]
+    return role_ids
+
+
+def set_no_seer(session):
+    """Record the Beholder's "there is no Seer". Returns the players it settled.
+
+    Retroactive as well as forward-looking: anyone already recorded as unsure is the Fool
+    from this moment, and leaving them ambiguous would keep offering the Seer's
+    achievements to somebody who provably cannot earn one.
+    """
+    session["no_seer"] = True
+    settled = []
+    for uid, entry in players_in_order(session):
+        if set(entry["roles"]) == set(roles.SEER_FOOL):
+            entry["roles"] = ["fool"]
+            settled.append(uid)
+    return settled
+
+
+def set_seer(session, seer_id):
+    """Record the Beholder's named Seer. Returns (seer_entry, settled_ids), or None.
+
+    Names one player as the Seer *and* settles everyone else's unsure claim, because both
+    follow from the same fact: the Beholder saw who it was.
+    """
+    entry = player(session, seer_id)
+    if entry is None:
+        return None
+    session["seer_id"] = seer_id
+    session["no_seer"] = False
+    entry["roles"] = ["seer"]
+    settled = []
+    for uid, other in players_in_order(session):
+        if uid != seer_id and set(other["roles"]) == set(roles.SEER_FOOL):
+            other["roles"] = ["fool"]
+            settled.append(uid)
+    return entry, settled
 
 
 def set_model(session, user_id, model_id):

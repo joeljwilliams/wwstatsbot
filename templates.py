@@ -280,12 +280,24 @@ CMD_START = N_("Start the bot in a private chat")
 # ever see commands, so ours names /role explicitly rather than promising something that
 # would silently not work.
 
+# One place builds a tappable player name, so the link markup lives here with the rest of
+# the presentation rather than being concatenated in the handler.
+STANDIN_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>")
+
 STANDIN_HEADER = N_("<b>GAME RUNNING!</b>\n\n")
+# The roster message outlives the session — it stays in the chat as the record of the game
+# — so a stopped session must not go on announcing itself as running. Its instructions go
+# with it: telling people to reveal a role into a session that has ended is worse than
+# saying nothing.
+STANDIN_HEADER_ENDED = N_("<b>GAME ENDED</b>\n\n")
 STANDIN_INTRO = N_(
     "Standing in for the achievement manager. Reveal your role with <code>/role &lt;role&gt;</code> — "
     'e.g. <code>/role gunner</code> or <code>/role sk</code>. Hit "Stop" when the game ends.\n\n'
 )
 STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
+# {name} arrives already rendered as a tg://user link (see gamesession._mention), which is
+# why nothing here escapes it: a bare display name would be plain text where every other
+# mention in the chat is tappable.
 STANDIN_PLAYER_ROW = N_("{name}: {role}\n")
 STANDIN_PLAYER_UNREVEALED = N_("{name}: <i>not revealed</i>\n")
 # The role model rides inline in parentheses, the way the manager renders it:
@@ -314,6 +326,9 @@ STANDIN_NO_PLAYERS = N_(
     "@username mentions carry no user id."
 )
 STANDIN_ENDED = N_("Stand-in session ended.")
+# Said in the chat, not just to whoever pressed: a game ending is everybody's business, and
+# the button's toast is only ever seen by the person who tapped it.
+STANDIN_STOPPED_BY = N_("{name} has considered the game stopped!")
 
 # Confirmations. "<name>'s role was set to: <Role>" is the manager's exact wording.
 STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
@@ -336,6 +351,12 @@ STANDIN_MODEL_WRONG_ROLE = N_(
 STANDIN_MODEL_NEEDS_ROLE = N_("{name} hasn't revealed yet, so I can't tell if they have a rolemodel.")
 STANDIN_LOVE_SET = N_("{name} is now in love.")
 STANDIN_LOVE_PAIR_SET = N_("{name} and {partner} are now in love.")
+
+# The Beholder is shown the real Seer at the start of the game, so their claim is the one
+# that settles the Seer/Fool question for everyone else.
+STANDIN_BEHOLDER_NO_SEER = N_("{name} is the Beholder \N{EYE} — and there is no Seer in this game.")
+STANDIN_BEHOLDER_SEER = N_("{name} is the Beholder \N{EYE}, and {seer} is the Seer \N{MAN WITH TURBAN}.")
+STANDIN_BEHOLDER_SETTLED = N_("\nUnsure seer/fool claims settled as the Fool \N{PLAYING CARD BLACK JOKER}: {names}")
 STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
 STANDIN_UNKNOWN_TARGET = N_(
     "I need a player from this game — reply to them, or mention them so their name carries a user id."

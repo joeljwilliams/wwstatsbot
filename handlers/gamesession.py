@@ -42,7 +42,7 @@ import roles
 import rulelist
 import session
 import templates as t
-from handlers.common import mentioned_users
+from handlers.common import is_admin_user, mentioned_users
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +56,15 @@ _STOP_ARM_SECONDS = 15
 
 # Only these two roles have a role model, so only they are valid /rm targets.
 _ROLE_MODEL_ROLES = ("wild_child", "doppelganger")
+
+# "I am the Beholder and there is no Seer." The Beholder is shown the real Seer at the
+# start of the game, so this is the one claim that can settle the Seer/Fool question for
+# everybody else — which is why it is a claim of its own rather than just /role beholder.
+_NO_SEER_CLAIMS = frozenset(
+    roles.normalise(spelling) for spelling in ("bhns", "beholder no seer", "beholdernoseer", "bh no seer", "no seer")
+)
+# "I am the Beholder and X is the Seer." The rest of the line names X.
+_WITH_SEER_CLAIMS = frozenset(roles.normalise(spelling) for spelling in ("bhws", "bh", "beholder"))
 
 
 def _now():
@@ -145,14 +154,31 @@ def _replied_player(update, session_data):
 # --- Rendering -------------------------------------------------------------
 
 
+def _mention(user_id, name):
+    """A player's name as a tappable mention.
+
+    Every other message this bot sends links the people it names (see builders.py), and a
+    roster of sixteen plain-text names is the one place that would stand out — you cannot
+    tap through to anybody, and two players with similar display names are impossible to
+    tell apart. Escaping happens here, once, on the way in.
+    """
+    return t.STANDIN_MENTION.format(user_id=user_id, name=html.escape(name or ""))
+
+
+def _mention_player(session_data, user_id):
+    """The tappable form of a roster player's name; their id alone if they are unknown."""
+    name = session.name_of(session_data, user_id)
+    return _mention(user_id, name) if name is not None else str(user_id)
+
+
 def _role_label(entry):
     """A player's revealed role(s), rendered. Two of them for an unresolved Seer/Fool."""
     return " / ".join(roles.display(role_id) for role_id in entry["roles"])
 
 
-def _player_row(session_data, entry):
+def _player_row(session_data, user_id, entry):
     """One line of the roster: name, role, role model, lover heart."""
-    name = html.escape(entry["name"])
+    name = _mention(user_id, entry["name"])
     if not entry["roles"]:
         return t.STANDIN_PLAYER_UNREVEALED.format(name=name)
 
@@ -160,15 +186,14 @@ def _player_row(session_data, entry):
     if entry["model"] is not None:
         # Resolved to a name here rather than stored as one, so a player renaming
         # mid-game cannot leave a stale label behind in the message.
-        model_name = session.name_of(session_data, entry["model"])
-        if model_name:
-            label += t.STANDIN_MODEL.format(name=html.escape(model_name))
+        if session.name_of(session_data, entry["model"]) is not None:
+            label += t.STANDIN_MODEL.format(name=_mention_player(session_data, entry["model"]))
     if entry["lover"]:
         label += t.STANDIN_LOVER
     return t.STANDIN_PLAYER_ROW.format(name=name, role=label)
 
 
-def render_state(session_data):
+def render_state(session_data, ended=False):
     """The live roster message: (html, keyboard).
 
     Mirrors the achievement manager's own layout — header, `Players (n / total)`, then a
@@ -176,23 +201,28 @@ def render_state(session_data):
     the first thing anyone noticed at the moment they are looking for something familiar.
     """
     revealed, total = session.revealed_count(session_data)
-    msg = t.STANDIN_HEADER + t.STANDIN_INTRO
+    # The roster stays in the chat after the session ends, as the record of the game, so
+    # it has to stop saying "GAME RUNNING" — and stop inviting reveals into a session that
+    # no longer exists.
+    msg = t.STANDIN_HEADER_ENDED if ended else t.STANDIN_HEADER + t.STANDIN_INTRO
     msg += t.STANDIN_PLAYERS_HEADER.format(revealed=revealed, total=total)
 
     dead = []
-    for _, entry in session.players_in_order(session_data):
+    for uid, entry in session.players_in_order(session_data):
         if entry["alive"]:
-            msg += _player_row(session_data, entry)
+            msg += _player_row(session_data, uid, entry)
         else:
-            dead.append(entry)
+            dead.append((uid, entry))
 
     msg += t.STANDIN_DEAD_HEADER
-    for entry in dead:
-        msg += _player_row(session_data, entry)
+    for uid, entry in dead:
+        msg += _player_row(session_data, uid, entry)
 
     if session_data["unresolved"]:
         msg += t.STANDIN_UNRESOLVED.format(names=", ".join(html.escape(n) for n in session_data["unresolved"]))
 
+    if ended:
+        return msg, None
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t.STANDIN_STOP_BUTTON, callback_data=STOP_CALLBACK)]])
     return msg, keyboard
 
@@ -318,6 +348,9 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     typed = " ".join(context.args)
+    if await _beholder_claim(update, context, session_data, typed):
+        return
+
     resolved = roles.resolve(typed)
     if not resolved:
         msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(typed))
@@ -341,9 +374,65 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(resolved) > 1 else t.STANDIN_ROLE_SET
     await message.reply_text(
-        template.format(name=html.escape(entry["name"]), role=_role_label(entry)),
+        template.format(name=_mention(target_id, entry["name"]), role=_role_label(entry)),
         parse_mode=ParseMode.HTML,
     )
+
+
+async def _beholder_claim(update, context, session_data, typed):
+    """Handle "I am the Beholder, and…". True when the claim was dealt with here.
+
+    Two shapes, and the difference between them matters to everyone else in the game:
+
+        /role bhns                  — there is no Seer
+        /role bhws <player>         — <player> is the Seer
+
+    Both are a role reveal *and* an answer to the Seer/Fool question, because the game
+    shows the Beholder who the real Seer is. A plain `/role bh` with nothing after it is
+    just the role, and is left to the ordinary path.
+    """
+    message = update.message
+    user = message.from_user
+    words = typed.split()
+    head = roles.normalise(words[0]) if words else ""
+
+    if roles.normalise(typed) in _NO_SEER_CLAIMS:
+        session.set_roles(session_data, user.id, ("beholder",))
+        settled = session.set_no_seer(session_data)
+        await _changed(context, message.chat.id, session_data)
+        reply = t.STANDIN_BEHOLDER_NO_SEER.format(name=_mention(user.id, user.first_name))
+        await message.reply_text(reply + _settled_note(session_data, settled), parse_mode=ParseMode.HTML)
+        return True
+
+    if head not in _WITH_SEER_CLAIMS or len(words) < 2:
+        return False
+
+    seer_id = _find_player(session_data, " ".join(words[1:]))
+    if seer_id is None:
+        # "bhws" is unambiguous about intent, so a name we cannot place is worth reporting.
+        # A bare "beholder <something>" is more likely a role name we failed to parse, so
+        # it falls through to the ordinary "did you mean" path instead.
+        if head != roles.normalise("bhws"):
+            return False
+        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+        return True
+
+    session.set_roles(session_data, user.id, ("beholder",))
+    result = session.set_seer(session_data, seer_id)
+    settled = result[1] if result else []
+    await _changed(context, message.chat.id, session_data)
+    reply = t.STANDIN_BEHOLDER_SEER.format(
+        name=_mention(user.id, user.first_name), seer=_mention_player(session_data, seer_id)
+    )
+    await message.reply_text(reply + _settled_note(session_data, settled), parse_mode=ParseMode.HTML)
+    return True
+
+
+def _settled_note(session_data, settled):
+    """Name anyone whose unsure seer/fool claim this just resolved."""
+    if not settled:
+        return ""
+    return t.STANDIN_BEHOLDER_SETTLED.format(names=", ".join(_mention_player(session_data, uid) for uid in settled))
 
 
 # --- /rm -------------------------------------------------------------------
@@ -394,12 +483,13 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = session.player(session_data, target_id)
     if not target["roles"]:
         await message.reply_text(
-            t.STANDIN_MODEL_NEEDS_ROLE.format(name=html.escape(target["name"])), parse_mode=ParseMode.HTML
+            t.STANDIN_MODEL_NEEDS_ROLE.format(name=_mention(target_id, target["name"])),
+            parse_mode=ParseMode.HTML,
         )
         return
     if not any(role_id in _ROLE_MODEL_ROLES for role_id in target["roles"]):
         await message.reply_text(
-            t.STANDIN_MODEL_WRONG_ROLE.format(name=html.escape(target["name"]), role=_role_label(target)),
+            t.STANDIN_MODEL_WRONG_ROLE.format(name=_mention(target_id, target["name"]), role=_role_label(target)),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -408,8 +498,8 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _changed(context, message.chat.id, session_data)
     await message.reply_text(
         t.STANDIN_MODEL_SET.format(
-            name=html.escape(target["name"]),
-            model=html.escape(session.name_of(session_data, model_id)),
+            name=_mention(target_id, target["name"]),
+            model=_mention_player(session_data, model_id),
         ),
         parse_mode=ParseMode.HTML,
     )
@@ -461,12 +551,14 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _changed(context, message.chat.id, session_data)
 
     if partner_id is None:
-        await message.reply_text(t.STANDIN_LOVE_SET.format(name=html.escape(entry["name"])), parse_mode=ParseMode.HTML)
+        await message.reply_text(
+            t.STANDIN_LOVE_SET.format(name=_mention(first_id, entry["name"])), parse_mode=ParseMode.HTML
+        )
     else:
         await message.reply_text(
             t.STANDIN_LOVE_PAIR_SET.format(
-                name=html.escape(entry["name"]),
-                partner=html.escape(session.name_of(session_data, partner_id)),
+                name=_mention(first_id, entry["name"]),
+                partner=_mention_player(session_data, partner_id),
             ),
             parse_mode=ParseMode.HTML,
         )
@@ -475,13 +567,57 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Ending ----------------------------------------------------------------
 
 
+async def _is_chat_admin(context, chat_id, user_id):
+    """Whether this user administrates the group. False if Telegram will not say.
+
+    A group admin is not necessarily playing — they are usually the person who notices the
+    session is still running after the game ended, which is exactly the moment somebody
+    needs to be able to stop it without being on the roster.
+    """
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except Exception as exc:
+        # An unreachable API must not hand a stop to someone who has no claim to it.
+        logger.warning("standin_admin_lookup_failed", user_id=user_id, error=str(exc))
+        return False
+    return getattr(member, "status", None) in ("administrator", "creator")
+
+
+async def _may_stop(context, chat_id, session_data, user_id):
+    """Who can end a session: its players, and the group's admins.
+
+    The roster check comes first because it costs nothing — players stopping their own
+    game is the common case, and only the unusual one is worth an API call for.
+    """
+    if session.is_member(session_data, user_id):
+        return True
+    return await _is_chat_admin(context, chat_id, user_id) or await is_admin_user(user_id)
+
+
+async def _announce_stopped(context, chat_id, user_id, name):
+    """Say in the chat who stopped it, once the session is already gone."""
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t.STANDIN_STOPPED_BY.format(name=_mention(user_id, name)),
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def _finish(context, chat_id, session_data):
-    """Drop the keyboard from the roster message so a dead session has no live button."""
+    """Close the roster message out: ended header, no instructions, no live button."""
     message_id = session_data.get("state_message_id")
     if message_id is None:
         return
+    msg, _ = render_state(session_data, ended=True)
     try:
-        await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=msg,
+            reply_markup=None,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
     except BadRequest:
         pass
 
@@ -501,7 +637,7 @@ async def end_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     session.end(context.chat_data)
     await _finish(context, message.chat.id, session_data)
-    await message.reply_text(t.STANDIN_ENDED, parse_mode=ParseMode.HTML)
+    await _announce_stopped(context, message.chat.id, message.from_user.id, message.from_user.first_name)
 
 
 async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -518,7 +654,7 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if session_data is None:
         await query.answer(t.STANDIN_STOP_EXPIRED, show_alert=True)
         return
-    if not session.is_member(session_data, user.id):
+    if not await _may_stop(context, query.message.chat.id, session_data, user.id):
         await query.answer(t.STANDIN_STOP_NOT_YOURS, show_alert=True)
         return
 
@@ -532,6 +668,7 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.end(context.chat_data)
         await _finish(context, query.message.chat.id, session_data)
         await query.answer(t.STANDIN_ENDED)
+        await _announce_stopped(context, query.message.chat.id, user.id, user.first_name)
         return
 
     session_data["stop_armed_by"] = user.id
@@ -563,7 +700,7 @@ def _transform_lines(session_data, changes):
     }
     out = t.STANDIN_TRANSFORM_HEADER
     for change in changes:
-        name = html.escape(session.name_of(session_data, change["user_id"]) or "")
+        name = _mention_player(session_data, change["user_id"])
         if change["reason"] == session.BY_SORROW:
             out += t.STANDIN_TRANSFORM_SORROW.format(name=name)
             continue
@@ -602,7 +739,7 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     entry = session.player(session_data, target_id)
     if not entry["alive"]:
         await message.reply_text(
-            t.STANDIN_ALREADY_DEAD.format(name=html.escape(entry["name"])), parse_mode=ParseMode.HTML
+            t.STANDIN_ALREADY_DEAD.format(name=_mention(target_id, entry["name"])), parse_mode=ParseMode.HTML
         )
         return
 
@@ -610,7 +747,7 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     changes = session.apply_transforms(session_data)
     await _changed(context, message.chat.id, session_data)
 
-    reply = t.STANDIN_DEAD_MARKED.format(name=html.escape(entry["name"]))
+    reply = t.STANDIN_DEAD_MARKED.format(name=_mention(target_id, entry["name"]))
     await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
 
 
@@ -693,7 +830,7 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     def names(ids):
-        return ", ".join(html.escape(session.name_of(session_data, uid) or "") for uid in ids)
+        return ", ".join(_mention_player(session_data, uid) for uid in ids)
 
     reply = t.STANDIN_AD_SUMMARY
     if died:
@@ -701,7 +838,7 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if revived:
         reply += t.STANDIN_AD_REVIVED.format(names=names(revived))
     if learned:
-        reply += t.STANDIN_AD_ROLES_LEARNED.format(names=", ".join(html.escape(n) for n in learned))
+        reply += t.STANDIN_AD_ROLES_LEARNED.format(names=", ".join(learned))
     reply += _transform_lines(session_data, changes)
     await message.reply_text(reply, parse_mode=ParseMode.HTML)
 
@@ -741,12 +878,13 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = session.player(session_data, target_id)
     if not target["roles"]:
         await message.reply_text(
-            t.STANDIN_MODEL_NEEDS_ROLE.format(name=html.escape(target["name"])), parse_mode=ParseMode.HTML
+            t.STANDIN_MODEL_NEEDS_ROLE.format(name=_mention(target_id, target["name"])),
+            parse_mode=ParseMode.HTML,
         )
         return
     if any(roles.has_tag(role_id, roles.STEAL_IMMUNE) for role_id in target["roles"]):
         await message.reply_text(
-            t.STANDIN_STEAL_IMMUNE.format(name=html.escape(target["name"]), role=_role_label(target)),
+            t.STANDIN_STEAL_IMMUNE.format(name=_mention(target_id, target["name"]), role=_role_label(target)),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -755,7 +893,9 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session.swap_roles(session_data, user.id, target_id)
     await _changed(context, message.chat.id, session_data)
     await message.reply_text(
-        t.STANDIN_STEAL_DONE.format(thief=html.escape(thief["name"]), role=stolen, name=html.escape(target["name"])),
+        t.STANDIN_STEAL_DONE.format(
+            thief=_mention(user.id, thief["name"]), role=stolen, name=_mention(target_id, target["name"])
+        ),
         parse_mode=ParseMode.HTML,
     )
 
