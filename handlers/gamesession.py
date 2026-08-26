@@ -226,6 +226,8 @@ def _player_row(session_data, user_id, entry):
             label += t.STANDIN_MODEL.format(name=_mention_player(session_data, entry["model"]))
     if entry["lover"]:
         label += t.STANDIN_LOVER
+    if entry.get("alt"):
+        label += t.STANDIN_ALT_MARK
     return t.STANDIN_PLAYER_ROW.format(name=name, role=label)
 
 
@@ -716,6 +718,51 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer(t.STANDIN_STOP_ARM, show_alert=True)
 
 
+async def alt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/alt` — mark an account as somebody's second one, and keep it out of the list.
+
+    Bare it marks the sender, which is the usual case; a reply or a name marks somebody
+    else. Alts keep their role and stay in the composition, because the role they are
+    playing shapes what everyone else can earn — they are only left out of the *output*,
+    since achievements landing on an account nobody collects for are noise in a list whose
+    whole job is to be short enough to read.
+
+    Toggling rather than one-way: the mistake worth guarding against is marking the wrong
+    person, which without an undo costs a real player their list for the rest of the game.
+    """
+    session_data = _session_for(update, context)
+    if session_data is None:
+        return
+
+    message = update.message
+    logger.info(
+        "command",
+        command="alt",
+        user_id=message.from_user.id,
+        user=unidecode(message.from_user.first_name),
+        args=context.args,
+    )
+
+    target_id = _replied_player(update, session_data)
+    if target_id is None and context.args:
+        target_id = _find_player(session_data, " ".join(context.args))
+        if target_id is None:
+            await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+            return
+    if target_id is None:
+        target_id = message.from_user.id
+
+    result = session.toggle_alt(session_data, target_id)
+    if result is None:
+        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+        return
+    entry, marked = result
+
+    await _changed(context, message.chat.id, session_data)
+    template = t.STANDIN_ALT_SET if marked else t.STANDIN_ALT_CLEARED
+    await message.reply_text(template.format(name=_mention(target_id, entry["name"])), parse_mode=ParseMode.HTML)
+
+
 # --- Deaths ----------------------------------------------------------------
 
 # The game bot's roster states its own counts — "Players Alive: 11/16" — which is what
@@ -973,7 +1020,7 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
     listed = 0
 
     for uid, player_entry in session.players_in_order(session_data):
-        if not player_entry["alive"] or not player_entry["roles"]:
+        if not player_entry["alive"] or not player_entry["roles"] or player_entry.get("alt"):
             continue
         entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
         # Nobody is hunting an achievement they already hold, so what a player has earned
@@ -1023,7 +1070,9 @@ def _group_sections(session_data, shared, include_uncertain):
         eligible = [
             player_entry["name"]
             for uid, player_entry in session.players_in_order(session_data)
-            if player_entry["alive"] and not session.already_has(session_data, uid, entry["name"])
+            if player_entry["alive"]
+            and not player_entry.get("alt")
+            and not session.already_has(session_data, uid, entry["name"])
         ]
         if not eligible:
             continue

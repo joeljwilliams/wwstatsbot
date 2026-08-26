@@ -364,6 +364,13 @@ STANDIN_UNKNOWN_TARGET = N_("I need a player from this game — reply to them, o
 # --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
 
 STANDIN_DEAD_MARKED = N_("{name} is dead.")
+
+# An alt is a second account of somebody already playing. They keep their role — it still
+# shapes everyone else's achievements — but they are not offered any of their own.
+STANDIN_ALT_SET = N_("{name} is an alt — leaving them out of the achievements list.")
+STANDIN_ALT_CLEARED = N_("{name} is not an alt any more, and is back in the achievements list.")
+# Shown on the roster so it is obvious why they have no entry in the list.
+STANDIN_ALT_MARK = N_(" <i>(alt)</i>")
 STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
 
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
