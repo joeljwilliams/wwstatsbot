@@ -10,6 +10,7 @@ edge case.
 """
 
 import html
+import random
 import re
 import secrets
 
@@ -156,6 +157,116 @@ def _extract_possible_achievements(text):
     return names
 
 
+# A Possible Achievements post has two shapes in it, and /roll needs both. Rows nested
+# under a player name are that player's:
+#
+#   Mango
+#    - Did you guard yourself?
+#
+# and, at the bottom, achievements no role gates, named once with everyone who can still
+# get them:
+#
+#   In for the Long Haul (3):
+#   ieb 🪼, Infinite, D_Evil_SK
+#
+_GROUP_HEADER = re.compile(r"^(?P<name>\S.*?)\s*\((?P<count>\d+)\):$")
+
+# An unindented line ending in a colon is a section heading, not somebody's name —
+# "Possible Achievements:", "Dead Players:", "Anyone:". Player names do not end in colons,
+# and treating one as a player would put a heading into a roll.
+_SECTION_HEADING = re.compile(r"^\S.*:$")
+
+
+def _extract_by_player(text):
+    """Read a Possible Achievements post into (per_player, groups).
+
+    `per_player` is an ordered list of (player, [achievement, ...]) and `groups` maps an
+    achievement to the players listed under it at the bottom of the post. Both are needed
+    because the same question — "who can still get this?" — is answered by whichever shape
+    the achievement happens to be printed in.
+
+    Players with no rows are dropped, which is what removes the headings and any stray
+    line that survived the shapes above.
+    """
+    per_player = []
+    groups = {}
+    current = None
+    pending_group = None
+
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        row = _ACHV_ROW.match(line)
+        if row is not None and row.group("indent"):
+            name = _ROW_MARKER.sub("", row.group("name"))
+            if name and current is not None:
+                current[1].append(name)
+            continue
+
+        group = _GROUP_HEADER.match(stripped)
+        if group is not None:
+            pending_group = group.group("name")
+            current = None
+            continue
+
+        if pending_group is not None:
+            # The line after a group heading is its comma-separated list of players.
+            groups[pending_group] = [part.strip() for part in stripped.split(",") if part.strip()]
+            pending_group = None
+            continue
+
+        if _SECTION_HEADING.match(stripped):
+            current = None
+            continue
+
+        current = (stripped, [])
+        per_player.append(current)
+
+    return [(player, rows) for player, rows in per_player if rows], groups
+
+
+def _players_who_can_get(text, achievement):
+    """Everyone in the post who can still earn `achievement`, in the order listed."""
+    per_player, groups = _extract_by_player(text)
+    key = achievement.casefold()
+
+    found = [player for player, rows in per_player if any(row.casefold() == key for row in rows)]
+    for name, players in groups.items():
+        if name.casefold() == key:
+            found += [p for p in players if p not in found]
+    return found
+
+
+def _listed_achievement(text, query):
+    """The achievement in the post that `query` names, or None.
+
+    Matched against what the post actually lists rather than the whole catalogue, because
+    the answer has to be a name somebody can be rolled *for*: exact first, then a unique
+    substring, so "double shot" finds "Double Shot" and "double" does not silently pick
+    between two achievements starting with it.
+    """
+    per_player, groups = _extract_by_player(text)
+    listed = []
+    for _, rows in per_player:
+        listed += rows
+    listed += list(groups)
+
+    seen, names = set(), []
+    for name in listed:
+        if name.casefold() not in seen:
+            seen.add(name.casefold())
+            names.append(name)
+
+    key = query.casefold().strip()
+    exact = [name for name in names if name.casefold() == key]
+    if exact:
+        return exact[0]
+    partial = [name for name in names if key in name.casefold()]
+    return partial[0] if len(partial) == 1 else None
+
+
 def _best_achievement_match(name):
     """Find an achievement by exact case-insensitive name, then fuzzy fallback."""
     key = name.casefold()
@@ -271,6 +382,69 @@ async def _deliver_to_pm(context, query, sends):
         await query.answer(t.ALLINFO_NO_PM, show_alert=True)
         return False
     return True
+
+
+def _pick(candidates):
+    """Choose a winner. Wrapped so a test can make the roll deterministic."""
+    return random.choice(candidates)
+
+
+async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/roll <achievement>` in reply to a Possible Achievements post.
+
+    Several achievements can only be had once per game — one player guards the wolf, one
+    gets the tanner lynched — so when the post lists the same one under several people,
+    somebody has to decide who chases it. This does that, out loud: the candidates are
+    named before the winner, so the roll is visibly between *those* people rather than an
+    assertion nobody can check.
+
+    The candidates come from the post itself rather than from the achievement catalogue.
+    Both shapes count: rows nested under a player, and the group sections at the bottom
+    that name everyone who can still get a roleless one.
+    """
+    message = update.message
+    user = message.from_user
+    replied = message.reply_to_message
+    query = " ".join(context.args)
+
+    logger.info("command", command="roll", user_id=user.id, user=unidecode(user.first_name), args=context.args)
+
+    if replied is None or not query:
+        await message.reply_text(t.ROLL_USAGE, parse_mode=ParseMode.HTML)
+        return
+
+    source = replied.text or replied.caption or ""
+    listed = _listed_achievement(source, query)
+    if listed is None:
+        per_player, groups = _extract_by_player(source)
+        template = t.ROLL_NO_LIST if not per_player and not groups else t.ROLL_NOT_LISTED
+        await message.reply_text(template.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
+        return
+
+    candidates = _players_who_can_get(source, listed)
+    if not candidates:
+        await message.reply_text(t.ROLL_NOT_LISTED.format(name=html.escape(listed)), parse_mode=ParseMode.HTML)
+        return
+
+    if len(candidates) == 1:
+        await message.reply_text(
+            t.ROLL_ONLY_ONE.format(winner=html.escape(candidates[0]), name=html.escape(listed)),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    winner = _pick(candidates)
+    # Logged with the field it was drawn from, so a disputed roll can be checked after the
+    # fact rather than argued about.
+    logger.info("roll", achievement=listed, candidates=len(candidates), winner=unidecode(winner))
+    await message.reply_text(
+        t.ROLL_RESULT.format(
+            name=html.escape(listed),
+            players=", ".join(html.escape(name) for name in candidates),
+            winner=html.escape(winner),
+        ),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
