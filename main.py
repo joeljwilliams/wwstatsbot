@@ -64,6 +64,7 @@ async def _post_init(application: Application):
     # achievements themselves exist.
     await db.seed_rules()
     await db.load_rules_cache()
+    await db.load_alts_cache()
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
@@ -124,6 +125,7 @@ def build_application():
     app.add_handler(CommandHandler("dead", gamesession.dead_cmd))
     app.add_handler(CommandHandler("ad", gamesession.follow_roster_cmd))
     app.add_handler(CommandHandler("steal", gamesession.steal_cmd))
+    app.add_handler(CommandHandler("alt", gamesession.alt_cmd))
     app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
     app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
     app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))

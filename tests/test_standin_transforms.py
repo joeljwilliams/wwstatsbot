@@ -14,7 +14,7 @@ checked before anything is written, and a disagreement changes nothing at all.
 """
 
 from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
-from test_standin_session import mention, player_message, reveal, start_session
+from test_standin_session import invoke, mention, player_message, reveal, start_session
 
 import session
 from handlers import gamesession
@@ -45,11 +45,27 @@ async def ad(context, replied):
     return msg
 
 
+def player_named(context, name):
+    """(id, name) for a roster player. Tests read better with names; the bot only ever
+    sees the id, so this is where the two meet."""
+    current = session.get(context.chat_data)
+    return next((uid, entry["name"]) for uid, entry in session.players_in_order(current) if entry["name"] == name)
+
+
 async def dead(context, target_name):
-    msg = player_message("/dead " + target_name)
-    context.args = target_name.split()
-    await gamesession.dead_cmd(FakeUpdate(message=msg), context)
-    return msg
+    """Mark a player dead — by mention, which is the only way the bot identifies anybody."""
+    return await invoke(gamesession.dead_cmd, context, "/dead", mentions=[player_named(context, target_name)])
+
+
+async def steal(context, target_name, user_id=1, name="Ren"):
+    return await invoke(
+        gamesession.steal_cmd,
+        context,
+        "/steal",
+        mentions=[player_named(context, target_name)],
+        user_id=user_id,
+        name=name,
+    )
 
 
 # --- Transforms -------------------------------------------------------------
@@ -223,12 +239,27 @@ async def test_dead_says_so_when_they_already_are(context):
     assert "already dead" in msg.last_reply
 
 
-async def test_dead_with_no_target_explains_both_ways_of_giving_one(context):
-    await start_session(context)
+async def test_bare_dead_marks_the_sender(context):
+    """The commonest case by far: you have just been killed and you are holding the phone.
+
+    Making that the one form that needed an argument was backwards.
+    """
+    session_data = await start_session(context)
     msg = player_message("/dead")
     context.args = []
     await gamesession.dead_cmd(FakeUpdate(message=msg), context)
-    assert "/dead" in msg.last_reply and "/ad" in msg.last_reply
+
+    assert session_data["players"]["1"]["alive"] is False
+    assert "is dead" in msg.last_reply
+
+
+async def test_dead_with_something_that_names_nobody_still_says_so(context):
+    """It must not quietly kill the sender instead of whoever they meant."""
+    session_data = await start_session(context)
+    msg = await invoke(gamesession.dead_cmd, context, "/dead Nobody")
+
+    assert "player from this game" in msg.last_reply
+    assert session_data["players"]["1"]["alive"] is True
 
 
 # --- /ad --------------------------------------------------------------------
@@ -340,9 +371,7 @@ async def test_the_thief_swaps_roles_with_their_target(context):
     await reveal(context, 1, "thief")
     await reveal(context, 2, "seer")
 
-    msg = player_message("/steal omu")
-    context.args = ["omu"]
-    await gamesession.steal_cmd(FakeUpdate(message=msg), context)
+    msg = await steal(context, "omu")
 
     assert session_data["players"]["1"]["roles"] == ["seer"]
     assert session_data["players"]["2"]["roles"] == ["thief"], "the robbed player becomes the Thief"
@@ -356,8 +385,7 @@ async def test_a_stolen_rolemodel_travels_with_the_role(context):
     await reveal(context, 2, "wc")
     session.set_model(session_data, 2, 3)
 
-    context.args = ["omu"]
-    await gamesession.steal_cmd(FakeUpdate(message=player_message("/steal omu")), context)
+    await steal(context, "omu")
 
     assert session_data["players"]["1"]["model"] == 3
     assert session_data["players"]["2"]["model"] is None
@@ -368,9 +396,7 @@ async def test_only_the_thief_can_steal(context):
     await reveal(context, 1, "villager")
     await reveal(context, 2, "seer")
 
-    msg = player_message("/steal omu")
-    context.args = ["omu"]
-    await gamesession.steal_cmd(FakeUpdate(message=msg), context)
+    msg = await steal(context, "omu")
 
     assert "Only the Thief" in msg.last_reply
     assert session_data["players"]["2"]["roles"] == ["seer"]
@@ -384,9 +410,7 @@ async def test_the_protected_roles_cannot_be_stolen_from(context):
 
     for role_name, role_id in (("werewolf", "werewolf"), ("sk", "serial_killer"), ("cult", "cultist")):
         await reveal(context, 2, role_name)
-        msg = player_message("/steal omu")
-        context.args = ["omu"]
-        await gamesession.steal_cmd(FakeUpdate(message=msg), context)
+        msg = await steal(context, "omu")
 
         assert "out of reach" in msg.last_reply, role_id
         assert session_data["players"]["2"]["roles"] == [role_id]
@@ -401,17 +425,14 @@ async def test_the_arsonist_and_the_sorcerer_can_be_stolen_from(context):
         await reveal(context, 1, "thief")
         await reveal(context, 2, role_name)
 
-        context.args = ["omu"]
-        await gamesession.steal_cmd(FakeUpdate(message=player_message("/steal omu")), context)
+        await steal(context, "omu")
         assert session_data["players"]["1"]["roles"] == [role_id]
 
 
 async def test_stealing_from_someone_who_has_not_revealed_says_so(context):
     await start_session(context)
     await reveal(context, 1, "thief")
-    msg = player_message("/steal omu")
-    context.args = ["omu"]
-    await gamesession.steal_cmd(FakeUpdate(message=msg), context)
+    msg = await steal(context, "omu")
     assert "hasn't revealed" in msg.last_reply
 
 

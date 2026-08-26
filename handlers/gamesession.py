@@ -42,7 +42,7 @@ import roles
 import rulelist
 import session
 import templates as t
-from handlers.common import is_admin_user, mentioned_users
+from handlers.common import is_admin_user, mentioned_usernames, mentioned_users
 
 logger = structlog.get_logger(__name__)
 
@@ -104,42 +104,125 @@ def _session_for(update, context):
     current = session.get(context.chat_data)
     if current is None:
         return None
-    if not session.is_member(current, update.message.from_user.id):
+    sender = update.message.from_user
+    if not session.is_member(current, sender.id):
         return None
+    # Free top-up: anyone issuing a command hands us their own handle, which covers players
+    # the roster mentioned before they had set one.
+    if getattr(sender, "username", None):
+        session.set_username(current, sender.id, sender.username)
     return current
 
 
 # --- Resolving players -----------------------------------------------------
 
 
-def _fold(name):
-    """Fold a display name for matching: accents, case and stray spacing removed.
-
-    Players are named by typing their name — `/rm omu`, the way the manager's own posts
-    render a role model — and those names carry emoji, script variants and decoration
-    ("𝑬𝒔𝒓𝒂", "shu . . ⋰ ⋱"). unidecode is what makes the typeable ASCII spelling match.
-    """
-    return unidecode(name or "").casefold().strip().lstrip("@")
-
-
-def _find_player(session_data, token):
-    """The roster player a typed name refers to: user_id, or None.
-
-    Exact match first, then a unique prefix, so `/rm omu` works and `/rm o` does not
-    silently pick one of two players starting with it. Ambiguity resolves to None and is
-    reported — guessing would attach a role model to the wrong player, which never fires a
-    transform and surfaces much later as an achievement that failed to appear.
-    """
-    key = _fold(token)
-    if not key:
+def _handle_owner(session_data, handle):
+    """The roster player who owns an @handle, or None."""
+    if session_data is None:
         return None
-    exact = [uid for uid, entry in session.players_in_order(session_data) if _fold(entry["name"]) == key]
-    if len(exact) == 1:
-        return exact[0]
-    prefix = [uid for uid, entry in session.players_in_order(session_data) if _fold(entry["name"]).startswith(key)]
-    if len(prefix) == 1:
-        return prefix[0]
+    handle = handle.lstrip("@").lower()
+    for uid, entry in session.players_in_order(session_data):
+        if (entry.get("username") or "") == handle:
+            return uid
     return None
+
+
+def _roster_row_owner(session_data, name):
+    """The roster player a *game bot* row names, or None. Exact display name only.
+
+    The one place a name is still matched, and deliberately not a command: /ad reads the
+    game bot's roster, whose dead rows are plain text because it stops linking a player
+    once they are out. There is no id to be had, so the choice is match the name it printed
+    or lose the role it told us.
+
+    Exact only — no prefix, no fuzz. The game bot prints the display name it holds, so an
+    exact match is what a correct row looks like, and anything else skips *the role* and
+    nothing more. Aliveness never depends on this.
+    """
+    key = unidecode(name or "").casefold().strip()
+    owners = [
+        uid
+        for uid, entry in session.players_in_order(session_data)
+        if unidecode(entry["name"]).casefold().strip() == key
+    ]
+    return owners[0] if len(owners) == 1 else None
+
+
+def _utf16(text):
+    """`text` as UTF-16 code units — what Telegram entity offsets actually index.
+
+    Offsets are counted in UTF-16 units, not characters, so every character outside the
+    BMP costs two. This group's names are made of them ("J J 🎭", "𝑬𝒔𝒓𝒂", "bei 🍀"), and
+    slicing by character instead put a stray letter of somebody's name into the role text
+    and read @handles from one position out.
+    """
+    return text.encode("utf-16-le")
+
+
+def _utf16_piece(units, offset, length):
+    return units[offset * 2 : (offset + length) * 2].decode("utf-16-le", "ignore")
+
+
+def _pointed_at(message, session_data):
+    """Who a command points at, and what text is left over: (ordered ids, remainder).
+
+    **Players are only ever identified by id.** A tapped mention carries one outright; an
+    @handle is looked up in what the roster taught us; a bare number is one. A typed
+    display name is deliberately not accepted, and that is the whole point of this
+    function: names have spaces, emoji and near-duplicates in them, so every command that
+    tried to read one had to guess where the name ended and the rest of the line began.
+    Every argument bug this feature has had came from one of those guesses — `/rm J J`
+    setting J J's own rolemodel, `/role incendies 🤖 vg` read as a role called "incendies
+    🤖 vg". An id cannot be misread.
+
+    The mentions are cut out of the text, so whatever remains is unambiguously the other
+    argument — a role name, and nothing else.
+    """
+    text = message.text or ""
+    units = _utf16(text)
+    ids = []
+    spans = []
+
+    for ent in message.entities or ():
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
+            spans.append((ent.offset, ent.length))
+            if not ent.user.is_bot:
+                ids.append(ent.user.id)
+        elif ent.type == MessageEntity.MENTION:
+            spans.append((ent.offset, ent.length))
+            owner = _handle_owner(session_data, _utf16_piece(units, ent.offset, ent.length))
+            if owner is not None:
+                ids.append(owner)
+
+    # Cut the mentions out in the same units they were measured in, so whatever is left is
+    # exactly the text nobody's name was written in.
+    kept = bytearray()
+    for unit in range(len(units) // 2):
+        if not any(offset <= unit < offset + length for offset, length in spans):
+            kept += units[unit * 2 : unit * 2 + 2]
+    remainder = kept.decode("utf-16-le", "ignore")
+
+    # Drop the command itself. Done by hand rather than from its BOT_COMMAND entity,
+    # because the entity is one more thing that has to be present and correct for a command
+    # to be read at all — and a message that arrives without one would otherwise have
+    # "/role" parsed as part of the role name.
+    remainder = remainder.strip()
+    if remainder.startswith("/"):
+        _, _, remainder = remainder.partition(" ")
+
+    # A bare number is an id too — the one typed form that cannot be misread.
+    kept = []
+    for word in remainder.split():
+        if word.isdigit() and session_data is not None and session.player(session_data, int(word)) is not None:
+            ids.append(int(word))
+        else:
+            kept.append(word)
+
+    # De-duplicate, first-seen order: mentioning somebody twice means them once.
+    seen = set()
+    ordered = [uid for uid in ids if not (uid in seen or seen.add(uid))]
+    return ordered, " ".join(kept).strip()
 
 
 def _replied_player(update, session_data):
@@ -190,6 +273,8 @@ def _player_row(session_data, user_id, entry):
             label += t.STANDIN_MODEL.format(name=_mention_player(session_data, entry["model"]))
     if entry["lover"]:
         label += t.STANDIN_LOVER
+    if db.is_alt_account(user_id):
+        label += t.STANDIN_ALT_MARK
     return t.STANDIN_PLAYER_ROW.format(name=name, role=label)
 
 
@@ -282,6 +367,10 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     session_data = session.start(context.chat_data, user.id, players, unresolved, _now())
+    # The roster's mentions carry whole User objects, so this is where every player's
+    # @handle is learned — after which a plain "@someone" in a later command resolves.
+    for handle, uid in mentioned_usernames(replied).items():
+        session.set_username(session_data, uid, handle)
     await _load_attained(session_data, players)
     msg, keyboard = render_state(session_data)
     posted = await context.bot.send_message(
@@ -351,16 +440,18 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _beholder_claim(update, context, session_data, typed):
         return
 
-    resolved = roles.resolve(typed)
+    pointed, role_text = _pointed_at(message, session_data)
+    resolved = roles.resolve(role_text)
     if not resolved:
-        msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(typed))
-        suggestions = roles.suggest(typed)
+        msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(role_text or typed))
+        suggestions = roles.suggest(role_text)
         if suggestions:
             msg += t.STANDIN_ROLE_DID_YOU_MEAN.format(names=", ".join(suggestions))
         await message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
 
-    target_id = _replied_player(update, session_data)
+    # Mentioning somebody is more deliberate than whatever you happened to reply to.
+    target_id = pointed[0] if pointed else _replied_player(update, session_data)
     if target_id is None and message.reply_to_message is not None:
         # Replied to someone who is not in this game — better to say so than to silently
         # record the role against the sender instead.
@@ -368,6 +459,9 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if target_id is None:
         target_id = user.id
+    if session.player(session_data, target_id) is None:
+        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+        return
 
     entry = session.set_roles(session_data, target_id, resolved)
     await _changed(context, message.chat.id, session_data)
@@ -407,7 +501,8 @@ async def _beholder_claim(update, context, session_data, typed):
     if head not in _WITH_SEER_CLAIMS or len(words) < 2:
         return False
 
-    seer_id = _find_player(session_data, " ".join(words[1:]))
+    pointed, _ = _pointed_at(message, session_data)
+    seer_id = pointed[0] if pointed else None
     if seer_id is None:
         # "bhws" is unambiguous about intent, so a name we cannot place is worth reporting.
         # A bare "beholder <something>" is more likely a role name we failed to parse, so
@@ -459,25 +554,26 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_MODEL_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    if len(args) >= 2:
-        target_token, model_token = args[0], " ".join(args[1:])
-        target_id = _find_player(session_data, target_token)
-    else:
-        model_token = args[0]
-        target_id = _replied_player(update, session_data)
-        if target_id is None and message.reply_to_message is not None:
+    typed = " ".join(args)
+    replied_id = _replied_player(update, session_data)
+
+    pointed, _ = _pointed_at(message, session_data)
+
+    if message.reply_to_message is not None:
+        # A reply has already said whose rolemodel it is, so whoever is mentioned is the
+        # model itself.
+        if replied_id is None:
             await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
             return
-        if target_id is None:
-            target_id = user.id
+        target_id, model_id = replied_id, (pointed[0] if pointed else None)
+    elif len(pointed) >= 2:
+        target_id, model_id = pointed[0], pointed[1]
+    else:
+        # One mention and no reply reads as "my rolemodel is them".
+        target_id, model_id = user.id, (pointed[0] if pointed else None)
 
-    if target_id is None:
-        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
-        return
-
-    model_id = _find_player(session_data, model_token)
     if model_id is None:
-        await message.reply_text(t.STANDIN_NOT_IN_GAME.format(name=html.escape(model_token)), parse_mode=ParseMode.HTML)
+        await message.reply_text(t.STANDIN_NOT_IN_GAME.format(name=html.escape(typed)), parse_mode=ParseMode.HTML)
         return
 
     target = session.player(session_data, target_id)
@@ -526,20 +622,25 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     replied_id = _replied_player(update, session_data)
 
-    if len(args) >= 2:
-        first_id, partner_id = _find_player(session_data, args[0]), _find_player(session_data, args[1])
-    elif len(args) == 1:
-        # With a reply, the named player is the *partner* of whoever was replied to;
-        # without one, they are simply in love.
-        named = _find_player(session_data, args[0])
-        first_id, partner_id = (replied_id, named) if replied_id is not None else (named, None)
-    else:
-        first_id, partner_id = (replied_id if replied_id is not None else user.id), None
+    pointed, _ = _pointed_at(message, session_data)
 
-    if first_id is None or (len(args) >= 2 and partner_id is None):
+    if args and not pointed and replied_id is None:
+        # Something was typed that named nobody identifiable. Marking the sender instead
+        # would be doing a different thing from the one asked for, silently.
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
-    if len(args) == 1 and replied_id is not None and partner_id is None:
+
+    if not pointed:
+        first_id, partner_id = (replied_id if replied_id is not None else user.id), None
+    elif replied_id is not None:
+        # A reply names one half of the couple; the mention is the other.
+        first_id, partner_id = replied_id, pointed[0]
+    elif len(pointed) >= 2:
+        first_id, partner_id = pointed[0], pointed[1]
+    else:
+        first_id, partner_id = pointed[0], None
+
+    if first_id is None or (args and partner_id is None and replied_id is not None):
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
@@ -676,6 +777,65 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer(t.STANDIN_STOP_ARM, show_alert=True)
 
 
+async def alt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/alt` — mark an account as somebody's second one, in or out of a game.
+
+    Being an alt is a fact about the account, not about a round: the same person brings
+    the same spare account every time, so the mark is stored in the database and outlives
+    every session. That is also why this is the one command here that answers without a
+    session — there is nothing about it that needs a game in progress.
+
+    Alts keep their role and stay in the composition, because the role they are playing
+    shapes what everyone else can earn. They are only left out of the *output*, since
+    achievements landing on an account nobody collects for are noise in a list whose whole
+    job is to be short enough to read.
+    """
+    message = update.message
+    sender = message.from_user
+    session_data = session.get(context.chat_data)
+
+    logger.info("command", command="alt", user_id=sender.id, user=unidecode(sender.first_name), args=context.args)
+
+    target_id, target_name = _alt_target(update, context, session_data)
+    if target_id is None:
+        await message.reply_text(t.STANDIN_ALT_NEEDS_TARGET, parse_mode=ParseMode.HTML)
+        return
+
+    # Deliberately ungated. The ordinary way to mark an alt is to reply to it from your
+    # main account — two different Telegram users — so any "only yourself" rule would break
+    # the one flow this exists for. What keeps that safe is that it toggles and anyone can
+    # always unmark *themselves*: a wrong mark is undone by the person it was wrong about,
+    # without needing to find whoever made it.
+    marked = await db.toggle_alt_account(target_id, target_name, sender.id)
+    if session_data is not None:
+        await _changed(context, message.chat.id, session_data)
+
+    template = t.STANDIN_ALT_SET if marked else t.STANDIN_ALT_CLEARED
+    await message.reply_text(template.format(name=_mention(target_id, target_name)), parse_mode=ParseMode.HTML)
+
+
+def _alt_target(update, context, session_data):
+    """Who /alt is about: (user_id, name), or (None, None).
+
+    A reply names anybody, game or no game. A typed name only works during one, since the
+    roster is the only thing that can turn a name into an id — outside a game there is
+    nothing to look it up in, which is why the fallback advice is to reply.
+    """
+    replied = update.message.reply_to_message
+    if replied is not None and replied.from_user is not None and not replied.from_user.is_bot:
+        return replied.from_user.id, replied.from_user.first_name
+
+    pointed, _ = _pointed_at(update.message, session_data)
+    if pointed:
+        return pointed[0], session.name_of(session_data, pointed[0]) or ""
+    if context.args:
+        # Something was typed that named nobody we can identify.
+        return None, None
+
+    sender = update.message.from_user
+    return sender.id, sender.first_name
+
+
 # --- Deaths ----------------------------------------------------------------
 
 # The game bot's roster states its own counts — "Players Alive: 11/16" — which is what
@@ -727,14 +887,16 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args=context.args,
     )
 
-    target_id = _replied_player(update, session_data)
+    pointed, _ = _pointed_at(message, session_data)
+    target_id = pointed[0] if pointed else _replied_player(update, session_data)
     if target_id is None and context.args:
-        target_id = _find_player(session_data, " ".join(context.args))
-    if target_id is None:
-        await message.reply_text(
-            t.STANDIN_DEAD_USAGE if not context.args else t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML
-        )
+        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
+    if target_id is None:
+        # Bare /dead is the commonest case by far — you have just been killed and you are
+        # the one holding the phone. Making that the one form that needs an argument was
+        # backwards.
+        target_id = message.from_user.id
 
     entry = session.player(session_data, target_id)
     if not entry["alive"]:
@@ -811,7 +973,7 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # above and is never at risk from this.
     learned = []
     for name, role_text in _dead_rows(body):
-        uid = _find_player(session_data, name)
+        uid = _roster_row_owner(session_data, name)
         if uid is None:
             continue
         entry = session.player(session_data, uid)
@@ -866,9 +1028,8 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_STEAL_NOT_THIEF, parse_mode=ParseMode.HTML)
         return
 
-    target_id = _replied_player(update, session_data)
-    if target_id is None and context.args:
-        target_id = _find_player(session_data, " ".join(context.args))
+    pointed, _ = _pointed_at(message, session_data)
+    target_id = pointed[0] if pointed else _replied_player(update, session_data)
     if target_id is None:
         await message.reply_text(
             t.STANDIN_STEAL_USAGE if not context.args else t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML
@@ -930,7 +1091,7 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
     listed = 0
 
     for uid, player_entry in session.players_in_order(session_data):
-        if not player_entry["alive"] or not player_entry["roles"]:
+        if not player_entry["alive"] or not player_entry["roles"] or db.is_alt_account(uid):
             continue
         entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
         # Nobody is hunting an achievement they already hold, so what a player has earned
@@ -980,7 +1141,9 @@ def _group_sections(session_data, shared, include_uncertain):
         eligible = [
             player_entry["name"]
             for uid, player_entry in session.players_in_order(session_data)
-            if player_entry["alive"] and not session.already_has(session_data, uid, entry["name"])
+            if player_entry["alive"]
+            and not db.is_alt_account(uid)
+            and not session.already_has(session_data, uid, entry["name"])
         ]
         if not eligible:
             continue

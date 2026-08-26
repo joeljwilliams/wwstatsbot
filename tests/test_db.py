@@ -67,11 +67,11 @@ async def pool():
     async with db._pool.acquire() as conn:
         # achievement_rules holds a foreign key onto achievements, so it has to be named
         # here too: dropping achievements alone fails while a dependent table exists.
-        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins")
+        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts")
     await db.ensure_schema()
     yield db._pool
     async with db._pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins")
+        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts")
     await db.close_pool()
 
 
@@ -519,3 +519,55 @@ async def test_a_rename_carries_the_rule_with_it(ruled):
         await conn.execute("UPDATE achievements SET name = 'Cold as Ice 2' WHERE name = 'Cold as Ice'")
         expr = await conn.fetchval("SELECT expr FROM achievement_rules WHERE achievement = 'Cold as Ice 2'")
     assert expr == "ispresent('harlot')"
+
+
+# --- Alt accounts ----------------------------------------------------------------
+#
+# Being somebody's second account is a fact about the account, not about a round, so it
+# lives here rather than in a session: the same person brings the same spare account to
+# every game, and re-marking it each time is the sort of chore that stops getting done.
+
+
+async def test_marking_an_alt_survives_and_is_readable(pool):
+    await db.load_alts_cache()
+    assert await db.toggle_alt_account(7, "Someone", 1) is True
+    assert db.is_alt_account(7)
+
+    rows = await db.list_alts()
+    assert [(r["user_id"], r["name"]) for r in rows] == [(7, "Someone")]
+
+
+async def test_marking_an_alt_twice_unmarks_it(pool):
+    """A toggle, so a wrong mark is undone by whoever it was wrong about."""
+    await db.load_alts_cache()
+    await db.toggle_alt_account(7, "Someone", 1)
+    assert await db.toggle_alt_account(7, "Someone", 1) is False
+
+    assert not db.is_alt_account(7)
+    assert await db.list_alts() == []
+
+
+async def test_an_unmarked_account_is_not_an_alt(pool):
+    await db.load_alts_cache()
+    assert not db.is_alt_account(7)
+
+
+async def test_re_marking_refreshes_the_stored_name(pool):
+    """Names change; the id is what anything keys on, but /alts should stay readable."""
+    await db.load_alts_cache()
+    await db.toggle_alt_account(7, "Old Name", 1)
+    await db.toggle_alt_account(7, "Old Name", 1)
+    await db.toggle_alt_account(7, "New Name", 1)
+
+    rows = await db.list_alts()
+    assert rows[0]["name"] == "New Name"
+
+
+async def test_the_cache_is_rebuilt_from_the_table(pool):
+    """db.is_alt_account is synchronous and reads the cache, like the other two."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("INSERT INTO player_alts (user_id, name) VALUES (7, 'Someone')")
+    assert not db.is_alt_account(7), "not until the cache is loaded"
+
+    await db.load_alts_cache()
+    assert db.is_alt_account(7)
