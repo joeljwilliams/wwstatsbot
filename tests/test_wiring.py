@@ -55,6 +55,7 @@ UNADVERTISED = [
     "ad",
     "steal",
     "la",
+    "alt",
 ]
 
 # Aliases that must keep working alongside their primary verb.

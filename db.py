@@ -25,6 +25,10 @@ _ACHIEVEMENTS = []
 # startup, reloaded after every write.
 _RULES = {}
 
+# Alt account ids. Read once per player per render of the possible-achievements list, so
+# it gets the same in-memory treatment as the other two caches.
+_ALTS = set()
+
 _SCHEMA = r"""
 CREATE TABLE IF NOT EXISTS achievements (
     id              SERIAL PRIMARY KEY,
@@ -115,6 +119,19 @@ CREATE TABLE IF NOT EXISTS achievement_rules (
     -- rule.
     edited      BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Second accounts. Being somebody's alt is a fact about the account, not about a
+-- particular game: the same person brings the same spare account to every round, and
+-- marking it again each time would be the sort of chore that stops getting done. So it
+-- lives here rather than in a session, and /alt works whether or not a game is running.
+CREATE TABLE IF NOT EXISTS player_alts (
+    user_id    BIGINT PRIMARY KEY,
+    -- Display name at the time of marking. Purely so /alts is readable; the id is what
+    -- anything actually keys on, because names change.
+    name       TEXT NOT NULL DEFAULT '',
+    marked_by  BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 """
 
@@ -325,6 +342,56 @@ async def update_notes(name, notes):
     if matched:
         await load_cache()
     return matched
+
+
+# --- Alt accounts -----------------------------------------------------------
+
+
+async def load_alts_cache():
+    """Reload the set of alt account ids. Same contract as the other caches."""
+    global _ALTS
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM player_alts")
+    _ALTS = {r["user_id"] for r in rows}
+    logger.info("alt_cache_loaded", entries=len(_ALTS))
+
+
+def is_alt_account(user_id):
+    """Whether this account is somebody's second one (synchronous, hot-path accessor)."""
+    return user_id in _ALTS
+
+
+async def toggle_alt_account(user_id, name, marked_by):
+    """Flip an account's alt status. Returns True if it is now marked.
+
+    A toggle rather than two commands, because the mistake worth guarding against is
+    marking the wrong person: without an undo that costs a real player their list in every
+    game from then on, not just the one in progress.
+    """
+    async with _pool.acquire() as conn:
+        if user_id in _ALTS:
+            await conn.execute("DELETE FROM player_alts WHERE user_id = $1", user_id)
+            marked = False
+        else:
+            await conn.execute(
+                """
+                INSERT INTO player_alts (user_id, name, marked_by)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id) DO UPDATE SET name = EXCLUDED.name
+                """,
+                user_id,
+                name or "",
+                marked_by,
+            )
+            marked = True
+    await load_alts_cache()
+    return marked
+
+
+async def list_alts():
+    """Every marked account, newest first, for /alts."""
+    async with _pool.acquire() as conn:
+        return await conn.fetch("SELECT user_id, name FROM player_alts ORDER BY created_at DESC")
 
 
 # --- Search -----------------------------------------------------------------

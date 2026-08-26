@@ -30,6 +30,26 @@ async def is_admin_user(user_id):
     return is_superuser(user_id) or await db.is_admin(user_id)
 
 
+def mentioned_usernames(message):
+    """@username (lowercased, no @) -> user_id, from a message's text_mention entities.
+
+    A plain `@handle` in a message carries no user id, which is why they are normally
+    uncheckable. A *text_mention* does: it holds the whole User object, username included.
+    So a message that mentions people properly — the game bot's player list does — teaches
+    us the handle-to-id mapping for everybody in it, and a later plain @handle can be
+    resolved against what we learned.
+
+    Only users who have set a username appear; the rest have nothing to key on.
+    """
+    found = {}
+    for ent in list(message.entities or ()) + list(message.caption_entities or ()):
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
+            username = getattr(ent.user, "username", None)
+            if username and not ent.user.is_bot:
+                found[username.lower()] = ent.user.id
+    return found
+
+
 def mentioned_users(message):
     """Extract (user_id, first_name) for every user directly mentioned in a message.
 

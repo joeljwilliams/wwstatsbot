@@ -292,7 +292,8 @@ STANDIN_HEADER = N_("<b>GAME RUNNING!</b>\n\n")
 STANDIN_HEADER_ENDED = N_("<b>GAME ENDED</b>\n\n")
 STANDIN_INTRO = N_(
     "Standing in for the achievement manager. Reveal your role with <code>/role &lt;role&gt;</code> — "
-    'e.g. <code>/role gunner</code> or <code>/role sk</code>. Hit "Stop" when the game ends.\n\n'
+    "e.g. <code>/role gunner</code> or <code>/role sk</code>. To set somebody else's, @mention them "
+    'or reply to them. Hit "Stop" when the game ends.\n\n'
 )
 STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
 # {name} arrives already rendered as a tg://user link (see gamesession._mention), which is
@@ -337,9 +338,11 @@ STANDIN_ROLE_USAGE = N_("Usage: <code>/role &lt;role&gt;</code> — try <code>/r
 STANDIN_ROLE_UNKNOWN = N_("I don't know a role called <b>{role}</b>.")
 STANDIN_ROLE_DID_YOU_MEAN = N_("\nDid you mean: {names}?")
 STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
+# Players are named by mention or reply — never by typing a display name, which has
+# spaces and emoji in it and cannot be told apart from the rest of the line.
 STANDIN_MODEL_USAGE = N_(
-    "Usage: <code>/rm &lt;rolemodel&gt;</code> (yours), or in reply to a player, "
-    "or <code>/rm &lt;player&gt; &lt;rolemodel&gt;</code>."
+    "Usage: <code>/rm @rolemodel</code> (yours), or the same in reply to a player, "
+    "or <code>/rm @player @rolemodel</code>."
 )
 # Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
 # reported rather than stored, because a stored one would never fire a transform and the
@@ -359,17 +362,24 @@ STANDIN_BEHOLDER_SEER = N_("{name} is the Beholder \N{EYE}, and {seer} is the Se
 STANDIN_BEHOLDER_SETTLED = N_("\nUnsure seer/fool claims settled as the Fool \N{PLAYING CARD BLACK JOKER}: {names}")
 STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
 STANDIN_UNKNOWN_TARGET = N_(
-    "I need a player from this game — reply to them, or mention them so their name carries a user id."
+    "I need a player from this game — reply to them, or @mention them. "
+    "Typing a name won't do: I match on the mention, not the spelling."
 )
 
 
 # --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
 
-STANDIN_DEAD_USAGE = N_(
-    "Usage: <code>/dead &lt;player&gt;</code>, or reply to them. "
-    "To follow the whole roster at once, reply to the game bot's player list with <code>/ad</code>."
-)
 STANDIN_DEAD_MARKED = N_("{name} is dead.")
+
+# An alt is a second account of somebody already playing. They keep their role — it still
+# shapes everyone else's achievements — but they are not offered any of their own.
+STANDIN_ALT_SET = N_("{name} is an alt — leaving them out of the achievements list.")
+STANDIN_ALT_CLEARED = N_("{name} is not an alt any more, and is back in the achievements list.")
+# Shown on the roster so it is obvious why they have no entry in the list.
+STANDIN_ALT_MARK = N_(" <i>(alt)</i>")
+STANDIN_ALT_NEEDS_TARGET = N_(
+    "Reply to the account with <code>/alt</code>, @mention it, or send <code>/alt</code> on its own to mark your own."
+)
 STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
 
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
@@ -396,7 +406,7 @@ STANDIN_REASON_MODEL_DIED = N_("their rolemodel died")
 STANDIN_REASON_SEER_DIED = N_("the seer is gone")
 STANDIN_REASON_WOLVES_DEAD = N_("the wolves are gone")
 
-STANDIN_STEAL_USAGE = N_("Usage: <code>/steal &lt;player&gt;</code>, or reply to them.")
+STANDIN_STEAL_USAGE = N_("Usage: <code>/steal @player</code>, or reply to them.")
 STANDIN_STEAL_NOT_THIEF = N_("Only the Thief \N{SMILING FACE WITH HORNS} can steal a role.")
 # The game protects these outright, so a /steal against one is a rules mistake worth
 # reporting rather than a swap worth recording.

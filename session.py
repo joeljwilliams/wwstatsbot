@@ -28,6 +28,9 @@ KEY = "standin"
 def _blank_player(name):
     return {
         "name": name,
+        # Telegram @handle, lowercased, when we have seen one. Display names change and
+        # collide; a handle is the stable thing players type at each other.
+        "username": None,
         "roles": [],
         # Wild Child / Doppelgänger only. Stored as the model's id, resolved to a name at
         # render time so a rename cannot leave a stale label in the message.
@@ -269,6 +272,15 @@ def sync_alive(session, alive_ids):
             revived.append(uid)
         entry["alive"] = should_be_alive
     return died, revived
+
+
+def set_username(session, user_id, username):
+    """Remember a player's @handle so a plain @mention of them can be resolved later."""
+    entry = player(session, user_id)
+    if entry is None or not username:
+        return None
+    entry["username"] = username.lower().lstrip("@")
+    return entry
 
 
 def set_attained(session, user_id, names):
