@@ -10,7 +10,8 @@ be somebody who is actually listed. Both shapes of the post count: rows nested u
 player, and the group sections at the bottom naming everyone who can get a roleless one.
 """
 
-from conftest import FakeUpdate, FakeUser, bot_message, message
+import pytest
+from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
 from handlers import achievements as achv_handlers
 
@@ -55,10 +56,24 @@ ieb
 """
 
 
-async def roll(context, query, replied_text=POST, winner=None, monkeypatch=None):
+@pytest.fixture(autouse=True)
+def no_catalogue_search(monkeypatch):
+    """The fall-through search needs Postgres; these tests are about the post's own text.
+
+    The one test that exercises the fall-through patches it with something that answers.
+    """
+
+    async def _nothing(query):
+        return []
+
+    monkeypatch.setattr(achv_handlers.builders, "build_info_results", _nothing)
+
+
+async def roll(context, query, replied_text=POST, winner=None, monkeypatch=None, entities=None):
     if winner is not None:
         monkeypatch.setattr(achv_handlers, "_pick", lambda candidates: winner)
-    msg = message("/roll " + query, from_user=FakeUser(1, "Ren"), reply_to_message=bot_message(replied_text))
+    replied = bot_message(replied_text, entities=entities)
+    msg = message("/roll " + query, from_user=FakeUser(1, "Ren"), reply_to_message=replied)
     context.args = query.split()
     await achv_handlers.roll_cmd(FakeUpdate(message=msg), context)
     return msg
@@ -131,22 +146,62 @@ def test_an_achievement_nobody_has_listed_has_no_candidates():
 # --- Naming the achievement --------------------------------------------------
 
 
-def test_the_query_matches_what_the_post_lists_whatever_the_casing():
-    assert achv_handlers._listed_achievement(POST, "double shot") == "Double Shot"
-    assert achv_handlers._listed_achievement(POST, "DOUBLE SHOT") == "Double Shot"
+async def test_the_query_matches_what_the_post_lists_whatever_the_casing():
+    assert await achv_handlers._listed_achievement(POST, "double shot") == ("Double Shot", False)
+    assert await achv_handlers._listed_achievement(POST, "DOUBLE SHOT") == ("Double Shot", False)
 
 
-def test_a_unique_fragment_is_enough():
-    assert achv_handlers._listed_achievement(POST, "traffic") == "Traffic Control"
+async def test_a_unique_fragment_is_enough():
+    assert await achv_handlers._listed_achievement(POST, "traffic") == ("Traffic Control", False)
 
 
-def test_an_ambiguous_fragment_is_refused_rather_than_guessed():
-    """ "d" is in three of them; picking one would decide a game on a coin toss nobody saw."""
-    assert achv_handlers._listed_achievement(POST, "d") is None
+async def test_an_ambiguous_fragment_is_refused_rather_than_guessed():
+    """A fragment in three of them; picking one decides a game on a coin toss nobody saw."""
+    assert await achv_handlers._listed_achievement(POST, "d") == (None, True)
 
 
-def test_something_the_post_does_not_list_is_not_matched():
-    assert achv_handlers._listed_achievement(POST, "Cold as Ice") is None
+async def test_something_the_post_does_not_list_is_not_matched():
+    assert await achv_handlers._listed_achievement(POST, "Cold as Ice") == (None, False)
+
+
+async def test_a_query_the_post_text_misses_falls_through_to_the_shared_search(monkeypatch):
+    """ "dygy" is how the group says "Did you guard yourself?" — an initialism, which only
+    resolves through the same index /info and /sch use, never through the post's own text."""
+
+    async def fake_search(query):
+        assert query == "dygy"
+        return [{"name": "Did you guard yourself?"}]
+
+    monkeypatch.setattr(achv_handlers.builders, "build_info_results", fake_search)
+    assert await achv_handlers._listed_achievement(POST, "dygy") == ("Did you guard yourself?", False)
+
+
+async def test_the_shared_search_never_decides_who_can_get_it(monkeypatch):
+    """It says *which* achievement was meant. If the post does not list it, nobody rolls."""
+
+    async def fake_search(query):
+        return [{"name": "Cold as Ice"}]
+
+    monkeypatch.setattr(achv_handlers.builders, "build_info_results", fake_search)
+    assert await achv_handlers._listed_achievement(POST, "cai") == (None, False)
+
+
+async def test_rolling_an_initialism_works_end_to_end(context, monkeypatch):
+    """The reported bug: /roll dygy said nobody could get it."""
+
+    async def fake_search(query):
+        return [{"name": "Did you guard yourself?"}]
+
+    monkeypatch.setattr(achv_handlers.builders, "build_info_results", fake_search)
+    msg = await roll(context, "dygy")
+
+    assert "Rolling <b>Did you guard yourself?</b>" in msg.last_reply
+    assert "Mango" in msg.last_reply
+
+
+async def test_an_ambiguous_query_says_so_rather_than_denying_it(context):
+    msg = await roll(context, "d")
+    assert "matches more than one" in msg.last_reply
 
 
 # --- The command -------------------------------------------------------------
@@ -217,3 +272,65 @@ async def test_a_name_with_html_in_it_is_escaped(context, monkeypatch):
 
     assert "&lt;" in msg.last_reply
     assert "<\N{CHERRY BLOSSOM}>" not in msg.last_reply
+
+
+# --- Naming the winner tappably ----------------------------------------------
+#
+# The names in a roll are read back out of somebody else's message, so an id exists only
+# if that message carried one. When it did, saying who won should be as tappable as every
+# other name this bot prints; when it did not, the plain name is all there is.
+
+
+def post_mentioning(players, achievement="Double Shot"):
+    """A Possible Achievements post whose player names are real text_mentions."""
+    text = "Possible Achievements:\n\n"
+    entities = []
+    for uid, name in players:
+        entities.append(
+            FakeEntity(
+                "text_mention",
+                offset=len(text.encode("utf-16-le")) // 2,
+                length=len(name.encode("utf-16-le")) // 2,
+                user=FakeUser(uid, name),
+            )
+        )
+        text += "{}\n - {}\n\n".format(name, achievement)
+    return text, entities
+
+
+async def test_a_winner_the_post_mentioned_is_rendered_as_a_mention(context, monkeypatch):
+    text, entities = post_mentioning([(7, "Mango"), (8, "omu")])
+    msg = await roll(
+        context, "double shot", replied_text=text, entities=entities, winner="Mango", monkeypatch=monkeypatch
+    )
+
+    assert "<a href='tg://user?id=7'>Mango</a>" in msg.last_reply
+    assert "<a href='tg://user?id=8'>omu</a>" in msg.last_reply, "the candidates too"
+
+
+async def test_a_post_with_plain_names_still_rolls(context, monkeypatch):
+    """The incumbent's posts are plain text. Inventing a link would point at nobody."""
+    msg = await roll(context, "double shot", winner="Ludwig \N{CRESCENT MOON}", monkeypatch=monkeypatch)
+
+    assert "tg://user" not in msg.last_reply
+    assert "Winner is <b>Ludwig \N{CRESCENT MOON}</b>" in msg.last_reply
+
+
+async def test_a_mentioned_name_with_html_in_it_is_still_escaped(context, monkeypatch):
+    brackets = "\N{MODIFIER LETTER SMALL TURNED ALPHA}ѕнαяиαѕ <\N{CHERRY BLOSSOM}>"
+    text, entities = post_mentioning([(7, brackets), (8, "omu")])
+    msg = await roll(
+        context, "double shot", replied_text=text, entities=entities, winner=brackets, monkeypatch=monkeypatch
+    )
+
+    assert "&lt;" in msg.last_reply
+    assert "<\N{CHERRY BLOSSOM}>" not in msg.last_reply
+    assert "tg://user?id=7" in msg.last_reply
+
+
+async def test_only_one_candidate_is_mentioned_too(context):
+    text, entities = post_mentioning([(7, "Mango")])
+    msg = await roll(context, "double shot", replied_text=text, entities=entities)
+
+    assert "only one who can get" in msg.last_reply
+    assert "<a href='tg://user?id=7'>Mango</a>" in msg.last_reply

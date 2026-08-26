@@ -26,6 +26,7 @@ import builders
 import db
 import templates as t
 import wwstats
+from handlers.common import mention_map
 
 logger = structlog.get_logger(__name__)
 
@@ -239,14 +240,8 @@ def _players_who_can_get(text, achievement):
     return found
 
 
-def _listed_achievement(text, query):
-    """The achievement in the post that `query` names, or None.
-
-    Matched against what the post actually lists rather than the whole catalogue, because
-    the answer has to be a name somebody can be rolled *for*: exact first, then a unique
-    substring, so "double shot" finds "Double Shot" and "double" does not silently pick
-    between two achievements starting with it.
-    """
+def _listed_names(text):
+    """Every achievement the post names, in order, without duplicates."""
     per_player, groups = _extract_by_player(text)
     listed = []
     for _, rows in per_player:
@@ -258,13 +253,43 @@ def _listed_achievement(text, query):
         if name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)
+    return names
 
+
+async def _listed_achievement(text, query):
+    """The achievement in the post that `query` names: (name or None, ambiguous).
+
+    Matched against what the post lists rather than the whole catalogue, because the answer
+    has to be a name somebody can be rolled *for*. Exact first, then a unique substring.
+
+    A query matching several listed achievements is refused rather than resolved to the
+    first: picking one would decide a game on a coin toss nobody saw.
+
+    A query matching none of them falls through to the same search /info and /sch use, so
+    the ways people already refer to achievements keep working here — "dygy" is how the
+    group says "Did you guard yourself?", and it only resolves through the initialism
+    index. Whatever that search returns still has to be listed in the post; the search
+    decides *which* achievement is meant, never who can get it.
+    """
+    names = _listed_names(text)
     key = query.casefold().strip()
+
     exact = [name for name in names if name.casefold() == key]
     if exact:
-        return exact[0]
+        return exact[0], False
+
     partial = [name for name in names if key in name.casefold()]
-    return partial[0] if len(partial) == 1 else None
+    if len(partial) == 1:
+        return partial[0], False
+    if len(partial) > 1:
+        return None, True
+
+    listed = {name.casefold(): name for name in names}
+    for found in await builders.build_info_results(query):
+        match = listed.get(found["name"].casefold())
+        if match is not None:
+            return match, False
+    return None, False
 
 
 def _best_achievement_match(name):
@@ -384,6 +409,19 @@ async def _deliver_to_pm(context, query, sends):
     return True
 
 
+def _as_mention(name, mentions):
+    """A player's name, tappable when the post it came from mentioned them.
+
+    The names in a roll are read back out of somebody else's message, so an id only exists
+    if that message carried one. When it did, saying who won should be as tappable as
+    every other name this bot prints; when it did not, the plain name is all there is and
+    inventing a link would point at nobody.
+    """
+    user_id = mentions.get(name)
+    escaped = html.escape(name)
+    return t.ROLL_MENTION.format(user_id=user_id, name=escaped) if user_id else escaped
+
+
 def _pick(candidates):
     """Choose a winner. Wrapped so a test can make the roll deterministic."""
     return random.choice(candidates)
@@ -414,7 +452,10 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     source = replied.text or replied.caption or ""
-    listed = _listed_achievement(source, query)
+    listed, ambiguous = await _listed_achievement(source, query)
+    if ambiguous:
+        await message.reply_text(t.ROLL_AMBIGUOUS.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
+        return
     if listed is None:
         per_player, groups = _extract_by_player(source)
         template = t.ROLL_NO_LIST if not per_player and not groups else t.ROLL_NOT_LISTED
@@ -426,9 +467,11 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.ROLL_NOT_LISTED.format(name=html.escape(listed)), parse_mode=ParseMode.HTML)
         return
 
+    mentions = mention_map(replied)
+
     if len(candidates) == 1:
         await message.reply_text(
-            t.ROLL_ONLY_ONE.format(winner=html.escape(candidates[0]), name=html.escape(listed)),
+            t.ROLL_ONLY_ONE.format(winner=_as_mention(candidates[0], mentions), name=html.escape(listed)),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -440,8 +483,8 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(
         t.ROLL_RESULT.format(
             name=html.escape(listed),
-            players=", ".join(html.escape(name) for name in candidates),
-            winner=html.escape(winner),
+            players=", ".join(_as_mention(name, mentions) for name in candidates),
+            winner=_as_mention(winner, mentions),
         ),
         parse_mode=ParseMode.HTML,
     )

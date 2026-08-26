@@ -30,6 +30,39 @@ async def is_admin_user(user_id):
     return is_superuser(user_id) or await db.is_admin(user_id)
 
 
+def utf16_units(text):
+    """`text` as UTF-16 code units — what Telegram entity offsets actually index.
+
+    Offsets are counted in UTF-16 units, not characters, so every character outside the
+    BMP costs two. Player names here are made of them ("J J 🎭", "𝑬𝒔𝒓𝒂"), so slicing by
+    character reads one place further left for each one that came before.
+    """
+    return text.encode("utf-16-le")
+
+
+def utf16_piece(units, offset, length):
+    """The span an entity covers, from `utf16_units` output."""
+    return units[offset * 2 : (offset + length) * 2].decode("utf-16-le", "ignore")
+
+
+def mention_map(message):
+    """The text of each mention in a message -> the user id behind it.
+
+    A text_mention carries both: the User object, and the span of text it was written
+    over. That makes a message that mentions people properly a lookup table from display
+    name to id — which is what lets a name read back out of a message be rendered as a
+    tappable mention rather than as flat text.
+    """
+    text = message.text if message.text is not None else (message.caption or "")
+    units = utf16_units(text)
+    found = {}
+    entities = list(message.entities or ()) + list(message.caption_entities or ())
+    for ent in entities:
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None and not ent.user.is_bot:
+            found[utf16_piece(units, ent.offset, ent.length).strip()] = ent.user.id
+    return found
+
+
 def mentioned_usernames(message):
     """@username (lowercased, no @) -> user_id, from a message's text_mention entities.
 
