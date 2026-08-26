@@ -863,3 +863,76 @@ async def test_an_unknown_role_is_reported_without_the_mention(context):
 
     assert "blacksmit" in msg.last_reply
     assert "Blacksmith" in msg.last_reply, "and it still suggests the near miss"
+
+
+# --- Entity offsets are UTF-16 ----------------------------------------------
+#
+# Telegram counts them in UTF-16 code units, not characters, so every character outside
+# the BMP costs two. This group's display names are built from them — "J J 🎭", "𝑬𝒔𝒓𝒂",
+# "bei 🍀" — so a Python slice taken at a Telegram offset lands one place further left for
+# each one that came before it. The ids survive either way (they come from the entity's
+# User object), which is what makes this quiet: only the *text* is wrong.
+
+
+def utf16_len(text):
+    return len(text.encode("utf-16-le")) // 2
+
+
+def mentions_at_real_offsets(command_word, mentions, trailing=""):
+    """A command whose entity offsets are counted the way Telegram counts them."""
+    text = command_word
+    entities = []
+    for uid, name in mentions:
+        text += " "
+        entities.append(
+            FakeEntity(TEXT_MENTION, offset=utf16_len(text), length=utf16_len(name), user=FakeUser(uid, name))
+        )
+        text += name
+    if trailing:
+        text += " " + trailing
+    return FakeMessage(text=text, from_user=FakeUser(1, "Ren"), entities=entities)
+
+
+async def test_a_mention_after_an_emoji_name_is_still_cut_out_cleanly(context):
+    """The bug this pins: a stray letter of somebody's name ended up in the role text."""
+    emoji_name = (3, "J J \N{PERFORMING ARTS}")
+    session_data = await start_session(context, players=[(1, "Ren"), (2, "omu"), emoji_name])
+    await reveal(context, 3, "wc")
+
+    msg = mentions_at_real_offsets("/rm", [emoji_name, (2, "omu")])
+    context.args = msg.text.split()[1:]
+    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+
+    assert session_data["players"]["3"]["model"] == 2
+
+
+async def test_a_role_after_an_emoji_name_survives_intact(context):
+    emoji_name = (2, "incendies \N{ROBOT FACE}")
+    session_data = await start_session(context, players=[(1, "Ren"), emoji_name])
+
+    msg = mentions_at_real_offsets("/role", [emoji_name], trailing="grave digger")
+    context.args = msg.text.split()[1:]
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+
+    assert session_data["players"]["2"]["roles"] == ["grave_digger"]
+
+
+async def test_a_handle_after_an_emoji_name_is_read_from_the_right_span(context):
+    """The @handle is read *out of* the text, so a shifted offset reads the wrong word."""
+    players = [FakeUser(1, "Ren"), FakeUser(2, "omu", username="jjw91"), FakeUser(3, "J J \N{PERFORMING ARTS}")]
+    roster = bot_message("Players Alive: 3/3", entities=[FakeEntity(TEXT_MENTION, user=u) for u in players])
+    await gamesession.start_session_cmd(FakeUpdate(message=gs_message(reply_to=roster)), context)
+    session_data = session.get(context.chat_data)
+    await reveal(context, 1, "wc")
+
+    emoji = "\N{PERFORMING ARTS}"
+    text = "/rm {} @jjw91".format(emoji)
+    msg = FakeMessage(
+        text=text,
+        from_user=FakeUser(1, "Ren"),
+        entities=[FakeEntity("mention", offset=utf16_len("/rm " + emoji + " "), length=utf16_len("@jjw91"))],
+    )
+    context.args = text.split()[1:]
+    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+
+    assert session_data["players"]["1"]["model"] == 2

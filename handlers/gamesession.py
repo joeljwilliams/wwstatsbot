@@ -149,6 +149,21 @@ def _roster_row_owner(session_data, name):
     return owners[0] if len(owners) == 1 else None
 
 
+def _utf16(text):
+    """`text` as UTF-16 code units — what Telegram entity offsets actually index.
+
+    Offsets are counted in UTF-16 units, not characters, so every character outside the
+    BMP costs two. This group's names are made of them ("J J 🎭", "𝑬𝒔𝒓𝒂", "bei 🍀"), and
+    slicing by character instead put a stray letter of somebody's name into the role text
+    and read @handles from one position out.
+    """
+    return text.encode("utf-16-le")
+
+
+def _utf16_piece(units, offset, length):
+    return units[offset * 2 : (offset + length) * 2].decode("utf-16-le", "ignore")
+
+
 def _pointed_at(message, session_data):
     """Who a command points at, and what text is left over: (ordered ids, remainder).
 
@@ -165,26 +180,28 @@ def _pointed_at(message, session_data):
     argument — a role name, and nothing else.
     """
     text = message.text or ""
+    units = _utf16(text)
     ids = []
     spans = []
 
     for ent in message.entities or ():
-        piece = text[ent.offset : ent.offset + ent.length]
         if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
             spans.append((ent.offset, ent.length))
             if not ent.user.is_bot:
                 ids.append(ent.user.id)
         elif ent.type == MessageEntity.MENTION:
             spans.append((ent.offset, ent.length))
-            owner = _handle_owner(session_data, piece)
+            owner = _handle_owner(session_data, _utf16_piece(units, ent.offset, ent.length))
             if owner is not None:
                 ids.append(owner)
 
-    remainder = "".join(
-        piece
-        for index, piece in enumerate(text)
-        if not any(offset <= index < offset + length for offset, length in spans)
-    )
+    # Cut the mentions out in the same units they were measured in, so whatever is left is
+    # exactly the text nobody's name was written in.
+    kept = bytearray()
+    for unit in range(len(units) // 2):
+        if not any(offset <= unit < offset + length for offset, length in spans):
+            kept += units[unit * 2 : unit * 2 + 2]
+    remainder = kept.decode("utf-16-le", "ignore")
 
     # Drop the command itself. Done by hand rather than from its BOT_COMMAND entity,
     # because the entity is one more thing that has to be present and correct for a command
