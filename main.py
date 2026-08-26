@@ -64,6 +64,7 @@ async def _post_init(application: Application):
     # achievements themselves exist.
     await db.seed_rules()
     await db.load_rules_cache()
+    await db.load_alts_cache()
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 

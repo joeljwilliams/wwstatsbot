@@ -47,6 +47,21 @@ import db  # noqa: E402
 SUPERUSER_ID = 999
 
 
+@pytest.fixture(autouse=True)
+def clean_alt_cache():
+    """Empty db's alt-account cache around every test.
+
+    It is a module-level set, so without this a Postgres test that marks an alt leaks into
+    every later test in the run — and the symptom is bizarre: a player silently missing
+    from a rendered list because their *id* happened to match one marked several files ago.
+    Diagnosed exactly once, from that symptom, which is reason enough to make it
+    impossible rather than remember it.
+    """
+    db._ALTS = set()
+    yield
+    db._ALTS = set()
+
+
 # --- Achievement fixtures --------------------------------------------------------
 
 # Entries use the legacy ACHV cache shape that db.load_cache() produces: 'desc' (not

@@ -371,6 +371,10 @@ STANDIN_ALT_SET = N_("{name} is an alt — leaving them out of the achievements 
 STANDIN_ALT_CLEARED = N_("{name} is not an alt any more, and is back in the achievements list.")
 # Shown on the roster so it is obvious why they have no entry in the list.
 STANDIN_ALT_MARK = N_(" <i>(alt)</i>")
+# Outside a game there is no roster, so a typed name has nothing to be looked up in.
+STANDIN_ALT_NEEDS_TARGET = N_(
+    "Reply to the account with <code>/alt</code>, or send <code>/alt</code> yourself to mark your own."
+)
 STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
 
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")

@@ -41,11 +41,6 @@ def _blank_player(name):
         "lover": False,
         "partner": None,
         "alive": True,
-        # A second account belonging to a player who is already in the game. They play a
-        # real role that shapes everybody else's achievements, so they stay in the
-        # composition — they are just not offered any, because the achievements would land
-        # on an account nobody is collecting for.
-        "alt": False,
         # Achievements this player already holds, from the stats API. None means "not
         # fetched" and is treated as "we don't know", which shows everything: over-offering
         # is recoverable by the player, and hiding an achievement they could still earn is
@@ -247,26 +242,6 @@ def swap_roles(session, a_id, b_id):
     a["roles"], b["roles"] = b["roles"], a["roles"]
     a["model"], b["model"] = b["model"], a["model"]
     return a, b
-
-
-def toggle_alt(session, user_id):
-    """Flip a player's alt flag. Returns (entry, is_alt), or None if they are unknown.
-
-    A toggle rather than a one-way mark, because the mistake worth worrying about is
-    marking the wrong person: without an undo that costs the real player their whole list
-    for the rest of the game.
-    """
-    entry = player(session, user_id)
-    if entry is None:
-        return None
-    entry["alt"] = not entry.get("alt")
-    return entry, entry["alt"]
-
-
-def is_alt(session, user_id):
-    """Whether this player is a known alt. False for anyone we do not have."""
-    entry = player(session, user_id)
-    return bool(entry and entry.get("alt"))
 
 
 def set_alive(session, user_id, alive):

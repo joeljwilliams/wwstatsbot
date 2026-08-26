@@ -551,111 +551,155 @@ async def test_attained_lists_survive_a_persistence_round_trip(context):
 
 # --- Alts --------------------------------------------------------------------
 #
-# A second account belonging to somebody already at the table. They play a real role, so
-# they stay in the composition — what everyone else can earn depends on that role existing
-# — but achievements landing on an account nobody collects for are noise in a list whose
-# whole job is to stay short enough to read.
+# A second account belonging to somebody already at the table. Being an alt is a fact about
+# the *account*, not about a round — the same person brings the same spare account every
+# time — so it is stored in the database and outlives every session, and /alt is the one
+# command here that answers without a game in progress.
+#
+# Alts keep their role and stay in the composition: what everyone else can earn depends on
+# that role existing. They are only left out of the output, since achievements landing on
+# an account nobody collects for are noise in a list whose job is to stay readable.
 
 
-async def test_an_alt_is_left_out_of_the_list(context):
+@pytest.fixture
+def alts(monkeypatch):
+    """The alt store, in memory. Patched over db so these need no Postgres."""
+    marked = set()
+
+    async def toggle(user_id, name, marked_by):
+        if user_id in marked:
+            marked.discard(user_id)
+            return False
+        marked.add(user_id)
+        return True
+
+    async def not_an_admin(user_id):
+        return False
+
+    monkeypatch.setattr(db, "is_alt_account", lambda uid: uid in marked)
+    monkeypatch.setattr(db, "toggle_alt_account", toggle)
+    # The permission check consults the admins table; there is no database here.
+    monkeypatch.setattr(db, "is_admin", not_an_admin)
+    return marked
+
+
+async def alt(context, text="", user_id=1, name="Ren", reply_to=None):
+    msg = player_message("/alt " + text, user_id=user_id, name=name, reply_to=reply_to)
+    context.args = text.split()
+    await gamesession.alt_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
+async def test_an_alt_is_left_out_of_the_list(context, alts):
     session_data = await start_session(context)
     await reveal(context, 1, "snow_wolf")
     await reveal(context, 2, "harlot")
     assert "Cold as Ice" in gamesession.render_list(session_data)
 
-    session.toggle_alt(session_data, 1)
+    alts.add(1)
     assert "Cold as Ice" not in gamesession.render_list(session_data)
 
 
-async def test_an_alts_role_still_counts_for_everybody_else(context):
+async def test_an_alts_role_still_counts_for_everybody_else(context, alts):
     """The point of the distinction: they are playing, they are just not collecting."""
     session_data = await start_session(context)
     await reveal(context, 1, "snow_wolf")
     await reveal(context, 2, "harlot")
-    session.toggle_alt(session_data, 2)
+    alts.add(2)
 
     rendered = gamesession.render_list(session_data)
     assert "Cold as Ice" in rendered, "the Snow Wolf can still freeze the alt's harlot"
-    assert mention_free(rendered).count("omu") == 0, "but the harlot has no entry of their own"
+    assert "omu\n" not in rendered, "but the harlot has no entry of their own"
 
 
-def mention_free(text):
-    """The rendered post with its HTML stripped, for counting names."""
-    import re
-
-    return re.sub(r"<[^>]+>", "", text)
-
-
-async def test_an_alt_is_not_counted_among_the_players_who_can_get_a_group_achievement(context):
+async def test_an_alt_is_not_counted_among_the_players_who_can_get_a_group_achievement(context, alts):
     session_data = await start_session(context)
     await reveal(context, 1, "villager")
-    before = gamesession.render_list(session_data)
-    assert "Welcome to Hell (4):" in before
+    assert "Welcome to Hell (4):" in gamesession.render_list(session_data)
 
-    session.toggle_alt(session_data, 4)
+    alts.add(4)
     assert "Welcome to Hell (3):" in gamesession.render_list(session_data)
 
 
-async def test_the_roster_says_who_is_an_alt(context):
+async def test_the_roster_says_who_is_an_alt(context, alts):
     """Otherwise the only sign is an absence, which reads as a bug."""
     session_data = await start_session(context)
     await reveal(context, 1, "villager")
-    session.toggle_alt(session_data, 1)
+    alts.add(1)
 
     rendered, _ = gamesession.render_state(session_data)
     assert "(alt)" in rendered
 
 
-async def test_alt_marks_the_sender_by_default(context):
-    session_data = await start_session(context)
-    msg = player_message("/alt")
-    context.args = []
-    await gamesession.alt_cmd(FakeUpdate(message=msg), context)
+async def test_alt_marks_the_sender_by_default(context, alts):
+    await start_session(context)
+    msg = await alt(context)
 
-    assert session_data["players"]["1"]["alt"] is True
+    assert 1 in alts
     assert "is an alt" in msg.last_reply
 
 
-async def test_alt_can_name_or_reply_to_somebody_else(context):
-    session_data = await start_session(context)
+async def test_alt_works_with_no_game_running(context, alts):
+    """Being somebody's second account has nothing to do with a round being in progress."""
+    msg = await alt(context)
 
-    msg = player_message("/alt omu")
-    context.args = ["omu"]
-    await gamesession.alt_cmd(FakeUpdate(message=msg), context)
-    assert session_data["players"]["2"]["alt"] is True
-
-    theirs = message("hi", from_user=FakeUser(3, "J J"))
-    reply = player_message("/alt", reply_to=theirs)
-    context.args = []
-    await gamesession.alt_cmd(FakeUpdate(message=reply), context)
-    assert session_data["players"]["3"]["alt"] is True
+    assert session.get(context.chat_data) is None
+    assert 1 in alts
+    assert "is an alt" in msg.last_reply
 
 
-async def test_alt_toggles_so_a_mistake_can_be_undone(context):
-    """Marking the wrong person otherwise costs them their list for the whole game."""
-    session_data = await start_session(context)
+async def test_alt_marks_the_replied_to_account_even_with_no_game(context, alts):
+    theirs = message("hi", from_user=FakeUser(7, "Someone"))
+    await alt(context, reply_to=theirs)
+    assert 7 in alts
+
+
+async def test_alt_can_name_a_player_during_a_game(context, alts):
+    await start_session(context)
+    await alt(context, "omu")
+    assert 2 in alts
+
+
+async def test_a_typed_name_needs_a_game_to_look_it_up_in(context, alts):
+    """Outside a round there is no roster, so a name has nothing to resolve against."""
+    msg = await alt(context, "omu")
+
+    assert alts == set()
+    assert "Reply to the account" in msg.last_reply
+
+
+async def test_alt_toggles_so_a_mistake_can_be_undone(context, alts):
+    """Marking the wrong person otherwise costs them their list in *every* future game."""
+    await start_session(context)
     for _ in range(2):
-        msg = player_message("/alt")
-        context.args = []
-        await gamesession.alt_cmd(FakeUpdate(message=msg), context)
+        msg = await alt(context)
 
-    assert session_data["players"]["1"]["alt"] is False
+    assert alts == set()
     assert "not an alt any more" in msg.last_reply
 
 
-async def test_alt_naming_somebody_unknown_does_not_mark_the_sender(context):
-    session_data = await start_session(context)
-    msg = player_message("/alt Nobody")
-    context.args = ["Nobody"]
-    await gamesession.alt_cmd(FakeUpdate(message=msg), context)
+async def test_marking_an_alt_is_ungated(context, alts):
+    """The ordinary flow is a main account replying to its own alt — two different users.
 
-    assert "player from this game" in msg.last_reply
-    assert session_data["players"]["1"]["alt"] is False
+    Any "only yourself" rule would break the one thing this command exists for. What keeps
+    it safe is that it toggles and anyone can unmark themselves, so a wrong mark is undone
+    by the person it was wrong about.
+    """
+    theirs = message("hi", from_user=FakeUser(7, "Someone"))
+    await alt(context, user_id=555, name="Passer By", reply_to=theirs)
+    assert 7 in alts
 
 
-async def test_an_alt_flag_survives_a_persistence_round_trip(context):
-    from conftest import assert_json_roundtrips
+async def test_anybody_can_unmark_their_own_account(context, alts):
+    """Which is what makes an ungated mark recoverable without hunting down who made it."""
+    alts.add(555)
+    await alt(context, user_id=555, name="Passer By")
+    assert alts == set()
 
-    session_data = await start_session(context)
-    session.toggle_alt(session_data, 1)
-    assert session.is_alt(assert_json_roundtrips(session_data), 1)
+
+async def test_alt_naming_somebody_unknown_marks_nobody(context, alts):
+    await start_session(context)
+    msg = await alt(context, "Nobody")
+
+    assert alts == set()
+    assert "Reply to the account" in msg.last_reply

@@ -97,7 +97,6 @@ async def test_gs_addressed_to_us_is_honoured_whatever_the_casing(context):
         gamesession.dead_cmd,
         gamesession.steal_cmd,
         gamesession.follow_roster_cmd,
-        gamesession.alt_cmd,
     ],
 )
 async def test_every_command_is_silent_with_no_session(context, handler):
@@ -120,7 +119,6 @@ async def test_every_command_is_silent_with_no_session(context, handler):
         gamesession.dead_cmd,
         gamesession.steal_cmd,
         gamesession.follow_roster_cmd,
-        gamesession.alt_cmd,
     ],
 )
 async def test_every_command_is_silent_for_someone_outside_the_roster(context, handler):
