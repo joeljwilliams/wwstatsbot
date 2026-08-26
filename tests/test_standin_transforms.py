@@ -223,12 +223,29 @@ async def test_dead_says_so_when_they_already_are(context):
     assert "already dead" in msg.last_reply
 
 
-async def test_dead_with_no_target_explains_both_ways_of_giving_one(context):
-    await start_session(context)
+async def test_bare_dead_marks_the_sender(context):
+    """The commonest case by far: you have just been killed and you are holding the phone.
+
+    Making that the one form that needed an argument was backwards.
+    """
+    session_data = await start_session(context)
     msg = player_message("/dead")
     context.args = []
     await gamesession.dead_cmd(FakeUpdate(message=msg), context)
-    assert "/dead" in msg.last_reply and "/ad" in msg.last_reply
+
+    assert session_data["players"]["1"]["alive"] is False
+    assert "is dead" in msg.last_reply
+
+
+async def test_dead_naming_somebody_unknown_still_says_so(context):
+    """A name we cannot place must not quietly kill the sender instead."""
+    session_data = await start_session(context)
+    msg = player_message("/dead Nobody")
+    context.args = ["Nobody"]
+    await gamesession.dead_cmd(FakeUpdate(message=msg), context)
+
+    assert "player from this game" in msg.last_reply
+    assert session_data["players"]["1"]["alive"] is True
 
 
 # --- /ad --------------------------------------------------------------------

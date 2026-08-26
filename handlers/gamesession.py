@@ -42,7 +42,7 @@ import roles
 import rulelist
 import session
 import templates as t
-from handlers.common import is_admin_user, mentioned_users
+from handlers.common import is_admin_user, mentioned_usernames, mentioned_users
 
 logger = structlog.get_logger(__name__)
 
@@ -104,8 +104,13 @@ def _session_for(update, context):
     current = session.get(context.chat_data)
     if current is None:
         return None
-    if not session.is_member(current, update.message.from_user.id):
+    sender = update.message.from_user
+    if not session.is_member(current, sender.id):
         return None
+    # Free top-up: anyone issuing a command hands us their own handle, which covers players
+    # the roster mentioned before they had set one.
+    if getattr(sender, "username", None):
+        session.set_username(current, sender.id, sender.username)
     return current
 
 
@@ -125,21 +130,52 @@ def _fold(name):
 def _find_player(session_data, token):
     """The roster player a typed name refers to: user_id, or None.
 
-    Exact match first, then a unique prefix, so `/rm omu` works and `/rm o` does not
-    silently pick one of two players starting with it. Ambiguity resolves to None and is
-    reported — guessing would attach a role model to the wrong player, which never fires a
-    transform and surfaces much later as an achievement that failed to appear.
+    Tried in order: exact display name, exact @handle, then a unique prefix of a display
+    name. Handles beat prefixes because a handle is exact by nature — nobody types half of
+    one — and display names collide far more often than handles do.
+
+    Ambiguity resolves to None and is reported rather than guessed. Guessing attaches a
+    role model to the wrong player, which then never fires a transform and surfaces much
+    later as an achievement that failed to appear.
     """
     key = _fold(token)
     if not key:
         return None
-    exact = [uid for uid, entry in session.players_in_order(session_data) if _fold(entry["name"]) == key]
+    players = list(session.players_in_order(session_data))
+
+    exact = [uid for uid, entry in players if _fold(entry["name"]) == key]
     if len(exact) == 1:
         return exact[0]
-    prefix = [uid for uid, entry in session.players_in_order(session_data) if _fold(entry["name"]).startswith(key)]
+    by_handle = [uid for uid, entry in players if (entry.get("username") or "") == key]
+    if len(by_handle) == 1:
+        return by_handle[0]
+    prefix = [uid for uid, entry in players if _fold(entry["name"]).startswith(key)]
     if len(prefix) == 1:
         return prefix[0]
     return None
+
+
+def _find_target_and_model(session_data, text):
+    """Split "<target> <model>" — or read the whole thing as one name. Returns a pair.
+
+    Player names contain spaces ("J J", "Red 🔴 2020 💟"), so the argument list cannot be
+    split positionally: `/rm J J` is two words and one player. Both halves are therefore
+    resolved by trying every split point and taking the one where each side names somebody,
+    after first checking whether the whole string is a single player's name.
+
+    Whole-name-first matters: a player called "J J" must win over the reading that splits
+    them into a target "J" and a model "J".
+    """
+    whole = _find_player(session_data, text)
+    if whole is not None:
+        return None, whole
+    words = text.split()
+    for cut in range(1, len(words)):
+        target = _find_player(session_data, " ".join(words[:cut]))
+        model = _find_player(session_data, " ".join(words[cut:]))
+        if target is not None and model is not None:
+            return target, model
+    return None, None
 
 
 def _replied_player(update, session_data):
@@ -282,6 +318,10 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     session_data = session.start(context.chat_data, user.id, players, unresolved, _now())
+    # The roster's mentions carry whole User objects, so this is where every player's
+    # @handle is learned — after which a plain "@someone" in a later command resolves.
+    for handle, uid in mentioned_usernames(replied).items():
+        session.set_username(session_data, uid, handle)
     await _load_attained(session_data, players)
     msg, keyboard = render_state(session_data)
     posted = await context.bot.send_message(
@@ -459,25 +499,25 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_MODEL_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    if len(args) >= 2:
-        target_token, model_token = args[0], " ".join(args[1:])
-        target_id = _find_player(session_data, target_token)
-    else:
-        model_token = args[0]
-        target_id = _replied_player(update, session_data)
-        if target_id is None and message.reply_to_message is not None:
+    typed = " ".join(args)
+    replied_id = _replied_player(update, session_data)
+
+    if message.reply_to_message is not None:
+        # A reply has already named the target, so everything typed is the role model and
+        # never a target. Splitting it positionally is what made `/rm J J`, sent in reply
+        # to somebody else, set *J J's* rolemodel to "J": two words, one player.
+        if replied_id is None:
             await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
             return
+        target_id, model_id = replied_id, _find_player(session_data, typed)
+    else:
+        # No reply, so the line carries both — or only the model, meaning the sender's own.
+        target_id, model_id = _find_target_and_model(session_data, typed)
         if target_id is None:
             target_id = user.id
 
-    if target_id is None:
-        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
-        return
-
-    model_id = _find_player(session_data, model_token)
     if model_id is None:
-        await message.reply_text(t.STANDIN_NOT_IN_GAME.format(name=html.escape(model_token)), parse_mode=ParseMode.HTML)
+        await message.reply_text(t.STANDIN_NOT_IN_GAME.format(name=html.escape(typed)), parse_mode=ParseMode.HTML)
         return
 
     target = session.player(session_data, target_id)
@@ -526,20 +566,20 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     replied_id = _replied_player(update, session_data)
 
-    if len(args) >= 2:
-        first_id, partner_id = _find_player(session_data, args[0]), _find_player(session_data, args[1])
-    elif len(args) == 1:
-        # With a reply, the named player is the *partner* of whoever was replied to;
-        # without one, they are simply in love.
-        named = _find_player(session_data, args[0])
-        first_id, partner_id = (replied_id, named) if replied_id is not None else (named, None)
-    else:
+    typed = " ".join(args)
+    if not args:
         first_id, partner_id = (replied_id if replied_id is not None else user.id), None
+    elif replied_id is not None:
+        # A reply names one half, so everything typed is the other half — not a pair, and
+        # not split positionally: player names have spaces in them.
+        first_id, partner_id = replied_id, _find_player(session_data, typed)
+    else:
+        # Either "<a> <b>" or a single player who is simply in love.
+        first_id, partner_id = _find_target_and_model(session_data, typed)
+        if first_id is None:
+            first_id, partner_id = partner_id, None
 
-    if first_id is None or (len(args) >= 2 and partner_id is None):
-        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
-        return
-    if len(args) == 1 and replied_id is not None and partner_id is None:
+    if first_id is None or (args and replied_id is not None and partner_id is None):
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
@@ -730,11 +770,14 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_id = _replied_player(update, session_data)
     if target_id is None and context.args:
         target_id = _find_player(session_data, " ".join(context.args))
+        if target_id is None:
+            await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+            return
     if target_id is None:
-        await message.reply_text(
-            t.STANDIN_DEAD_USAGE if not context.args else t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML
-        )
-        return
+        # Bare /dead is the commonest case by far — you have just been killed and you are
+        # the one holding the phone. Making that the one form that needs an argument was
+        # backwards.
+        target_id = message.from_user.id
 
     entry = session.player(session_data, target_id)
     if not entry["alive"]:

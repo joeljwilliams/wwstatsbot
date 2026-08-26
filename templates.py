@@ -358,17 +358,11 @@ STANDIN_BEHOLDER_NO_SEER = N_("{name} is the Beholder \N{EYE} — and there is n
 STANDIN_BEHOLDER_SEER = N_("{name} is the Beholder \N{EYE}, and {seer} is the Seer \N{MAN WITH TURBAN}.")
 STANDIN_BEHOLDER_SETTLED = N_("\nUnsure seer/fool claims settled as the Fool \N{PLAYING CARD BLACK JOKER}: {names}")
 STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
-STANDIN_UNKNOWN_TARGET = N_(
-    "I need a player from this game — reply to them, or mention them so their name carries a user id."
-)
+STANDIN_UNKNOWN_TARGET = N_("I need a player from this game — reply to them, or give their name or @username.")
 
 
 # --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
 
-STANDIN_DEAD_USAGE = N_(
-    "Usage: <code>/dead &lt;player&gt;</code>, or reply to them. "
-    "To follow the whole roster at once, reply to the game bot's player list with <code>/ad</code>."
-)
 STANDIN_DEAD_MARKED = N_("{name} is dead.")
 STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
 
