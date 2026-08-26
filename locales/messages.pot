@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-26 12:53+0200\n"
+"POT-Creation-Date: 2026-08-26 21:55+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -290,265 +290,308 @@ msgstr ""
 msgid "📄 Send all {count}"
 msgstr ""
 
-#: templates.py:146
+#: templates.py:149 templates.py:305
+#, python-brace-format
+msgid "<a href='tg://user?id={user_id}'>{name}</a>"
+msgstr ""
+
+#: templates.py:152
+msgid ""
+"Reply to a <b>Possible Achievements</b> message with <code>/roll "
+"&lt;achievement&gt;</code> and I'll pick between the players who can "
+"still get it."
+msgstr ""
+
+#: templates.py:155
+msgid ""
+"I can't find any players in that message. Reply to a Possible "
+"Achievements post."
+msgstr ""
+
+#: templates.py:156
+#, python-brace-format
+msgid "Nobody in that list can get <b>{name}</b>."
+msgstr ""
+
+#: templates.py:159
+#, python-brace-format
+msgid ""
+"<b>{name}</b> matches more than one achievement in that list — be more "
+"specific."
+msgstr ""
+
+#: templates.py:162
+#, python-brace-format
+msgid ""
+"Rolling <b>{name}</b> for {players}…\n"
+"\n"
+"🎯 Winner is <b>{winner}</b>"
+msgstr ""
+
+#: templates.py:164
+#, python-brace-format
+msgid "{winner} is the only one who can get <b>{name}</b> — no roll needed."
+msgstr ""
+
+#: templates.py:166
 msgid "Reply to a 'Possible Achievements' message with <code>/info</code>."
 msgstr ""
 
-#: templates.py:148
+#: templates.py:168
 msgid ""
 "No achievements found in that message. Make sure it contains lines like "
 "<code>- Achievement Name</code>."
 msgstr ""
 
-#: templates.py:150 templates.py:252
+#: templates.py:170 templates.py:272
 msgid "No matching achievements found."
 msgstr ""
 
-#: templates.py:151
+#: templates.py:171
 msgid "This request has expired. Please run /info again."
 msgstr ""
 
-#: templates.py:152
+#: templates.py:172
 msgid "Those achievements are no longer available."
 msgstr ""
 
-#: templates.py:154
+#: templates.py:174
 msgid ""
 "I can't message you yet. Start a private chat with me first (tap my name,"
 " then Start), then tap the button again."
 msgstr ""
 
-#: templates.py:156
+#: templates.py:176
 msgid "Sent the achievement info to your PM ✅"
 msgstr ""
 
-#: templates.py:157
+#: templates.py:177
 #, python-brace-format
 msgid "Sent {count} card{plural} to your PM ✅"
 msgstr ""
 
-#: templates.py:161
+#: templates.py:181
 #, python-brace-format
 msgid "*ATTAINED ({attained}/{total}):*\n"
 msgstr ""
 
-#: templates.py:162
+#: templates.py:182
 #, python-brace-format
 msgid "*MISSING ({missing}/{total}):*\n"
 msgstr ""
 
-#: templates.py:163
+#: templates.py:183
 #, python-brace-format
 msgid ""
 "*MISSING AND ATTAINABLE VIA PLAYING ({count}/{total}):*\n"
 "\n"
 msgstr ""
 
-#: templates.py:164
+#: templates.py:184
 #, python-brace-format
 msgid ""
 "*NOT DIRECTLY ATTAINABLE VIA PLAYING ({count}/{total}):*\n"
 "\n"
 msgstr ""
 
-#: templates.py:165
+#: templates.py:185
 #, python-brace-format
 msgid ""
 "*INACTIVE ({count}/{total}):*\n"
 "\n"
 msgstr ""
 
-#: templates.py:167
+#: templates.py:187
 #, python-brace-format
 msgid ""
 "`- {name}`\n"
 ">>> _{desc}_\n"
 msgstr ""
 
-#: templates.py:173
+#: templates.py:193
 msgid "Only the superuser can add admins."
 msgstr ""
 
-#: templates.py:174
+#: templates.py:194
 msgid "Only the superuser can remove admins."
 msgstr ""
 
-#: templates.py:175
+#: templates.py:195
 msgid "Only the superuser can list admins."
 msgstr ""
 
-#: templates.py:176
+#: templates.py:196
 msgid "Only the superuser can run raw SQL."
 msgstr ""
 
-#: templates.py:177
+#: templates.py:197
 msgid "Only admins can edit notes."
 msgstr ""
 
-#: templates.py:179
+#: templates.py:199
 msgid "Usage: reply to a user with /addadmin, or /addadmin <user_id>."
 msgstr ""
 
-#: templates.py:180
+#: templates.py:200
 msgid "Usage: reply to a user with /deladmin, or /deladmin <user_id>."
 msgstr ""
 
-#: templates.py:181
+#: templates.py:201
 #, python-brace-format
 msgid "Added <a href='tg://user?id={user_id}'>{name}</a> as an admin."
 msgstr ""
 
-#: templates.py:182
+#: templates.py:202
 #, python-brace-format
 msgid "Removed admin {user_id}."
 msgstr ""
 
-#: templates.py:183
+#: templates.py:203
 msgid "That user is not an admin."
 msgstr ""
 
-#: templates.py:184
+#: templates.py:204
 msgid "No admins yet."
 msgstr ""
 
-#: templates.py:185
+#: templates.py:205
 msgid "<b>Admins:</b>"
 msgstr ""
 
-#: templates.py:186
+#: templates.py:206
 #, python-brace-format
 msgid "<code>{user_id}</code> {name}{username}"
 msgstr ""
 
-#: templates.py:187
+#: templates.py:207
 msgid "(unknown)"
 msgstr ""
 
-#: templates.py:191
+#: templates.py:211
 msgid ""
 "Reply to an achievement /info card with <code>/setnote "
 "&lt;note&gt;</code> or <code>/setnote prob &lt;probability&gt;</code>."
 msgstr ""
 
-#: templates.py:195
+#: templates.py:215
 msgid ""
 "Please provide the text: <code>/setnote &lt;note&gt;</code> or "
 "<code>/setnote prob &lt;probability&gt;</code>. Use /clearnote to remove "
 "a field."
 msgstr ""
 
-#: templates.py:199
+#: templates.py:219
 msgid ""
 "Reply to an achievement /info card with <code>/clearnote</code> (memo), "
 "<code>/clearnote prob</code>, or <code>/clearnote all</code>."
 msgstr ""
 
-#: templates.py:202
+#: templates.py:222
 msgid ""
 "Could not identify the achievement from that message. Reply to a single "
 "/info card."
 msgstr ""
 
-#: templates.py:203
+#: templates.py:223
 msgid ""
 "Note updated.\n"
 "\n"
 msgstr ""
 
-#: templates.py:206
+#: templates.py:226
 msgid ""
 "Usage: <code>/db &lt;sql&gt;</code>\n"
 "Runs a single SQL statement."
 msgstr ""
 
-#: templates.py:207
+#: templates.py:227
 #, python-brace-format
 msgid ""
 "<b>SQL error:</b>\n"
 "<pre>{error}</pre>"
 msgstr ""
 
-#: templates.py:208
+#: templates.py:228
 #, python-brace-format
 msgid "<pre>{body}</pre>{footer}"
 msgstr ""
 
-#: templates.py:209
+#: templates.py:229
 #, python-brace-format
 msgid ""
 "\n"
 "({count} row{plural})"
 msgstr ""
 
-#: templates.py:210
+#: templates.py:230
 #, python-brace-format
 msgid ", showing first {count}"
 msgstr ""
 
-#: templates.py:211
+#: templates.py:231
 msgid ""
 "\n"
 "… (truncated)"
 msgstr ""
 
-#: templates.py:212
+#: templates.py:232
 msgid "OK"
 msgstr ""
 
-#: templates.py:217
+#: templates.py:237
 msgid ""
 "Invalid parameter! Syntax:\n"
 "<code>/search [achievement_to_search]</code>\n"
 msgstr ""
 
-#: templates.py:218
+#: templates.py:238
 msgid ""
 "Invalid parameter! Syntax:\n"
 "<code>/info [achievement_to_search]</code>\n"
 msgstr ""
 
-#: templates.py:219
+#: templates.py:239
 msgid "Please enter at least 3 letters to search for!\n"
 msgstr ""
 
-#: templates.py:220
+#: templates.py:240
 msgid "No matching achievements found!\n"
 msgstr ""
 
-#: templates.py:222
+#: templates.py:242
 msgid ""
 "Reply to a message that mentions players directly. I can't check plain "
 "@username mentions (they carry no user id)."
 msgstr ""
 
-#: templates.py:225
+#: templates.py:245
 msgid "the requester"
 msgstr ""
 
-#: templates.py:229
+#: templates.py:249
 #, python-brace-format
 msgid "{count} minutes"
 msgstr ""
 
-#: templates.py:233
+#: templates.py:253
 msgid "I have sent you your achievement list in PM."
 msgstr ""
 
-#: templates.py:234
+#: templates.py:254
 msgid "You have to start me in PM first."
 msgstr ""
 
-#: templates.py:235
+#: templates.py:255
 msgid "Start Me!"
 msgstr ""
 
-#: templates.py:236
+#: templates.py:256
 msgid ""
 "Thank you for starting me. Use /stats and /achievements to check your "
 "related stats!"
 msgstr ""
 
-#: templates.py:238
+#: templates.py:258
 #, python-brace-format
 msgid ""
 "Use /stats for stats. Use /achievements or /achv for achivement list.\n"
@@ -559,84 +602,79 @@ msgid ""
 "Use /version to see the exact running build."
 msgstr ""
 
-#: templates.py:247
+#: templates.py:267
 msgid "My Stats"
 msgstr ""
 
-#: templates.py:248
+#: templates.py:268
 msgid "My Kills"
 msgstr ""
 
-#: templates.py:249
+#: templates.py:269
 msgid "My Killed By"
 msgstr ""
 
-#: templates.py:250
+#: templates.py:270
 msgid "My Deaths"
 msgstr ""
 
-#: templates.py:251
+#: templates.py:271
 msgid "No matching achievements"
 msgstr ""
 
-#: templates.py:258
+#: templates.py:278
 msgid "Your game stats (or reply to another player)"
 msgstr ""
 
-#: templates.py:259
+#: templates.py:279
 msgid "Players you've killed the most"
 msgstr ""
 
-#: templates.py:260
+#: templates.py:280
 msgid "Players who've killed you the most"
 msgstr ""
 
-#: templates.py:261
+#: templates.py:281
 msgid "Your most common causes of death"
 msgstr ""
 
-#: templates.py:262
+#: templates.py:282
 msgid "Search your achievements, or reply to a player list to check everyone"
 msgstr ""
 
-#: templates.py:263
+#: templates.py:283
 msgid "List all achievements"
 msgstr ""
 
-#: templates.py:264
+#: templates.py:284
 msgid "Look up an achievement, or reply to a list to get them all"
 msgstr ""
 
-#: templates.py:265
+#: templates.py:285
 msgid "About this bot"
 msgstr ""
 
-#: templates.py:266
+#: templates.py:286
 msgid "Show the running bot version"
 msgstr ""
 
-#: templates.py:267
+#: templates.py:287
 msgid "Start the bot in a private chat"
 msgstr ""
 
-#: templates.py:285
-#, python-brace-format
-msgid "<a href='tg://user?id={user_id}'>{name}</a>"
-msgstr ""
-
-#: templates.py:287
+#: templates.py:307
 msgid ""
 "<b>GAME RUNNING!</b>\n"
 "\n"
 msgstr ""
 
-#: templates.py:292
+#: templates.py:312
 msgid ""
 "<b>GAME ENDED</b>\n"
 "\n"
 msgstr ""
 
-#: templates.py:294
+#: templates.py:314
 msgid ""
 "Standing in for the achievement manager. Reveal your role with "
 "<code>/role &lt;role&gt;</code> — e.g. <code>/role gunner</code> or "
@@ -645,213 +683,213 @@ msgid ""
 "\n"
 msgstr ""
 
-#: templates.py:298
+#: templates.py:318
 #, python-brace-format
 msgid "<b>Players ({revealed} / {total}):</b>\n"
 msgstr ""
 
-#: templates.py:302
+#: templates.py:322
 #, python-brace-format
 msgid "{name}: {role}\n"
 msgstr ""
 
-#: templates.py:303
+#: templates.py:323
 #, python-brace-format
 msgid "{name}: <i>not revealed</i>\n"
 msgstr ""
 
-#: templates.py:306
+#: templates.py:326
 #, python-brace-format
 msgid " ({name})"
 msgstr ""
 
-#: templates.py:309
+#: templates.py:329
 msgid " ❤"
 msgstr ""
 
-#: templates.py:310
+#: templates.py:330
 msgid ""
 "\n"
 "<b>Dead Players:</b>\n"
 msgstr ""
 
-#: templates.py:311
+#: templates.py:331
 #, python-brace-format
 msgid ""
 "\n"
 "<i>Not tracked (no user id): {names}</i>\n"
 msgstr ""
 
-#: templates.py:312
+#: templates.py:332
 msgid "Stop"
 msgstr ""
 
-#: templates.py:315
+#: templates.py:335
 msgid "Press Stop again to end the session."
 msgstr ""
 
-#: templates.py:316
+#: templates.py:336
 msgid "Only players in this game can stop it."
 msgstr ""
 
-#: templates.py:317
+#: templates.py:337
 msgid "That session has already ended."
 msgstr ""
 
-#: templates.py:320
+#: templates.py:340
 msgid ""
 "A stand-in session is already running in this chat. Stop it first, or use"
 " <code>/gsend</code>."
 msgstr ""
 
-#: templates.py:323
+#: templates.py:343
 #, python-brace-format
 msgid ""
 "Reply to the game bot's player list with <code>/gs@{username}</code> so I"
 " know who is playing."
 msgstr ""
 
-#: templates.py:326
+#: templates.py:346
 msgid ""
 "That message doesn't mention any players I can track. I need direct "
 "mentions — plain @username mentions carry no user id."
 msgstr ""
 
-#: templates.py:329
+#: templates.py:349
 msgid "Stand-in session ended."
 msgstr ""
 
-#: templates.py:332
+#: templates.py:352
 #, python-brace-format
 msgid "{name} has considered the game stopped!"
 msgstr ""
 
-#: templates.py:335
+#: templates.py:355
 #, python-brace-format
 msgid "{name}'s role was set to: {role}"
 msgstr ""
 
-#: templates.py:336
+#: templates.py:356
 #, python-brace-format
 msgid ""
 "{name}'s role was set to: {role}\n"
 "<i>Both are being counted until you know which.</i>"
 msgstr ""
 
-#: templates.py:337
+#: templates.py:357
 msgid "Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>."
 msgstr ""
 
-#: templates.py:338
+#: templates.py:358
 #, python-brace-format
 msgid "I don't know a role called <b>{role}</b>."
 msgstr ""
 
-#: templates.py:339
+#: templates.py:359
 #, python-brace-format
 msgid ""
 "\n"
 "Did you mean: {names}?"
 msgstr ""
 
-#: templates.py:340
+#: templates.py:360
 #, python-brace-format
 msgid "{name}'s rolemodel is now {model}"
 msgstr ""
 
-#: templates.py:344
+#: templates.py:364
 msgid ""
 "Usage: <code>/rm @rolemodel</code> (yours), or the same in reply to a "
 "player, or <code>/rm @player @rolemodel</code>."
 msgstr ""
 
-#: templates.py:351
+#: templates.py:371
 #, python-brace-format
 msgid ""
 "{name} is {role}, which has no rolemodel. Only the Wild Child 👶 and the "
 "Doppelgänger 🎭 do."
 msgstr ""
 
-#: templates.py:354
+#: templates.py:374
 #, python-brace-format
 msgid "{name} hasn't revealed yet, so I can't tell if they have a rolemodel."
 msgstr ""
 
-#: templates.py:355
+#: templates.py:375
 #, python-brace-format
 msgid "{name} is now in love."
 msgstr ""
 
-#: templates.py:356
+#: templates.py:376
 #, python-brace-format
 msgid "{name} and {partner} are now in love."
 msgstr ""
 
-#: templates.py:360
+#: templates.py:380
 #, python-brace-format
 msgid "{name} is the Beholder 👁 — and there is no Seer in this game."
 msgstr ""
 
-#: templates.py:361
+#: templates.py:381
 #, python-brace-format
 msgid "{name} is the Beholder 👁, and {seer} is the Seer 👳."
 msgstr ""
 
-#: templates.py:362
+#: templates.py:382
 #, python-brace-format
 msgid ""
 "\n"
 "Unsure seer/fool claims settled as the Fool 🃏: {names}"
 msgstr ""
 
-#: templates.py:363
+#: templates.py:383
 #, python-brace-format
 msgid "{name} isn't in this game's player list."
 msgstr ""
 
-#: templates.py:365
+#: templates.py:385
 msgid ""
 "I need a player from this game — reply to them, or @mention them. Typing "
 "a name won't do: I match on the mention, not the spelling."
 msgstr ""
 
-#: templates.py:372
+#: templates.py:392
 #, python-brace-format
 msgid "{name} is dead."
 msgstr ""
 
-#: templates.py:376
+#: templates.py:396
 #, python-brace-format
 msgid "{name} is an alt — leaving them out of the achievements list."
 msgstr ""
 
-#: templates.py:377
+#: templates.py:397
 #, python-brace-format
 msgid "{name} is not an alt any more, and is back in the achievements list."
 msgstr ""
 
-#: templates.py:379
+#: templates.py:399
 msgid " <i>(alt)</i>"
 msgstr ""
 
-#: templates.py:381
+#: templates.py:401
 msgid ""
 "Reply to the account with <code>/alt</code>, @mention it, or send "
 "<code>/alt</code> on its own to mark your own."
 msgstr ""
 
-#: templates.py:384
+#: templates.py:403
 #, python-brace-format
 msgid "{name} is already dead."
 msgstr ""
 
-#: templates.py:386
+#: templates.py:405
 msgid ""
 "Reply to the game bot's player list with <code>/ad</code> and I'll follow"
 " it."
 msgstr ""
 
-#: templates.py:391
+#: templates.py:410
 #, python-brace-format
 msgid ""
 "That roster says {claimed} of {total} alive, but I can only see {found} "
@@ -859,144 +897,144 @@ msgid ""
 "game, or it didn't mention everyone directly."
 msgstr ""
 
-#: templates.py:394
+#: templates.py:413
 msgid "Roster matches what I have — nobody's status changed."
 msgstr ""
 
-#: templates.py:395
-msgid "Roster followed.\n"
-msgstr ""
-
-#: templates.py:396
-#, python-brace-format
-msgid "💀 Now dead: {names}\n"
-msgstr ""
-
-#: templates.py:397
-#, python-brace-format
-msgid "🙂 Back among the living: {names}\n"
-msgstr ""
-
-#: templates.py:398
-#, python-brace-format
-msgid "Learned from the death notices: {names}\n"
-msgstr ""
-
-#: templates.py:401
-msgid "\n"
-msgstr ""
-
-#: templates.py:403
-#, python-brace-format
-msgid "🔁 {name} is now {role} ({reason})\n"
-msgstr ""
-
-#: templates.py:405
-#, python-brace-format
-msgid "💔 {name} dies of sorrow.\n"
-msgstr ""
-
-#: templates.py:406
-msgid "their rolemodel died"
-msgstr ""
-
-#: templates.py:407
-msgid "the seer is gone"
-msgstr ""
-
-#: templates.py:408
-msgid "the wolves are gone"
-msgstr ""
-
-#: templates.py:410
-msgid "Usage: <code>/steal @player</code>, or reply to them."
-msgstr ""
-
-#: templates.py:411
-msgid "Only the Thief 😈 can steal a role."
-msgstr ""
-
 #: templates.py:414
-#, python-brace-format
-msgid "The Thief can't steal from {name} — {role} is out of reach."
+msgid "Roster followed.\n"
 msgstr ""
 
 #: templates.py:415
 #, python-brace-format
-msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
+msgid "💀 Now dead: {names}\n"
+msgstr ""
+
+#: templates.py:416
+#, python-brace-format
+msgid "🙂 Back among the living: {names}\n"
+msgstr ""
+
+#: templates.py:417
+#, python-brace-format
+msgid "Learned from the death notices: {names}\n"
+msgstr ""
+
+#: templates.py:420
+msgid "\n"
+msgstr ""
+
+#: templates.py:422
+#, python-brace-format
+msgid "🔁 {name} is now {role} ({reason})\n"
+msgstr ""
+
+#: templates.py:424
+#, python-brace-format
+msgid "💔 {name} dies of sorrow.\n"
 msgstr ""
 
 #: templates.py:425
+msgid "their rolemodel died"
+msgstr ""
+
+#: templates.py:426
+msgid "the seer is gone"
+msgstr ""
+
+#: templates.py:427
+msgid "the wolves are gone"
+msgstr ""
+
+#: templates.py:429
+msgid "Usage: <code>/steal @player</code>, or reply to them."
+msgstr ""
+
+#: templates.py:430
+msgid "Only the Thief 😈 can steal a role."
+msgstr ""
+
+#: templates.py:433
+#, python-brace-format
+msgid "The Thief can't steal from {name} — {role} is out of reach."
+msgstr ""
+
+#: templates.py:434
+#, python-brace-format
+msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
+msgstr ""
+
+#: templates.py:444
 msgid ""
 "Possible Achievements:\n"
 "\n"
 msgstr ""
 
-#: templates.py:428
+#: templates.py:447
 #, python-brace-format
 msgid "{name}\n"
 msgstr ""
 
-#: templates.py:431
+#: templates.py:450
 #, python-brace-format
 msgid " - {name}\n"
 msgstr ""
 
-#: templates.py:432
+#: templates.py:451
 #, python-brace-format
 msgid " - ❓ {name}\n"
 msgstr ""
 
-#: templates.py:433
+#: templates.py:452
 #, python-brace-format
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: templates.py:434
+#: templates.py:453
 #, python-brace-format
 msgid " - <i>…and {count} more</i>\n"
 msgstr ""
 
-#: templates.py:435
+#: templates.py:454
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:439
+#: templates.py:458
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:446
+#: templates.py:465
 #, python-brace-format
 msgid "{name} ({count}):\n"
 msgstr ""
 
-#: templates.py:447
+#: templates.py:466
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: templates.py:450
+#: templates.py:469
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:456
+#: templates.py:475
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:458
+#: templates.py:477
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:459
+#: templates.py:478
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:462
+#: templates.py:481
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1004,7 +1042,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:465
+#: templates.py:484
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

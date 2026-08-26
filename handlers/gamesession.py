@@ -42,7 +42,7 @@ import roles
 import rulelist
 import session
 import templates as t
-from handlers.common import is_admin_user, mentioned_usernames, mentioned_users
+from handlers.common import is_admin_user, mentioned_usernames, mentioned_users, utf16_piece, utf16_units
 
 logger = structlog.get_logger(__name__)
 
@@ -149,21 +149,6 @@ def _roster_row_owner(session_data, name):
     return owners[0] if len(owners) == 1 else None
 
 
-def _utf16(text):
-    """`text` as UTF-16 code units — what Telegram entity offsets actually index.
-
-    Offsets are counted in UTF-16 units, not characters, so every character outside the
-    BMP costs two. This group's names are made of them ("J J 🎭", "𝑬𝒔𝒓𝒂", "bei 🍀"), and
-    slicing by character instead put a stray letter of somebody's name into the role text
-    and read @handles from one position out.
-    """
-    return text.encode("utf-16-le")
-
-
-def _utf16_piece(units, offset, length):
-    return units[offset * 2 : (offset + length) * 2].decode("utf-16-le", "ignore")
-
-
 def _pointed_at(message, session_data):
     """Who a command points at, and what text is left over: (ordered ids, remainder).
 
@@ -180,7 +165,7 @@ def _pointed_at(message, session_data):
     argument — a role name, and nothing else.
     """
     text = message.text or ""
-    units = _utf16(text)
+    units = utf16_units(text)
     ids = []
     spans = []
 
@@ -191,7 +176,7 @@ def _pointed_at(message, session_data):
                 ids.append(ent.user.id)
         elif ent.type == MessageEntity.MENTION:
             spans.append((ent.offset, ent.length))
-            owner = _handle_owner(session_data, _utf16_piece(units, ent.offset, ent.length))
+            owner = _handle_owner(session_data, utf16_piece(units, ent.offset, ent.length))
             if owner is not None:
                 ids.append(owner)
 
