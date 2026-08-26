@@ -107,6 +107,7 @@ def build_application():
     app.add_handler(CommandHandler(["achievements", "achv"], achievements.display_achv))
     app.add_handler(CommandHandler(["info", "getachv"], achievements.display_achv_info))
     app.add_handler(CommandHandler("allinfo", achievements.all_info_cmd))
+    app.add_handler(CommandHandler("roll", achievements.roll_cmd))
     app.add_handler(CallbackQueryHandler(achievements.all_info_callback, pattern=r"^allinfo:"))
     app.add_handler(CallbackQueryHandler(search.schall_callback, pattern=r"^schall:"))
     app.add_handler(CommandHandler("addadmin", admin.add_admin_cmd))

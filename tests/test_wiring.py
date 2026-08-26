@@ -40,6 +40,7 @@ ADVERTISED = [command.command for command in main.PUBLIC_COMMANDS]
 UNADVERTISED = [
     "schall",
     "allinfo",
+    "roll",
     "addadmin",
     "deladmin",
     "admins",

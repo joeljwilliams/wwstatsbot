@@ -143,6 +143,26 @@ ALLINFO_NEXT = N_("Next ▶️")
 ALLINFO_SEND_ALL = N_("📄 Send all {count}")
 # Errors and button acknowledgements. Like the /sch strings above, these name
 # /info rather than the now-hidden /allinfo.
+# --- HTML: /roll — pick who gets a once-only achievement --------------------
+
+# A rolled player's name, linked when the post it was read from mentioned them.
+ROLL_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>")
+
+ROLL_USAGE = N_(
+    "Reply to a <b>Possible Achievements</b> message with <code>/roll &lt;achievement&gt;</code> "
+    "and I'll pick between the players who can still get it."
+)
+ROLL_NO_LIST = N_("I can't find any players in that message. Reply to a Possible Achievements post.")
+ROLL_NOT_LISTED = N_("Nobody in that list can get <b>{name}</b>.")
+# Refused rather than resolved to the first match: picking one would decide a game on a
+# coin toss nobody saw.
+ROLL_AMBIGUOUS = N_("<b>{name}</b> matches more than one achievement in that list — be more specific.")
+# The candidates are named before the winner so the roll is visibly between *those* people
+# — a winner on its own is just an assertion.
+ROLL_RESULT = N_("Rolling <b>{name}</b> for {players}…\n\n\N{DIRECT HIT} Winner is <b>{winner}</b>")
+# Rolling between one person is not a roll, and pretending otherwise reads as rigged.
+ROLL_ONLY_ONE = N_("{winner} is the only one who can get <b>{name}</b> — no roll needed.")
+
 ALLINFO_NEED_REPLY = N_("Reply to a 'Possible Achievements' message with <code>/info</code>.")
 ALLINFO_NO_ACHIEVEMENTS = N_(
     "No achievements found in that message. Make sure it contains lines like <code>- Achievement Name</code>."
