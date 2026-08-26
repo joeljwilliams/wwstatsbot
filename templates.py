@@ -265,3 +265,169 @@ CMD_INFO = N_("Look up an achievement, or reply to a list to get them all")
 CMD_ABOUT = N_("About this bot")
 CMD_VERSION = N_("Show the running bot version")
 CMD_START = N_("Start the bot in a private chat")
+
+
+# --- HTML: the stand-in game session (handlers/gamesession.py) --------------
+#
+# Worded to match the achievement manager this stands in for, because standing in
+# convincingly is mostly a matter of nobody noticing: its own posts say "GAME RUNNING!",
+# "Players (16 / 16):" and "<name>'s role was set to: <Role>", and a replacement that
+# invented its own phrasing would read as a different tool at exactly the moment people
+# are looking for a familiar one.
+#
+# The one place we deliberately differ is the instruction line. The manager says "reveal
+# your roles by saying them", which it can do because it reads ordinary messages; we only
+# ever see commands, so ours names /role explicitly rather than promising something that
+# would silently not work.
+
+STANDIN_HEADER = N_("<b>GAME RUNNING!</b>\n\n")
+STANDIN_INTRO = N_(
+    "Standing in for the achievement manager. Reveal your role with <code>/role &lt;role&gt;</code> — "
+    'e.g. <code>/role gunner</code> or <code>/role sk</code>. Hit "Stop" when the game ends.\n\n'
+)
+STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
+STANDIN_PLAYER_ROW = N_("{name}: {role}\n")
+STANDIN_PLAYER_UNREVEALED = N_("{name}: <i>not revealed</i>\n")
+# The role model rides inline in parentheses, the way the manager renders it:
+#   J J: Wild Child 👶 (omu)
+STANDIN_MODEL = N_(" ({name})")
+# A heart on each partner rather than a couple line — again the manager's own convention,
+# and it is why lover status is a per-player flag with an optional partner.
+STANDIN_LOVER = N_(" \N{HEAVY BLACK HEART}")
+STANDIN_DEAD_HEADER = N_("\n<b>Dead Players:</b>\n")
+STANDIN_UNRESOLVED = N_("\n<i>Not tracked (no user id): {names}</i>\n")
+STANDIN_STOP_BUTTON = N_("Stop")
+# Two presses, so the first only arms. The manager's Stop takes one, and it sits under a
+# dozen thumbs for a whole game.
+STANDIN_STOP_ARM = N_("Press Stop again to end the session.")
+STANDIN_STOP_NOT_YOURS = N_("Only players in this game can stop it.")
+STANDIN_STOP_EXPIRED = N_("That session has already ended.")
+
+STANDIN_ALREADY_RUNNING = N_(
+    "A stand-in session is already running in this chat. Stop it first, or use <code>/gsend</code>."
+)
+STANDIN_NEEDS_ROSTER = N_(
+    "Reply to the game bot's player list with <code>/gs@{username}</code> so I know who is playing."
+)
+STANDIN_NO_PLAYERS = N_(
+    "That message doesn't mention any players I can track. I need direct mentions — plain "
+    "@username mentions carry no user id."
+)
+STANDIN_ENDED = N_("Stand-in session ended.")
+
+# Confirmations. "<name>'s role was set to: <Role>" is the manager's exact wording.
+STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
+STANDIN_ROLE_SET_AMBIGUOUS = N_("{name}'s role was set to: {role}\n<i>Both are being counted until you know which.</i>")
+STANDIN_ROLE_USAGE = N_("Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>.")
+STANDIN_ROLE_UNKNOWN = N_("I don't know a role called <b>{role}</b>.")
+STANDIN_ROLE_DID_YOU_MEAN = N_("\nDid you mean: {names}?")
+STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
+STANDIN_MODEL_USAGE = N_(
+    "Usage: <code>/rm &lt;rolemodel&gt;</code> (yours), or in reply to a player, "
+    "or <code>/rm &lt;player&gt; &lt;rolemodel&gt;</code>."
+)
+# Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
+# reported rather than stored, because a stored one would never fire a transform and the
+# mistake would only surface much later as an achievement that failed to appear.
+STANDIN_MODEL_WRONG_ROLE = N_(
+    "{name} is {role}, which has no rolemodel. Only the Wild Child \N{BABY} and the "
+    "Doppelg\N{LATIN SMALL LETTER A WITH DIAERESIS}nger \N{PERFORMING ARTS} do."
+)
+STANDIN_MODEL_NEEDS_ROLE = N_("{name} hasn't revealed yet, so I can't tell if they have a rolemodel.")
+STANDIN_LOVE_SET = N_("{name} is now in love.")
+STANDIN_LOVE_PAIR_SET = N_("{name} and {partner} are now in love.")
+STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
+STANDIN_UNKNOWN_TARGET = N_(
+    "I need a player from this game — reply to them, or mention them so their name carries a user id."
+)
+
+
+# --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
+
+STANDIN_DEAD_USAGE = N_(
+    "Usage: <code>/dead &lt;player&gt;</code>, or reply to them. "
+    "To follow the whole roster at once, reply to the game bot's player list with <code>/ad</code>."
+)
+STANDIN_DEAD_MARKED = N_("{name} is dead.")
+STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
+
+STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
+# The roster states its own counts ("Players Alive: 11/16"), so a parse can be checked
+# before it is applied. It is applied as a full reset — anyone the game bot lists is alive,
+# anyone it doesn't is dead — which is exactly why a misread must change nothing at all.
+STANDIN_AD_MISMATCH = N_(
+    "That roster says {claimed} of {total} alive, but I can only see {found} player{plural} in it. "
+    "Nothing changed — the list may be from a different game, or it didn't mention everyone directly."
+)
+STANDIN_AD_NO_CHANGE = N_("Roster matches what I have — nobody's status changed.")
+STANDIN_AD_SUMMARY = N_("Roster followed.\n")
+STANDIN_AD_DIED = N_("\N{SKULL} Now dead: {names}\n")
+STANDIN_AD_REVIVED = N_("\N{SLIGHTLY SMILING FACE} Back among the living: {names}\n")
+STANDIN_AD_ROLES_LEARNED = N_("Learned from the death notices: {names}\n")
+
+# Role changes the deaths triggered, appended to whichever command caused them.
+STANDIN_TRANSFORM_HEADER = N_("\n")
+STANDIN_TRANSFORM_ROW = N_(
+    "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name} is now {role} ({reason})\n"
+)
+STANDIN_TRANSFORM_SORROW = N_("\N{BROKEN HEART} {name} dies of sorrow.\n")
+STANDIN_REASON_MODEL_DIED = N_("their rolemodel died")
+STANDIN_REASON_SEER_DIED = N_("the seer is gone")
+STANDIN_REASON_WOLVES_DEAD = N_("the wolves are gone")
+
+STANDIN_STEAL_USAGE = N_("Usage: <code>/steal &lt;player&gt;</code>, or reply to them.")
+STANDIN_STEAL_NOT_THIEF = N_("Only the Thief \N{SMILING FACE WITH HORNS} can steal a role.")
+# The game protects these outright, so a /steal against one is a rules mistake worth
+# reporting rather than a swap worth recording.
+STANDIN_STEAL_IMMUNE = N_("The Thief can't steal from {name} — {role} is out of reach.")
+STANDIN_STEAL_DONE = N_("{thief} stole {role} from {name}, who is now the Thief \N{SMILING FACE WITH HORNS}.")
+
+
+# --- HTML: the Possible Achievements post (handlers/gamesession.py) ---------
+#
+# Deliberately the same shape the game's achievement manager posts, because /info already
+# parses that shape (handlers/achievements.py::_extract_possible_achievements): an
+# unindented player name, then indented " - " rows. Reply to this post with /info and the
+# cards come back, exactly as they do for the incumbent's.
+
+STANDIN_LIST_HEADER = N_("Possible Achievements:\n\n")
+# Name alone, no role: the game's own manager lists players this way, and the role is
+# already on the roster message a few lines up.
+STANDIN_LIST_PLAYER = N_("{name}\n")
+# Three row shapes, one prefix each. The dash and the space are load-bearing — they are
+# what /info matches on — so a marker always follows them rather than replacing them.
+STANDIN_LIST_ROW = N_(" - {name}\n")
+STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
+STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
+STANDIN_LIST_MORE = N_(" - <i>…and {count} more</i>\n")
+STANDIN_LIST_NOBODY = N_("<i>Nothing yet — no roles revealed.</i>\n")
+# Not the same thing, and saying the first when the second is true reads as a bug: early on
+# a lone revealed Villager really does have nothing available, because almost everything
+# needs some *other* role to be in play.
+STANDIN_LIST_NOTHING_POSSIBLE = N_("<i>Nothing available yet from what has been revealed.</i>\n")
+
+# Achievements no role gates go at the bottom, each with the players who can still get it —
+# the shape the game's own manager uses. Printing them under every player instead would say
+# the same thing sixteen times and crowd out the rows that are about somebody in particular.
+# No marker on these, matching the manager: everything in this post is "possible", and a
+# section that belongs to nobody in particular has no per-player certainty to qualify.
+STANDIN_LIST_GROUP_HEADER = N_("{name} ({count}):\n")
+STANDIN_LIST_GROUP_NAMES = N_("{names}\n\n")
+
+STANDIN_LIST_FOOTER = N_(
+    "\n\N{CLOCK FACE ONE OCLOCK} {revealed} of {total} revealed · "
+    "\N{BLACK QUESTION MARK ORNAMENT} needs luck · "
+    "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} if your role changes\n"
+)
+# Shown when the full list will not fit in one Telegram message and the uncertain rows
+# were dropped to make room. Silently truncating would read as "this is everything".
+STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of them.</i>\n")
+
+STANDIN_LA_POINTER = N_("The list is here, and updates as roles come in.")
+STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears once someone does.")
+
+STANDIN_IDLE_WARNING = N_(
+    "No updates for {minutes} minutes. I'll end the stand-in session in {grace} minutes unless "
+    "something happens — any <code>/role</code>, <code>/dead</code> or <code>/ad</code> keeps it alive."
+)
+STANDIN_IDLE_ENDED = N_("Stand-in session ended — nothing happened for a while.")

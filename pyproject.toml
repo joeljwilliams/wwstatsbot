@@ -1,6 +1,6 @@
 [project]
 name = "wwstatsbot"
-version = "2.24.0"
+version = "2.25.0"
 description = "Werewolf for Telegram stats bot (@wwstatsbot)"
 requires-python = ">=3.12"
 # Pinned to the versions the bot is known to run on today. This is a snapshot of
@@ -8,11 +8,12 @@ requires-python = ">=3.12"
 # a dependency?" unanswerable. uv.lock is committed and the image builds --frozen.
 dependencies = [
     "httpx==0.28.1",
-    "python-telegram-bot==22.8",
+    "python-telegram-bot[job-queue]==22.8",
     "asyncpg==0.31.0",
     "unidecode==1.4.0",
     "structlog==26.1.0",
     "redis==8.1.0",
+    "simpleeval==1.0.3",
 ]
 
 [dependency-groups]

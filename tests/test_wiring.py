@@ -22,7 +22,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, InlineQueryHandle
 import main
 import settings
 from handlers import achievements as achv_handlers
-from handlers import admin, errors, inline, misc, search, stats
+from handlers import admin, errors, gamesession, inline, misc, search, stats
 
 # Commands advertised in Telegram's "/" menu. Sourced from main so the test tracks the
 # real list rather than a copy that could drift out of step with it.
@@ -30,7 +30,32 @@ ADVERTISED = [command.command for command in main.PUBLIC_COMMANDS]
 
 # Registered but deliberately absent from the menu: /schall and /allinfo are kept for
 # muscle memory (/sch and /info reroute to them), the rest are privileged.
-UNADVERTISED = ["schall", "allinfo", "addadmin", "deladmin", "admins", "setnote", "clearnote", "db"]
+#
+# The stand-in session's five (gs, role, rm, love, gsend) are the strongest case of all for
+# staying out of the menu: they are the *real* achievement manager's command words, and
+# advertising them would put this bot forward as the thing to type them at while the
+# incumbent is running the game. They are registered because Telegram hands every slash
+# command to every bot in the group either way — the handlers stay silent unless this chat
+# has a session.
+UNADVERTISED = [
+    "schall",
+    "allinfo",
+    "addadmin",
+    "deladmin",
+    "admins",
+    "setnote",
+    "clearnote",
+    "db",
+    "gs",
+    "role",
+    "rm",
+    "love",
+    "gsend",
+    "dead",
+    "ad",
+    "steal",
+    "la",
+]
 
 # Aliases that must keep working alongside their primary verb.
 ALIASES = ["sch", "achv", "getachv"]
@@ -154,6 +179,24 @@ def test_schall_toggle_button_reaches_its_handler():
     data = keyboard.inline_keyboard[0][0].callback_data
 
     assert handler_for_callback_data(application(), data) is search.schall_callback
+
+
+def test_the_standin_stop_button_reaches_its_handler():
+    """Built by render_state, so the real callback_data is what gets fed through.
+
+    A dead Stop button is a particularly bad shape of broken: the session keeps running,
+    keeps capturing /role in the chat, and the only visible way to end it does nothing.
+    """
+    session_data = {
+        "order": [],
+        "players": {},
+        "unresolved": [],
+        "state_message_id": None,
+    }
+    _, keyboard = gamesession.render_state(session_data)
+    data = keyboard.inline_keyboard[0][0].callback_data
+
+    assert handler_for_callback_data(application(), data) is gamesession.stop_callback
 
 
 def test_every_allinfo_button_reaches_its_handler():

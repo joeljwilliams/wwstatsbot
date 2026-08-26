@@ -24,7 +24,7 @@ import db
 import health
 import settings
 import templates as t
-from handlers import achievements, admin, errors, inline, misc, search, stats
+from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats
 from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +60,10 @@ async def _post_init(application: Application):
     await db.ensure_schema()
     await db.seed_achievements()
     await db.load_cache()
+    # Rules reference achievements by name, so they can only be seeded once the
+    # achievements themselves exist.
+    await db.seed_rules()
+    await db.load_rules_cache()
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
@@ -110,6 +114,19 @@ def build_application():
     app.add_handler(CommandHandler("setnote", admin.set_note_cmd))
     app.add_handler(CommandHandler("clearnote", admin.clear_note_cmd))
     app.add_handler(CommandHandler("db", admin.db_console_cmd))
+    # The stand-in achievement manager. These four command words belong to the *real*
+    # manager, and Telegram delivers every slash command to every bot in the group, so each
+    # handler stays silent unless this chat has a session (see handlers/gamesession.py).
+    app.add_handler(CommandHandler("gs", gamesession.start_session_cmd))
+    app.add_handler(CommandHandler("role", gamesession.role_cmd))
+    app.add_handler(CommandHandler("rm", gamesession.rolemodel_cmd))
+    app.add_handler(CommandHandler("love", gamesession.love_cmd))
+    app.add_handler(CommandHandler("dead", gamesession.dead_cmd))
+    app.add_handler(CommandHandler("ad", gamesession.follow_roster_cmd))
+    app.add_handler(CommandHandler("steal", gamesession.steal_cmd))
+    app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
+    app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
+    app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 
