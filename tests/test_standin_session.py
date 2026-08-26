@@ -27,6 +27,10 @@ BRACKETS = "\N{MODIFIER LETTER SMALL TURNED ALPHA}ѕнαяиαѕ <\N{CHERRY BLOS
 
 ROSTER = [(1, "Ren"), (2, "omu"), (3, "J J"), (4, BRACKETS)]
 
+# The roster's players, for building mentions. Named because every command that targets
+# somebody now does so by mention — there is no typed-name path left to test.
+REN, OMU, JJ = ROSTER[0], ROSTER[1], ROSTER[2]
+
 TEXT_MENTION = "text_mention"
 
 
@@ -57,6 +61,30 @@ async def start_session(context, players=ROSTER, unresolved=0):
 
 def player_message(text, user_id=1, name="Ren", reply_to=None):
     return message(text, from_user=FakeUser(user_id, name), reply_to_message=reply_to)
+
+
+def command(text, mentions=(), user_id=1, name="Ren", reply_to=None):
+    """A command message carrying a real text_mention entity for each player named.
+
+    Players are identified by id and never by a typed display name, so a test that targets
+    somebody has to build the entity Telegram would attach — which is also the only way
+    these tests can be wrong in the same direction production would be.
+    """
+    body = text
+    entities = []
+    for uid, uname in mentions:
+        body += " "
+        entities.append(FakeEntity(TEXT_MENTION, offset=len(body), length=len(uname), user=FakeUser(uid, uname)))
+        body += uname
+    return FakeMessage(text=body, from_user=FakeUser(user_id, name), reply_to_message=reply_to, entities=entities)
+
+
+async def invoke(handler, context, text, mentions=(), user_id=1, name="Ren", reply_to=None):
+    """Build the command, set its args as PTB would, run it, and hand back the message."""
+    msg = command(text, mentions=mentions, user_id=user_id, name=name, reply_to=reply_to)
+    context.args = msg.text.split()[1:]
+    await handler(FakeUpdate(message=msg), context)
+    return msg
 
 
 def mention(user_id, name):
@@ -273,9 +301,7 @@ async def test_rm_with_one_argument_sets_the_callers_rolemodel(context):
     session_data = await start_session(context)
     await reveal(context, 1, "wc")
 
-    msg = player_message("/rm omu")
-    context.args = ["omu"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU])
 
     assert session_data["players"]["1"]["model"] == 2
     assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(1, "Ren"), mention(2, "omu"))
@@ -286,9 +312,7 @@ async def test_rm_with_one_argument_in_reply_sets_the_replied_to_players(context
     await reveal(context, 3, "dg")
 
     theirs = message("hi", from_user=FakeUser(3, "J J"))
-    msg = player_message("/rm omu", reply_to=theirs)
-    context.args = ["omu"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU], reply_to=theirs)
 
     assert session_data["players"]["3"]["model"] == 2
     assert session_data["players"]["1"]["model"] is None
@@ -310,9 +334,7 @@ async def test_rm_two_argument_form_with_unambiguous_names(context):
     session_data = await start_session(context)
     await reveal(context, 2, "wc")
 
-    msg = player_message("/rm omu Ren")
-    context.args = ["omu", "Ren"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU, REN])
 
     assert session_data["players"]["2"]["model"] == 1
     assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(2, "omu"), mention(1, "Ren"))
@@ -324,9 +346,7 @@ async def test_rm_refuses_a_role_that_has_no_rolemodel(context):
     session_data = await start_session(context)
     await reveal(context, 1, "villager")
 
-    msg = player_message("/rm omu")
-    context.args = ["omu"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU])
 
     assert "no rolemodel" in msg.last_reply
     assert session_data["players"]["1"]["model"] is None
@@ -334,9 +354,7 @@ async def test_rm_refuses_a_role_that_has_no_rolemodel(context):
 
 async def test_rm_before_the_target_has_revealed_says_so(context):
     await start_session(context)
-    msg = player_message("/rm omu")
-    context.args = ["omu"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU])
     assert "hasn't revealed" in msg.last_reply
 
 
@@ -347,20 +365,6 @@ async def test_rm_with_an_unknown_rolemodel_is_reported(context):
     context.args = ["Nobody"]
     await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
     assert "isn't in this game" in msg.last_reply
-
-
-async def test_an_ambiguous_name_is_refused_rather_than_guessed(context):
-    """Two players sharing a prefix must not resolve to whichever comes first."""
-    await start_session(context, players=[(1, "Ren"), (2, "Renata")])
-    await reveal(context, 1, "wc")
-    msg = player_message("/rm Ren")
-    context.args = ["Ren"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
-    # "Ren" is an exact match for one of them, so this resolves; "Re" would not.
-    assert session.get(context.chat_data)["players"]["1"]["model"] == 1
-
-
-# --- /love ------------------------------------------------------------------
 
 
 async def test_bare_love_marks_the_sender(context):
@@ -376,9 +380,7 @@ async def test_bare_love_marks_the_sender(context):
 async def test_love_naming_two_players_pairs_them_both_ways(context):
     """Love is mutual; a one-sided record would show a heart against one of the couple."""
     session_data = await start_session(context)
-    msg = player_message("/love Ren omu")
-    context.args = ["Ren", "omu"]
-    await gamesession.love_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.love_cmd, context, "/love", mentions=[REN, OMU])
 
     assert session_data["players"]["1"]["partner"] == 2
     assert session_data["players"]["2"]["partner"] == 1
@@ -393,18 +395,6 @@ async def test_love_in_reply_marks_the_player_replied_to(context):
     context.args = []
     await gamesession.love_cmd(FakeUpdate(message=msg), context)
     assert session_data["players"]["2"]["lover"] is True
-
-
-async def test_love_with_an_unknown_name_is_refused(context):
-    session_data = await start_session(context)
-    msg = player_message("/love Nobody")
-    context.args = ["Nobody"]
-    await gamesession.love_cmd(FakeUpdate(message=msg), context)
-    assert "player from this game" in msg.last_reply
-    assert session_data["players"]["1"]["lover"] is False
-
-
-# --- Ending -----------------------------------------------------------------
 
 
 async def test_gsend_ends_the_session_and_kills_the_button(context):
@@ -557,11 +547,8 @@ async def test_the_session_survives_a_persistence_round_trip(context):
 # they cannot earn while withholding the Fool's.
 
 
-async def claim(context, text, user_id=1, name="Ren"):
-    msg = player_message("/role " + text, user_id=user_id, name=name)
-    context.args = text.split()
-    await gamesession.role_cmd(FakeUpdate(message=msg), context)
-    return msg
+async def claim(context, text, mentions=(), user_id=1, name="Ren"):
+    return await invoke(gamesession.role_cmd, context, "/role " + text, mentions=mentions, user_id=user_id, name=name)
 
 
 async def test_bh_alone_is_just_the_role(context):
@@ -614,7 +601,7 @@ async def test_an_unsure_claim_made_first_is_settled_retroactively(context):
 
 async def test_bhws_names_the_seer(context):
     session_data = await start_session(context)
-    msg = await claim(context, "bhws omu")
+    msg = await claim(context, "bhws", mentions=[OMU])
 
     assert session_data["players"]["1"]["roles"] == ["beholder"]
     assert session_data["players"]["2"]["roles"] == ["seer"]
@@ -624,7 +611,7 @@ async def test_bhws_names_the_seer(context):
 
 async def test_beholder_naming_a_player_works_in_longhand(context):
     session_data = await start_session(context)
-    await claim(context, "beholder omu")
+    await claim(context, "beholder", mentions=[OMU])
     assert session_data["players"]["2"]["roles"] == ["seer"]
 
 
@@ -632,7 +619,7 @@ async def test_naming_the_seer_makes_every_other_unsure_player_the_fool(context)
     """The Beholder saw who it was, so anyone else's "seer or fool" is answered."""
     session_data = await start_session(context)
     await claim(context, "sf", user_id=3, name="J J")
-    await claim(context, "bhws omu")
+    await claim(context, "bhws", mentions=[OMU])
 
     assert session_data["players"]["2"]["roles"] == ["seer"]
     assert session_data["players"]["3"]["roles"] == ["fool"]
@@ -641,7 +628,7 @@ async def test_naming_the_seer_makes_every_other_unsure_player_the_fool(context)
 async def test_the_named_seer_keeps_their_role_if_they_claimed_sf(context):
     session_data = await start_session(context)
     await claim(context, "sf", user_id=2, name="omu")
-    await claim(context, "bhws omu")
+    await claim(context, "bhws", mentions=[OMU])
     assert session_data["players"]["2"]["roles"] == ["seer"]
 
 
@@ -725,88 +712,86 @@ async def test_the_roster_stops_saying_the_game_is_running(context):
     assert session_data["players"]["1"]["roles"] == ["seer"]
 
 
-# --- Naming players: the failures from the first live game -------------------
+# --- Naming players: only ever by id -----------------------------------------
 #
-# Two shapes broke in a real round, both because arguments were split positionally while
-# player names contain spaces, and because a plain @handle carries no user id.
+# Two live games produced four argument bugs — `/rm J J` setting J J's own rolemodel,
+# `/role incendies 🤖 vg` read as a role called "incendies 🤖 vg" — and every one came from
+# trying to work out where a typed display name ended and the rest of the line began.
+# Names have spaces, emoji and near-duplicates in them, so that guess cannot be made
+# reliably. Players are identified only by id: a tapped mention carries one, an @handle is
+# looked up in what the roster taught us, and a bare number is one already.
 
 
-async def test_rm_in_reply_sets_the_replied_to_players_model_not_theirs(context):
-    """The live bug: `/rm J J` in reply to somebody set *J J's* rolemodel to "J".
+def handle_message(text, handle, user_id=1, name="Ren"):
+    """A command carrying a plain @handle — a MENTION entity, which holds no user id."""
+    return FakeMessage(
+        text=text,
+        from_user=FakeUser(user_id, name),
+        entities=[FakeEntity("mention", offset=text.index(handle), length=len(handle))],
+    )
 
-    "J J" is two words and one player, so the two-argument form fired, the reply was
-    ignored, and "J" prefix-matched J J into the target slot.
-    """
+
+async def test_rm_in_reply_sets_the_replied_to_players_model(context):
+    """The live bug's shape: the reply says whose rolemodel it is, the mention says what."""
     session_data = await start_session(context)
     await reveal(context, 2, "wc")
 
     theirs = message("hi", from_user=FakeUser(2, "omu"))
-    msg = player_message("/rm J J", reply_to=theirs)
-    context.args = ["J", "J"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[JJ], reply_to=theirs)
 
     assert session_data["players"]["2"]["model"] == 3, "omu's model is J J"
     assert session_data["players"]["3"]["model"] is None, "J J is not the target"
 
 
-async def test_a_multi_word_name_with_no_reply_is_the_senders_model(context):
+async def test_a_typed_name_names_nobody(context):
+    """The whole point of the change: a display name is not an identifier."""
     session_data = await start_session(context)
     await reveal(context, 1, "wc")
 
-    msg = player_message("/rm J J")
-    context.args = ["J", "J"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm J J")
 
-    assert session_data["players"]["1"]["model"] == 3
-
-
-async def test_a_player_whose_name_is_two_words_beats_the_split_reading(context):
-    """ "J J" as a whole player must win over target "J" plus model "J"."""
-    session_data = await start_session(context)
-    await reveal(context, 2, "dg")
-
-    msg = player_message("/rm omu J J")
-    context.args = ["omu", "J", "J"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
-
-    assert session_data["players"]["2"]["model"] == 3
+    assert session_data["players"]["1"]["model"] is None
+    assert "isn't in this game" in msg.last_reply
 
 
 async def test_a_plain_at_handle_resolves_once_the_roster_taught_us_it(context):
-    """The other live bug: `/rm @beforeshu @jjw91` was refused for want of a user id.
-
-    A plain @handle carries none — but the roster mentions people properly, and a
-    text_mention carries the whole User object, username included.
-    """
+    """A plain @handle carries no id — but a text_mention carries the whole User object,
+    username included, and the game bot's roster mentions everybody properly."""
     players = [
         FakeUser(1, "Ren", username="beforeshu"),
         FakeUser(2, "omu", username="jjw91"),
         FakeUser(3, "J J"),
     ]
-    entities = [FakeEntity(TEXT_MENTION, user=u) for u in players]
-    roster = bot_message("Players Alive: 3/3", entities=entities)
-    msg = gs_message(reply_to=roster)
-    await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
+    roster = bot_message("Players Alive: 3/3", entities=[FakeEntity(TEXT_MENTION, user=u) for u in players])
+    await gamesession.start_session_cmd(FakeUpdate(message=gs_message(reply_to=roster)), context)
     session_data = session.get(context.chat_data)
-
     await reveal(context, 1, "wc")
-    rm = player_message("/rm @beforeshu @jjw91")
-    context.args = ["@beforeshu", "@jjw91"]
-    await gamesession.rolemodel_cmd(FakeUpdate(message=rm), context)
+
+    msg = handle_message("/rm @jjw91", "@jjw91")
+    context.args = ["@jjw91"]
+    await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["model"] == 2
 
 
-async def test_a_handle_we_have_never_seen_is_still_refused(context):
+async def test_a_handle_we_have_never_seen_names_nobody(context):
     session_data = await start_session(context)
     await reveal(context, 1, "wc")
 
-    msg = player_message("/rm @stranger")
+    msg = handle_message("/rm @stranger", "@stranger")
     context.args = ["@stranger"]
     await gamesession.rolemodel_cmd(FakeUpdate(message=msg), context)
 
-    assert "isn't in this game" in msg.last_reply
     assert session_data["players"]["1"]["model"] is None
+
+
+async def test_a_bare_user_id_names_somebody(context):
+    """The one typed form that cannot be misread."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "wc")
+    await invoke(gamesession.rolemodel_cmd, context, "/rm 2")
+
+    assert session_data["players"]["1"]["model"] == 2
 
 
 async def test_a_players_own_command_teaches_us_their_handle(context):
@@ -819,76 +804,62 @@ async def test_a_players_own_command_teaches_us_their_handle(context):
     assert session_data["players"]["1"]["username"] == "beforeshu"
 
 
-async def test_love_handles_a_two_word_name_too(context):
-    """/love split its arguments the same way /rm did."""
+async def test_love_pairs_the_two_players_mentioned(context):
     session_data = await start_session(context)
-    msg = player_message("/love omu J J")
-    context.args = ["omu", "J", "J"]
-    await gamesession.love_cmd(FakeUpdate(message=msg), context)
+    await invoke(gamesession.love_cmd, context, "/love", mentions=[OMU, JJ])
 
     assert session_data["players"]["2"]["partner"] == 3
     assert session_data["players"]["3"]["partner"] == 2
 
 
+async def test_love_naming_nobody_identifiable_is_refused(context):
+    """It must not quietly mark the sender instead of whoever they meant."""
+    session_data = await start_session(context)
+    msg = await invoke(gamesession.love_cmd, context, "/love Nobody")
+
+    assert "player from this game" in msg.last_reply
+    assert session_data["players"]["1"]["lover"] is False
+
+
 # --- /role naming somebody else ---------------------------------------------
-#
-# From a live game: `/role incendies 🤖 vg` — "set incendies 🤖 to Villager" — was read as
-# one long role name and refused. Both halves can contain spaces, so neither can be found
-# by position: roles have them ("wolf cub") and so do display names.
 
 
-async def role_for(context, text, user_id=1, name="Ren", reply_to=None):
-    msg = player_message("/role " + text, user_id=user_id, name=name, reply_to=reply_to)
-    context.args = text.split()
-    await gamesession.role_cmd(FakeUpdate(message=msg), context)
-    return msg
-
-
-async def test_role_can_name_the_player_it_is_for(context):
-    session_data = await start_session(context, players=[(1, "Ren"), (2, "incendies \N{ROBOT FACE}")])
-    msg = await role_for(context, "incendies \N{ROBOT FACE} vg")
+async def test_role_can_mention_the_player_it_is_for(context):
+    """From a live game: "set incendies 🤖 to Villager" — now said with a mention."""
+    session_data = await start_session(context)
+    await invoke(gamesession.role_cmd, context, "/role vg", mentions=[OMU])
 
     assert session_data["players"]["2"]["roles"] == ["villager"]
     assert session_data["players"]["1"]["roles"] == [], "not the sender's"
-    assert "was set to" in msg.last_reply
 
 
-async def test_a_multi_word_role_still_beats_the_split_reading(context):
-    """`/role wolf cub` is the Wolf Cub, not a player called "wolf"."""
-    session_data = await start_session(context, players=[(1, "Ren"), (2, "wolf")])
-    await role_for(context, "wolf cub")
-
-    assert session_data["players"]["1"]["roles"] == ["wolf_cub"]
-    assert session_data["players"]["2"]["roles"] == []
-
-
-async def test_naming_a_player_and_a_multi_word_role(context):
+async def test_a_multi_word_role_is_read_whole(context):
+    """With names out of the argument line, nothing competes with the role for it."""
     session_data = await start_session(context)
-    await role_for(context, "omu grave digger")
+    await invoke(gamesession.role_cmd, context, "/role wolf cub")
+    assert session_data["players"]["1"]["roles"] == ["wolf_cub"]
+
+
+async def test_a_mention_and_a_multi_word_role(context):
+    session_data = await start_session(context)
+    await invoke(gamesession.role_cmd, context, "/role grave digger", mentions=[OMU])
     assert session_data["players"]["2"]["roles"] == ["grave_digger"]
 
 
-async def test_a_named_player_wins_over_the_reply(context):
-    """Saying who it is for is more deliberate than what you happened to reply to."""
+async def test_a_mentioned_player_wins_over_the_reply(context):
+    """Mentioning somebody is more deliberate than whatever you happened to reply to."""
     session_data = await start_session(context)
     theirs = message("hi", from_user=FakeUser(3, "J J"))
-    await role_for(context, "omu seer", reply_to=theirs)
+    await invoke(gamesession.role_cmd, context, "/role seer", mentions=[OMU], reply_to=theirs)
 
     assert session_data["players"]["2"]["roles"] == ["seer"]
     assert session_data["players"]["3"]["roles"] == []
 
 
-async def test_an_unknown_role_after_a_known_player_complains_about_the_role(context):
-    """Not about the whole line — the player half was fine and repeating it is noise."""
+async def test_an_unknown_role_is_reported_without_the_mention(context):
+    """The mention parsed fine; repeating it would bury the half that did not."""
     await start_session(context)
-    msg = await role_for(context, "omu blacksmit")
+    msg = await invoke(gamesession.role_cmd, context, "/role blacksmit", mentions=[OMU])
 
     assert "blacksmit" in msg.last_reply
-    assert "omu blacksmit" not in msg.last_reply
     assert "Blacksmith" in msg.last_reply, "and it still suggests the near miss"
-
-
-async def test_a_line_naming_nobody_is_still_reported_whole(context):
-    await start_session(context)
-    msg = await role_for(context, "incendies vg")
-    assert "incendies vg" in msg.last_reply

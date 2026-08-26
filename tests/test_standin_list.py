@@ -654,14 +654,16 @@ async def test_alt_marks_the_replied_to_account_even_with_no_game(context, alts)
     assert 7 in alts
 
 
-async def test_alt_can_name_a_player_during_a_game(context, alts):
+async def test_alt_can_mention_a_player_during_a_game(context, alts):
+    from test_standin_session import OMU, invoke
+
     await start_session(context)
-    await alt(context, "omu")
+    await invoke(gamesession.alt_cmd, context, "/alt", mentions=[OMU])
     assert 2 in alts
 
 
-async def test_a_typed_name_needs_a_game_to_look_it_up_in(context, alts):
-    """Outside a round there is no roster, so a name has nothing to resolve against."""
+async def test_something_that_names_nobody_marks_nobody(context, alts):
+    """A typed display name is not an identifier — reply or mention instead."""
     msg = await alt(context, "omu")
 
     assert alts == set()
