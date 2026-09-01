@@ -13,7 +13,13 @@ player, and the group sections at the bottom naming everyone who can get a rolel
 import pytest
 from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
+import builders
+import db
 from handlers import achievements as achv_handlers
+
+# Captured before the autouse fixture below replaces it, so the one test that wants the
+# real search path can put it back.
+_REAL_SEARCH = builders.build_info_results
 
 # The real thing, from a live game.
 POST = """Possible Achievements:
@@ -197,6 +203,25 @@ async def test_rolling_an_initialism_works_end_to_end(context, monkeypatch):
 
     assert "Rolling <b>Did you guard yourself?</b>" in msg.last_reply
     assert "Mango" in msg.last_reply
+
+
+async def test_rolling_a_two_letter_initialism_works_end_to_end(context, monkeypatch):
+    """The three-letter floor is gone, so "ds" has to reach Double Shot through the real
+    search — not a stub. Patched back to the genuine builder for exactly that reason: a
+    fake here would pass whatever the floor did."""
+    catalogue = [{"name": "Double Shot", "desc": "Shoot twice", "type": "instantaneous", "notes": ""}]
+
+    async def _no_fts(query):
+        return []
+
+    monkeypatch.setattr(db, "get_achievements", lambda: catalogue)
+    monkeypatch.setattr(db, "search_achievements", _no_fts)
+    monkeypatch.setattr(achv_handlers.builders, "build_info_results", _REAL_SEARCH)
+
+    msg = await roll(context, "ds", winner="KAI \N{SPARKLES}", monkeypatch=monkeypatch)
+
+    assert "Rolling <b>Double Shot</b>" in msg.last_reply
+    assert "KAI" in msg.last_reply
 
 
 async def test_an_ambiguous_query_says_so_rather_than_denying_it(context):

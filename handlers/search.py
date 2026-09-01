@@ -48,8 +48,6 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     search = " ".join(args)
     if not search:
         msg = t.SEARCH_USAGE
-    elif len(search) < 3:
-        msg = t.QUERY_TOO_SHORT
     else:
         matches = await builders.build_info_results(search)
         attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
@@ -228,9 +226,6 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if not search:
         await update.message.reply_text(t.SCHALL_USAGE, parse_mode=ParseMode.HTML)
-        return
-    if len(search) < 3:
-        await update.message.reply_text(t.QUERY_TOO_SHORT)
         return
 
     # Where the players come from: a reply, or this chat's remembered list.

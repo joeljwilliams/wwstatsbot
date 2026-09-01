@@ -236,7 +236,6 @@ DB_STATUS_OK = N_("OK")
 # Shared by /search and /info: same wording, different command named in the syntax line.
 SEARCH_USAGE = N_("Invalid parameter! Syntax:\n<code>/search [achievement_to_search]</code>\n")
 INFO_USAGE = N_("Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n")
-QUERY_TOO_SHORT = N_("Please enter at least 3 letters to search for!\n")
 NO_MATCHES = N_("No matching achievements found!\n")
 SCHALL_NEEDS_DIRECT_MENTIONS = N_(
     "Reply to a message that mentions players directly. I can't check plain @username mentions (they carry no user id)."

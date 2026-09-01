@@ -75,8 +75,6 @@ async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(search) == 0:
         msg = t.INFO_USAGE
-    elif len(search) < 3:
-        msg = t.QUERY_TOO_SHORT
     else:
         found = await builders.build_info_results(search)
         if not found:
