@@ -67,10 +67,11 @@ async def test_search_without_args_explains_the_syntax(achievements, stats_api):
     assert "Invalid parameter!" in msg.last_reply
 
 
-async def test_search_rejects_queries_under_three_characters(achievements, stats_api):
-    msg = message("/sch ab")
-    await search.display_search(FakeUpdate(message=msg), FakeContext(args=["ab"]))
-    assert "at least 3 letters" in msg.last_reply
+async def test_search_reads_a_two_letter_query_as_an_initialism(achievements, no_fts, stats_api):
+    """Two letters used to be refused outright; now they mean the initialism."""
+    msg = message("/sch lb")
+    await search.display_search(FakeUpdate(message=msg), FakeContext(args=["lb"]))
+    assert "Liquid Business" in msg.last_reply
 
 
 async def test_search_marks_attained_and_unattained(achievements, no_fts, stats_api):
