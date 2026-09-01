@@ -364,6 +364,50 @@ async def test_stripping_apostrophes_does_not_break_other_initialisms(seeded):
         assert expected in names, "{!r} no longer finds {!r}".format(query, expected)
 
 
+# --- The Python mirror of the initialism ------------------------------------------
+
+
+async def test_the_python_initialism_matches_the_indexed_one(seeded):
+    """db.initialism() is a hand-written copy of the SQL generating search_tsv's B weight,
+    and short queries (/info hp) are answered from it rather than from the index — the
+    'english' config drops stopwords, so half the two-letter initialisms would vanish
+    from a tsquery. Two implementations of one rule is the drift class this repo keeps
+    getting bitten by, so they are compared here against the whole real catalogue.
+
+    Compared as *lexemes*, not as strings: the indexed side has been through the stemmer,
+    so the Python side is put through the same to_tsvector to make the two comparable
+    without restating the SQL expression here — restating it would only prove the copy
+    matches the copy.
+    """
+    names = [a["name"] for a in db.get_achievements()]
+    initialisms = [db.initialism(name) for name in names]
+    async with db._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT m.name, m.ini,
+                   (SELECT coalesce(array_agg(lexeme ORDER BY lexeme), '{}')
+                      FROM unnest(a.search_tsv) WHERE 'B' = ANY(weights)) AS indexed,
+                   (SELECT coalesce(array_agg(lexeme ORDER BY lexeme), '{}')
+                      FROM unnest(to_tsvector('english', m.ini))) AS mirrored
+            FROM unnest($1::text[], $2::text[]) AS m(name, ini)
+            JOIN achievements a ON a.name = m.name
+            """,
+            names,
+            initialisms,
+        )
+    assert len(rows) == len(names), "every seeded achievement must be compared"
+    drifted = [(r["name"], r["ini"], r["indexed"], r["mirrored"]) for r in rows if r["indexed"] != r["mirrored"]]
+    assert not drifted, "db.initialism() disagrees with the search_tsv expression: {}".format(drifted)
+
+
+async def test_the_python_initialism_answers_what_the_index_cannot(seeded):
+    """The reason the mirror exists at all. "TO" is Tanner Overkill's initialism and an
+    English stopword, so it is absent from search_tsv entirely — FTS can never find it,
+    and before the mirror a user typing it got "at least 3 letters" instead."""
+    assert await db.search_achievements("to") == []
+    assert [a["name"] for a in db.search_initialism("to")] == ["Tanner Overkill"]
+
+
 # --- The schema must not silently diverge from the code ---------------------------
 
 # The generated-column definition as it shipped before the apostrophe fix. Used to build a

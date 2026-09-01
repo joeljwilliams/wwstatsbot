@@ -76,17 +76,38 @@ async def build_stats_msg(user_id, name, by_id=False):
     return msg
 
 
+# At or below this length a query is read as an initialism first. Full-text search can
+# only prefix-match a fragment that short, and a prefix is the wrong question: "hp" hits
+# every word beginning "hp" and Helpful Paranoia is not one of them, while as an
+# initialism it has exactly one answer.
+#
+# The initialism hits are put in *front* of the ordinary results rather than returned
+# instead of them, so inline as-you-type keeps working: "he" is nobody's initialism and
+# must still reach Helpful Paranoia and Here's Johnny by prefix. Anything longer is left
+# alone -- the search_tsv column already indexes initialisms at weight B, so "dygy" and
+# "SSS" resolve through FTS with the ranking that /info depends on.
+_INITIALISM_MAX_LEN = 2
+
+
 async def build_info_results(search):
     """Full-text achievement search (name / name-initialism / description), with
-    a substring-on-name fallback when FTS finds nothing."""
+    a substring-on-name fallback when FTS finds nothing, and an exact-initialism
+    pass in front for queries too short for either to answer."""
     matches = await db.search_achievements(search)
-    if matches:
-        return matches
-    # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
-    # prefix matching can't catch). Fall back to the old case-insensitive
-    # substring-on-name scan over the in-memory cache.
-    s = search.lower()
-    return [a for a in db.get_achievements() if s in a["name"].lower()]
+    if not matches:
+        # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
+        # prefix matching can't catch). Fall back to the old case-insensitive
+        # substring-on-name scan over the in-memory cache.
+        s = search.lower()
+        matches = [a for a in db.get_achievements() if s in a["name"].lower()]
+    if len(search) <= _INITIALISM_MAX_LEN and search.isalnum():
+        hits = db.search_initialism(search)
+        if hits:
+            # Deduplicated by name: a short query can reach the same achievement both
+            # ways, and /info would otherwise show its top result twice in a /sch list.
+            seen = {a["name"] for a in hits}
+            matches = hits + [m for m in matches if m["name"] not in seen]
+    return matches
 
 
 def format_single_achv(achv):

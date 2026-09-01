@@ -6,6 +6,8 @@ the achievements table. The achievement list is small and read on hot paths
 refreshed after every edit; callers read it synchronously via get_achievements().
 """
 
+import re
+
 import asyncpg
 import structlog
 
@@ -443,6 +445,38 @@ async def search_achievements(query):
             entry["not_via_playing"] = True
         results.append(entry)
     return results
+
+
+# Python mirror of the initialism expression in the search_tsv column above, used for
+# queries too short for full-text search to answer well. Two letters can only be
+# prefix-matched by FTS -- "hp" hits any word beginning "hp", and Helpful Paranoia is
+# not one of them -- but as an initialism it has one obvious answer.
+#
+# Resolved off the in-memory cache rather than the index, for a reason beyond the ~110
+# rows making it free: the 'english' config drops stopwords, and a large share of the
+# two-letter combinations are stopwords ("it", "on", "of", "as"). Those vanish from both
+# the tsquery and the indexed initialism, so routing short queries through FTS would make
+# exactly the shortest ones silently find nothing.
+_WORD_RE = re.compile(r"\w+")
+# Stripped before words are split, so "Should've Said Something" is SSS and not SvSS --
+# the same ordering the SQL expression uses, and for the same reason (see the note there).
+_APOSTROPHES = str.maketrans("", "", "'\u2019")
+
+
+def initialism(name):
+    """First letter of each word in `name`, apostrophes removed first."""
+    return "".join(w[0] for w in _WORD_RE.findall(name.translate(_APOSTROPHES)) if w[0].isalnum())
+
+
+def search_initialism(query):
+    """Achievements whose name-initialism is exactly `query`, case-insensitively.
+
+    Exact, never prefix: "d" as a prefix would return a third of the catalogue, which
+    is worse than nothing for /info and /roll, where the first result is taken as *the*
+    answer. Reads the same cache and dict shape as get_achievements().
+    """
+    key = query.casefold()
+    return [a for a in get_achievements() if initialism(a["name"]).casefold() == key]
 
 
 # --- Admins ----------------------------------------------------------------

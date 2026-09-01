@@ -221,11 +221,24 @@ change the expression, `test_ensure_schema_rebuilds_a_stale_search_column` is wh
 live database actually picks it up — it is the one db test that does not start from dropped
 tables.
 
-**Search has two layers.** `build_info_results()` tries Postgres FTS
-(`search_achievements`) and falls back to a substring scan over the cache. The `search_tsv`
-generated column and the query must use the *same* `'english'` config — a mismatch silently
-breaks stemmed initialisms (see the comments in `db.py`). Callers treat `found[0]` as "the
-answer", so the ORDER BY in `_SEARCH_SQL` is load-bearing.
+**Search has three layers.** `build_info_results()` tries Postgres FTS
+(`search_achievements`), falls back to a substring scan over the cache, and — for queries of
+`_INITIALISM_MAX_LEN` characters or fewer — puts exact-initialism hits (`search_initialism`)
+in *front* of whatever those produced. The `search_tsv` generated column and the query must
+use the *same* `'english'` config — a mismatch silently breaks stemmed initialisms (see the
+comments in `db.py`). Callers treat `found[0]` as "the answer", so the ORDER BY in
+`_SEARCH_SQL` is load-bearing, and so is that reordering.
+
+**Short queries can't go through FTS, so the initialism rule exists twice.** There used to
+be a three-letter floor (`QUERY_TOO_SHORT`) on `/info`, `/sch` and `/schall`, because two
+letters can only be prefix-matched and `hp` as a prefix never reaches Helpful Paranoia. The
+floor is gone; `db.initialism()` is a Python mirror of the initialism expression inside
+`search_tsv`, resolved off the cache. It is a mirror rather than a query for a reason the
+index cannot fix: the `'english'` config drops stopwords, so `TO` (Tanner Overkill) is not in
+`search_tsv` at all. `test_the_python_initialism_matches_the_indexed_one` compares the two
+against the whole catalogue — that pairing is the only thing stopping them drifting.
+Inline mode never had the floor, so initialism hits are *prepended*, never substituted: `he`
+must still find Helpful Paranoia and Here's Johnny by prefix as the user types.
 
 **Callback state is token-keyed in `bot_data`.** `callback_data` is capped at 64 bytes, so
 `/info` and `/sch` stash payloads in `context.bot_data[...]` under a `secrets.token_urlsafe(8)`
