@@ -76,23 +76,33 @@ async def build_stats_msg(user_id, name, by_id=False):
     return msg
 
 
-# At or below this length a query is read as an initialism first. Full-text search can
-# only prefix-match a fragment that short, and a prefix is the wrong question: "hp" hits
-# every word beginning "hp" and Helpful Paranoia is not one of them, while as an
-# initialism it has exactly one answer.
+# At or below this length a query means an initialism and nothing else -- it never
+# reaches full-text search. Two characters is far too short for FTS to say anything
+# useful: all it can do is prefix-match, so "sa" returned nine achievements, one of them
+# only because the word "silver" appears in a description. The one answer a human means
+# by "sa" -- Strongest Alpha -- was buried in the noise it came with.
 #
-# The initialism hits are put in *front* of the ordinary results rather than returned
-# instead of them, so inline as-you-type keeps working: "he" is nobody's initialism and
-# must still reach Helpful Paranoia and Here's Johnny by prefix. Anything longer is left
-# alone -- the search_tsv column already indexes initialisms at weight B, so "dygy" and
-# "SSS" resolve through FTS with the ranking that /info depends on.
-_INITIALISM_MAX_LEN = 2
+# Deliberately a hard cutover rather than a ranking boost. Putting initialism hits in
+# front of the FTS results still leaves the other eight on screen, and /sch renders a
+# list: being right in position one does not help when positions two through nine are
+# wrong. The cost is that a two-letter query nobody registered as an initialism ("he")
+# now finds nothing until the third character arrives, which for inline as-you-type is
+# one keystroke of patience.
+#
+# Anything longer is left alone -- the search_tsv column already indexes initialisms at
+# weight B, so "dygy" and "SSS" resolve through FTS with the ranking /info depends on.
+_INITIALISM_ONLY_MAX_LEN = 2
 
 
 async def build_info_results(search):
     """Full-text achievement search (name / name-initialism / description), with
-    a substring-on-name fallback when FTS finds nothing, and an exact-initialism
-    pass in front for queries too short for either to answer."""
+    a substring-on-name fallback when FTS finds nothing.
+
+    A query of _INITIALISM_ONLY_MAX_LEN characters or fewer skips both and is answered
+    from the initialisms alone.
+    """
+    if len(search) <= _INITIALISM_ONLY_MAX_LEN and search.isalnum():
+        return db.search_initialism(search)
     matches = await db.search_achievements(search)
     if not matches:
         # FTS found nothing (e.g. a stopword-only query, or a mid-word substring that
@@ -100,13 +110,6 @@ async def build_info_results(search):
         # substring-on-name scan over the in-memory cache.
         s = search.lower()
         matches = [a for a in db.get_achievements() if s in a["name"].lower()]
-    if len(search) <= _INITIALISM_MAX_LEN and search.isalnum():
-        hits = db.search_initialism(search)
-        if hits:
-            # Deduplicated by name: a short query can reach the same achievement both
-            # ways, and /info would otherwise show its top result twice in a /sch list.
-            seen = {a["name"] for a in hits}
-            matches = hits + [m for m in matches if m["name"] not in seen]
     return matches
 
 

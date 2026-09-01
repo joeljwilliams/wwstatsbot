@@ -1,18 +1,20 @@
-"""Short queries resolved as initialisms — "hp" for Helpful Paranoia.
+"""Short queries resolved as initialisms — and *only* as initialisms.
 
 Two letters used to be refused outright ("please enter at least 3 letters"), because
 full-text search cannot answer a fragment that short: it can only prefix-match, and
 "hp" as a prefix hits words beginning "hp", none of which is Helpful Paranoia. Read as
-an initialism the same two letters have exactly one answer, so the floor is gone and
-`build_info_results` puts exact-initialism hits in front instead.
+an initialism the same two letters have exactly one answer.
 
-Two properties are pinned here, and they pull against each other:
+The floor is gone, and a query of two characters or fewer now bypasses FTS entirely.
+That cutover is the property most of this file pins, because the obvious softer version
+— rank initialism hits first, keep the rest — was tried and is not good enough. `/sch sa`
+returned nine achievements, one of them only because "silver" appears in a description;
+Strongest Alpha sitting at the top of that list is still eight wrong answers on screen,
+and /sch renders the whole list.
 
-* a short query must *reach* its initialism — the point of the change;
-* a short query must not *lose* the prefix search it already had. Inline mode never had
-  the three-letter floor, so "he" has always found Helpful Paranoia and Here's Johnny
-  as the user types, and turning short queries into initialism-only lookups would have
-  quietly broken as-you-type for every two-letter prefix.
+What it costs: a two-letter query that is nobody's initialism now finds nothing at all
+until the third character arrives. Inline mode never had the three-letter floor, so this
+is the one surface that loses something, and it loses it for exactly one keystroke.
 
 The Python initialism in db.py mirrors the SQL expression generating `search_tsv`;
 tests/test_db.py holds the Postgres-gated test that the two agree.
@@ -77,31 +79,35 @@ async def test_a_one_letter_query_finds_its_initialism(achievements, no_fts):
     assert found[0]["name"] == "Explorer"
 
 
-async def test_an_initialism_hit_outranks_the_substring_fallback(achievements, no_fts):
-    """ "e" is Explorer's initialism and a substring of most other names. /info shows the
-    first result and nothing else, so the initialism has to come first or the change buys
-    nothing for the command that needed it most."""
-    found = await builders.build_info_results("e")
-    assert found[0]["name"] == "Explorer"
-    assert len(found) > 1, "the ordinary substring results must still be there behind it"
+async def test_a_short_query_returns_the_initialism_and_nothing_else(achievements, no_fts):
+    """The reported problem: "e" is Explorer's initialism and also a substring of most
+    other names, and every one of those came back too. Ranking Explorer first was not
+    enough — /sch lists the whole result, so the rest are still eight wrong answers."""
+    assert [a["name"] for a in await builders.build_info_results("e")] == ["Explorer"]
 
 
-async def test_a_short_query_still_reaches_the_ordinary_search(achievements, no_fts):
-    """No regression for inline as-you-type: "bu" is nobody's initialism and must keep
-    finding Busy Night by substring."""
-    names = [a["name"] for a in await builders.build_info_results("bu")]
-    assert "Busy Night" in names
+async def test_a_short_query_never_reaches_full_text_search(monkeypatch, achievements):
+    """Not merely filtered afterwards: FTS is not consulted at all, so nothing it ranks
+    can leak back into a short query's results."""
+
+    async def _must_not_run(query):
+        raise AssertionError("search_achievements ran for a short query: {!r}".format(query))
+
+    monkeypatch.setattr(db, "search_achievements", _must_not_run)
+    assert [a["name"] for a in await builders.build_info_results("lb")] == ["Liquid Business"]
 
 
-async def test_initialism_hits_do_not_duplicate_the_ordinary_results(achievements, no_fts):
-    """A query can reach the same achievement both ways; it must appear once."""
-    names = [a["name"] for a in await builders.build_info_results("e")]
-    assert names.count("Explorer") == 1
+async def test_a_short_query_that_is_nobody_initialism_finds_nothing(achievements, no_fts):
+    """The price of the cutover, pinned so it stays a decision rather than a surprise:
+    "bu" is a substring of Busy Night but nobody's initialism, and two letters no longer
+    buy a substring search. The third character brings it back."""
+    assert await builders.build_info_results("bu") == []
+    assert "Busy Night" in [a["name"] for a in await builders.build_info_results("bus")]
 
 
 async def test_longer_queries_are_left_to_full_text_search(monkeypatch, achievements):
     """Three letters and up keep the FTS ranking /info depends on: search_tsv already
-    indexes initialisms at weight B, so nothing needs reordering in front of it."""
+    indexes initialisms at weight B, so nothing needs short-circuiting in front of it."""
     called = []
 
     async def _fts(query):
