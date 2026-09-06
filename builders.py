@@ -19,7 +19,28 @@ import html
 import api
 import db
 import notes
+import roles
 import templates as t
+
+
+def role_label(api_role):
+    """The stats API's role string with the game's emoji on it: "Chemist 🧪".
+
+    The API sends a bare display name, and roles.py already holds the emoji for every role
+    the game can deal, so the two only need joining. Resolution goes through roles.resolve()
+    rather than a dict lookup on the name because that is the module's own vocabulary —
+    accents, spacing and the odd trailing emoji all fold to the same key.
+
+    Anything the registry does not recognise is passed through escaped and unadorned. A
+    role the API knows and we do not is a stats card that reads slightly plainer, which is
+    a great deal better than one that raises or prints nothing where the role should be.
+    """
+    found = roles.resolve(api_role)
+    # A single match only: the Seer/Fool spellings resolve to two ids, and a stats card
+    # cannot be ambiguous about which one a player most often was.
+    if len(found) == 1:
+        return roles.display(found[0])
+    return html.escape(api_role or "")
 
 
 async def build_kills_msg(user_id, name):
@@ -59,7 +80,7 @@ async def build_stats_msg(user_id, name, by_id=False):
         return template.format(user_id=user_id, name=name)
 
     name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
-    msg = name_template.format(user_id=user_id, name=name, role=stats["mostCommonRole"])
+    msg = name_template.format(user_id=user_id, name=name, role=role_label(stats["mostCommonRole"]))
     msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
     msg += t.STATS_WON.format(total=stats["won"]["total"], percent=stats["won"]["percent"])
     msg += t.STATS_LOST.format(total=stats["lost"]["total"], percent=stats["lost"]["percent"])
