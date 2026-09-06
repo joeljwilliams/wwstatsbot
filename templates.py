@@ -99,6 +99,9 @@ SCHALL_TOGGLE_TO_MISSING = N_("☑️ Show who hasn't ({count})")
 # Footer noting players that couldn't be checked: @username mentions carry no
 # user id (so no stats lookup is possible) and any that errored out.
 SCHALL_UNRESOLVED = N_("\n<i>Couldn't check: {names}</i>\n")
+# Alt accounts are left out of the check entirely (see handlers/search.py). Saying so is
+# what stops "Checked 5 players" reading as a lost mention when six were named.
+SCHALL_IGNORED_ALTS = N_("\n<i>{names} ignored as alts</i>\n")
 # These name /sch, not /schall: /sch is the advertised spelling and routes here on
 # its own when it replies to a bot message that mentions players. /schall still
 # works when typed, it's just no longer the way anyone is told to reach this.
@@ -106,6 +109,9 @@ SCHALL_USAGE = N_(
     "Invalid parameter! Syntax:\n<code>/sch [achievement_to_search]</code>\n(reply to a message that mentions players)"
 )
 SCHALL_EXPIRED = N_("This list has expired. Please run /sch again.")
+# Alt accounts are dropped from the check (see handlers/search.py); this is the case where
+# that leaves nobody, which would otherwise look like the mentions themselves were unusable.
+SCHALL_ONLY_ALTS = N_("Everyone mentioned there is marked as an alt, so there's nobody to check.")
 # Shown when someone other than the requester (or an admin) taps the toggle. Callback
 # answers are plain text — no HTML, and Telegram truncates past ~200 characters.
 SCHALL_NOT_YOURS = N_("Only {name} can switch this list. Send /sch yourself to get your own.")
