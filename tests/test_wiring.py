@@ -57,6 +57,9 @@ UNADVERTISED = [
     "steal",
     "la",
     "alt",
+    # A group-admin switch, gated like the privileged ones and kept out of the menu for
+    # the same reason: it does nothing for the person who taps it in a private chat.
+    "welcome",
 ]
 
 # Aliases that must keep working alongside their primary verb.

@@ -265,7 +265,48 @@ ABOUT = N_(
     "(originally by Carson True, later edited by @jeffffc)."
     "\nSource for this maintained version: [{repo}]({repo})"
     "\nUse /version to see the exact running build."
+    # The one opt-in feature here, so the only one nobody would find by typing "/": it is
+    # kept out of the command menu because it does nothing for the person who taps it in
+    # a private chat, which leaves /about as the place it is discoverable at all.
+    "\n\nGroup admins: /welcome on announces each joining player's games and achievements."
 )
+
+# --- HTML: the join announcement (handlers/welcome.py) ---------------------
+#
+# Off unless a group turns it on. A bot that starts talking in every chat it is already
+# sitting in is a bot people remove, so the announcement is opt-in per chat and the
+# switch belongs to the group's own admins rather than to this bot's.
+
+# One line per joining player. The name is a mention so the greeting reaches them, and
+# the counts carry the link out to the full stats page — the numbers are the part someone
+# wants more of, so they are what the link hangs off.
+WELCOME_PLAYER = N_(
+    "\N{WAVING HAND SIGN} <a href='tg://user?id={user_id}'>{name}</a> the {role} has "
+    "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked \N{EM DASH} "
+    "<a href='{url}'>full stats</a>.\n"
+)
+# Somebody with no games at all. Greeted anyway rather than passed over in silence: the
+# group asked for joins to be announced, and "who is this" is answered either way.
+WELCOME_NO_GAMES = N_(
+    "\N{WAVING HAND SIGN} <a href='tg://user?id={user_id}'>{name}</a> has not played any games yet.\n"
+)
+# A mass add is bounded rather than turned into a wall of text. What was left out is
+# always said — a silent cap reads as "these are everyone who joined".
+WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
+
+# The /welcome switch itself.
+WELCOME_ON = N_("Join announcements are <b>on</b> for this chat.")
+WELCOME_OFF = N_("Join announcements are <b>off</b> for this chat.")
+WELCOME_USAGE = N_(
+    "Join announcements are currently <b>{state}</b>.\n"
+    "Use <code>/welcome on</code> or <code>/welcome off</code> to change it."
+)
+WELCOME_STATE_ON = N_("on")
+WELCOME_STATE_OFF = N_("off")
+# Group-only, and the group's admins decide. Both refusals name the reason rather than
+# saying nothing, because a command that silently does nothing reads as broken.
+WELCOME_GROUP_ONLY = N_("Join announcements are a group feature — there is nobody to announce here.")
+WELCOME_ADMINS_ONLY = N_("Only this group's admins can change join announcements.")
 
 # --- Inline mode result titles (handlers/inline.py) ------------------------
 

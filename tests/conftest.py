@@ -267,8 +267,12 @@ class FakeMessage:
         caption=None,
         caption_entities=None,
         message_id=1,
+        new_chat_members=None,
     ):
         self.message_id = message_id
+        # The join service message carries the users who arrived; every other message
+        # has the attribute too, holding nothing.
+        self.new_chat_members = new_chat_members or []
         self.text = text
         self.caption = caption
         self.from_user = from_user or FakeUser()

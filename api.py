@@ -63,6 +63,16 @@ async def get_achievement_count(user_id):
     return len(await get_achievements(user_id))
 
 
+def player_url(user_id):
+    """The human-facing stats page for a player, for linking out of a message.
+
+    Same endpoint the fetchers use, minus `json=true` — without it the site serves the
+    HTML page, which is exactly what a person tapping a link wants and what every fetcher
+    above is careful never to ask for.
+    """
+    return "{}/PlayerStats/?pid={}".format(BASE, user_id)
+
+
 async def close():
     """Release the shared connection pool. Called from main's post_shutdown hook."""
     await client.aclose()
