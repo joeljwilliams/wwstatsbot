@@ -42,7 +42,14 @@ import roles
 import rulelist
 import session
 import templates as t
-from handlers.common import is_admin_user, mentioned_usernames, mentioned_users, utf16_piece, utf16_units
+from handlers.common import (
+    is_admin_user,
+    is_chat_admin,
+    mentioned_usernames,
+    mentioned_users,
+    utf16_piece,
+    utf16_units,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -653,22 +660,6 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Ending ----------------------------------------------------------------
 
 
-async def _is_chat_admin(context, chat_id, user_id):
-    """Whether this user administrates the group. False if Telegram will not say.
-
-    A group admin is not necessarily playing — they are usually the person who notices the
-    session is still running after the game ended, which is exactly the moment somebody
-    needs to be able to stop it without being on the roster.
-    """
-    try:
-        member = await context.bot.get_chat_member(chat_id, user_id)
-    except Exception as exc:
-        # An unreachable API must not hand a stop to someone who has no claim to it.
-        logger.warning("standin_admin_lookup_failed", user_id=user_id, error=str(exc))
-        return False
-    return getattr(member, "status", None) in ("administrator", "creator")
-
-
 async def _may_stop(context, chat_id, session_data, user_id):
     """Who can end a session: its players, and the group's admins.
 
@@ -677,7 +668,7 @@ async def _may_stop(context, chat_id, session_data, user_id):
     """
     if session.is_member(session_data, user_id):
         return True
-    return await _is_chat_admin(context, chat_id, user_id) or await is_admin_user(user_id)
+    return await is_chat_admin(context, chat_id, user_id) or await is_admin_user(user_id)
 
 
 async def _announce_stopped(context, chat_id, user_id, name):

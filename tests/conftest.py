@@ -267,8 +267,13 @@ class FakeMessage:
         caption=None,
         caption_entities=None,
         message_id=1,
+        new_chat_members=None,
+        reply_errors=None,
     ):
         self.message_id = message_id
+        # The join service message carries the users who arrived; every other message
+        # has the attribute too, holding nothing.
+        self.new_chat_members = new_chat_members or []
         self.text = text
         self.caption = caption
         self.from_user = from_user or FakeUser()
@@ -277,8 +282,16 @@ class FakeMessage:
         self.entities = entities or []
         self.caption_entities = caption_entities or []
         self.replies = []
+        # Errors to raise from reply_text, one per call, in order — the shape of a send
+        # Telegram refuses on its first attempt and accepts on a retry. A None entry (or
+        # a list shorter than the number of calls) lets that call through.
+        self.reply_errors = list(reply_errors or ())
 
     async def reply_text(self, text, **kwargs):
+        if self.reply_errors:
+            error = self.reply_errors.pop(0)
+            if error is not None:
+                raise error
         self.replies.append((text, kwargs))
         return FakeMessage(text=text)
 

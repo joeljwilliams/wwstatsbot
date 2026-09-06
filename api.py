@@ -63,6 +63,16 @@ async def get_achievement_count(user_id):
     return len(await get_achievements(user_id))
 
 
+def player_url(user_id):
+    """The human-facing stats page for a player, for linking out of a message.
+
+    A different route from the fetchers above: those read the JSON endpoints, this is the
+    page a person lands on. The `referer` tag is how the site attributes arrivals to this
+    bot, so it belongs on every link we hand out.
+    """
+    return "{}/Player/{}?referer=wwstatsbot".format(BASE, user_id)
+
+
 async def close():
     """Release the shared connection pool. Called from main's post_shutdown hook."""
     await client.aclose()

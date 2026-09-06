@@ -95,3 +95,11 @@ def test_the_client_is_an_async_client():
 
 def test_base_url_is_the_public_stats_endpoint():
     assert api.BASE == "https://www.tgwerewolf.com/Stats"
+
+
+def test_the_player_page_url_is_the_one_the_site_serves():
+    """Not one of the JSON routes the fetchers use: this is the page a person lands on,
+    and the referer tag is how the site attributes the arrival to this bot. Both halves
+    are the site's contract, not ours, so they are pinned rather than derived."""
+    assert api.player_url(7) == "https://www.tgwerewolf.com/Stats/Player/7?referer=wwstatsbot"
+    assert "json" not in api.player_url(7)

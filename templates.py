@@ -265,7 +265,59 @@ ABOUT = N_(
     "(originally by Carson True, later edited by @jeffffc)."
     "\nSource for this maintained version: [{repo}]({repo})"
     "\nUse /version to see the exact running build."
+    # The one opt-in feature here, so the only one nobody would find by typing "/": it is
+    # kept out of the command menu because it does nothing for the person who taps it in
+    # a private chat, which leaves /about as the place it is discoverable at all.
+    "\n\nGroup admins: /welcome on announces each joining player's games and achievements."
 )
+
+# --- HTML: the join announcement (handlers/welcome.py) ---------------------
+#
+# Off unless a group turns it on. A bot that starts talking in every chat it is already
+# sitting in is a bot people remove, so the announcement is opt-in per chat and the
+# switch belongs to the group's own admins rather than to this bot's.
+
+# One line per joining player. Name and role together are the link out to their stats
+# page, so the whole of "Alice the Chemist 🧪" is tappable rather than a word at the end
+# of the sentence — which is also why there is no second link: it went to the same place.
+WELCOME_PLAYER = N_(
+    "<a href='{url}'>{name} the {role}</a> has "
+    "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked.\n"
+)
+# Somebody with no games at all. Greeted anyway rather than passed over in silence: the
+# group asked for joins to be announced, and "who is this" is answered either way. Their
+# name stays a Telegram mention: there is no record to send anyone to.
+WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not played any games yet.\n")
+# A mass add is bounded rather than turned into a wall of text. What was left out is
+# always said — a silent cap reads as "these are everyone who joined".
+WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
+# The footer, once per announcement however many people arrived: what a group wants a
+# newcomer to have done before they are dealt into a game. It is addressed to whoever just
+# joined, which is why it sits below the record rather than inside anybody's line, with a
+# blank line of its own so it does not read as more of somebody's stats.
+#
+# The <tg-emoji> is a custom (premium) emoji, and Telegram only accepts those from bots
+# that bought a username on Fragment. The glyph inside the tag is what everyone else
+# sees, and handlers/welcome.py falls back to it wholesale if the API refuses the entity —
+# a rejected parse would otherwise mean no announcement at all.
+WELCOME_HOUSE_RULES = N_(
+    "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
+    "<i>Please read /rules and answer the #quiz before playing</i>\n"
+)
+
+# The /welcome switch itself.
+WELCOME_ON = N_("Join announcements are <b>on</b> for this chat.")
+WELCOME_OFF = N_("Join announcements are <b>off</b> for this chat.")
+WELCOME_USAGE = N_(
+    "Join announcements are currently <b>{state}</b>.\n"
+    "Use <code>/welcome on</code> or <code>/welcome off</code> to change it."
+)
+WELCOME_STATE_ON = N_("on")
+WELCOME_STATE_OFF = N_("off")
+# Group-only, and the group's admins decide. Both refusals name the reason rather than
+# saying nothing, because a command that silently does nothing reads as broken.
+WELCOME_GROUP_ONLY = N_("Join announcements are a group feature — there is nobody to announce here.")
+WELCOME_ADMINS_ONLY = N_("Only this group's admins can change join announcements.")
 
 # --- Inline mode result titles (handlers/inline.py) ------------------------
 
