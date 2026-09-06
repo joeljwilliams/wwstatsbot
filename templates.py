@@ -279,11 +279,10 @@ ABOUT = N_(
 
 # One line per joining player. Name and role together are the link out to their stats
 # page, so the whole of "Alice the Chemist 🧪" is tappable rather than a word at the end
-# of the sentence.
+# of the sentence — which is also why there is no second link: it went to the same place.
 WELCOME_PLAYER = N_(
     "<a href='{url}'>{name} the {role}</a> has "
-    "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked \N{EM DASH} "
-    "<a href='{url}'>full stats</a>.\n"
+    "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked.\n"
 )
 # Somebody with no games at all. Greeted anyway rather than passed over in silence: the
 # group asked for joins to be announced, and "who is this" is answered either way. Their
@@ -294,8 +293,17 @@ WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not playe
 WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
 # The footer, once per announcement however many people arrived: what a group wants a
 # newcomer to have done before they are dealt into a game. It is addressed to whoever just
-# joined, which is why it sits below the record rather than inside anybody's line.
-WELCOME_HOUSE_RULES = N_("<i>Please read /rules and answer the #quiz before playing</i>\n")
+# joined, which is why it sits below the record rather than inside anybody's line, with a
+# blank line of its own so it does not read as more of somebody's stats.
+#
+# The <tg-emoji> is a custom (premium) emoji, and Telegram only accepts those from bots
+# that bought a username on Fragment. The glyph inside the tag is what everyone else
+# sees, and handlers/welcome.py falls back to it wholesale if the API refuses the entity —
+# a rejected parse would otherwise mean no announcement at all.
+WELCOME_HOUSE_RULES = N_(
+    "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
+    "<i>Please read /rules and answer the #quiz before playing</i>\n"
+)
 
 # The /welcome switch itself.
 WELCOME_ON = N_("Join announcements are <b>on</b> for this chat.")

@@ -144,10 +144,11 @@ async def test_a_join_announces_games_and_achievements(stats_api):
     stats_url = "https://www.tgwerewolf.com/Stats/Player/7?referer=wwstatsbot"
     assert msg.last_reply == (
         "<a href='{url}'>Alice the Villager 👱</a> has "
-        "<b>100</b> games played and <b>2</b> achievements unlocked \N{EM DASH} "
-        "<a href='{url}'>full stats</a>.\n"
+        "<b>100</b> games played and <b>2</b> achievements unlocked.\n"
+        "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
         "<i>Please read /rules and answer the #quiz before playing</i>\n".format(url=stats_url)
     )
+    assert msg.last_reply.count(stats_url) == 1, "the name and role is the only link"
 
 
 async def test_large_game_counts_are_grouped(stats_api):
@@ -161,6 +162,7 @@ async def test_a_player_with_no_games_is_still_greeted(stats_api):
     msg = await joins(welcome_ctx(enabled=True))
     assert msg.last_reply == (
         "<a href='tg://user?id=7'>Alice</a> has not played any games yet.\n"
+        "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
         "<i>Please read /rules and answer the #quiz before playing</i>\n"
     )
 
@@ -182,14 +184,14 @@ async def test_several_joiners_share_one_message(stats_api):
     """One message, one line each — not one message per person."""
     msg = await joins(welcome_ctx(enabled=True), users=((7, "Alice"), (8, "Bob")))
     assert len(msg.replies) == 1
-    assert msg.last_reply.count("full stats") == 2
+    assert msg.last_reply.count("achievements unlocked") == 2
 
 
 async def test_a_mass_add_is_capped_and_says_how_many_were_left_out(stats_api):
     joined = tuple((i, "Player{}".format(i)) for i in range(1, 9))
     msg = await joins(welcome_ctx(enabled=True), users=joined)
 
-    assert msg.last_reply.count("full stats") == welcome._MAX_ANNOUNCED
+    assert msg.last_reply.count("achievements unlocked") == welcome._MAX_ANNOUNCED
     assert "and 3 more joined" in msg.last_reply
 
 
@@ -199,6 +201,38 @@ async def test_the_house_rules_line_appears_once_however_many_joined(stats_api):
     msg = await joins(welcome_ctx(enabled=True), users=((7, "Alice"), (8, "Bob")))
     assert msg.last_reply.count("read /rules") == 1
     assert msg.last_reply.endswith("<i>Please read /rules and answer the #quiz before playing</i>\n")
+
+
+async def test_a_blank_line_separates_the_rules_from_the_records(stats_api):
+    """Run together, the rules line reads as more of somebody's stats."""
+    msg = await joins(welcome_ctx(enabled=True))
+    assert "unlocked.\n\n<tg-emoji" in msg.last_reply
+
+
+# --- The custom emoji, and Telegram refusing it ------------------------------------
+
+
+async def test_the_rules_line_carries_the_custom_emoji(stats_api):
+    msg = await joins(welcome_ctx(enabled=True))
+    assert "<tg-emoji emoji-id='5447644880824181073'>" in msg.last_reply
+
+
+async def test_a_refused_custom_emoji_falls_back_to_the_plain_glyph(stats_api):
+    """Custom emoji are only accepted from bots that bought a username on Fragment, and
+    nothing in the process can see whether this one qualifies — the API says so by
+    rejecting the send. Losing the whole greeting over one decorative entity would be the
+    wrong trade, so the retry strips the tag and keeps the glyph inside it."""
+    from telegram.error import BadRequest
+
+    users = [FakeUser(7, "Alice")]
+    msg = message("", chat=group(), new_chat_members=users, reply_errors=[BadRequest("unsupported entity")])
+    await welcome.greet_new_members(FakeUpdate(message=msg), welcome_ctx(enabled=True))
+
+    assert len(msg.replies) == 1, "the announcement must survive the refusal"
+    assert "<tg-emoji" not in msg.last_reply
+    assert "\N{WARNING SIGN} <i>Please read /rules" in msg.last_reply
+    # Everything else about the message is untouched by the retry.
+    assert "Alice the Villager" in msg.last_reply
 
 
 async def test_the_house_rules_line_comes_after_the_capped_note(stats_api):

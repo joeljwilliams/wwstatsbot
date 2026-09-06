@@ -13,10 +13,12 @@ admins — this is a decision about their room, not about the bot.
 
 import asyncio
 import html
+import re
 
 import structlog
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
@@ -37,6 +39,11 @@ _WELCOME_KEY = "welcome"
 _MAX_ANNOUNCED = 5
 
 _GROUP_CHATS = ("group", "supergroup")
+
+# <tg-emoji emoji-id="...">fallback</tg-emoji> -> fallback. The tag always carries an
+# ordinary glyph for clients that cannot render the custom one, so unwrapping it is a
+# complete fallback rather than a degraded one.
+_CUSTOM_EMOJI = re.compile(r"<tg-emoji[^>]*>(.*?)</tg-emoji>", re.DOTALL)
 
 
 def is_enabled(context):
@@ -136,4 +143,21 @@ async def greet_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += t.WELCOME_HOUSE_RULES
 
     logger.info("welcome_announced", chat_id=update.message.chat.id, joined=len(joined), announced=len(shown))
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    await _post(update.message, msg)
+
+
+async def _post(message, text):
+    """Send the announcement, retrying without the custom emoji if Telegram refuses it.
+
+    Losing the whole greeting over one decorative entity would be the wrong trade, and the
+    refusal is only discoverable at the API boundary — nothing here can see whether this
+    bot is allowed custom emoji, so the retry is what stops an ineligible bot silently
+    announcing nothing at all.
+    """
+    try:
+        await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except BadRequest as exc:
+        logger.warning("welcome_custom_emoji_rejected", error=str(exc))
+        await message.reply_text(
+            _CUSTOM_EMOJI.sub(r"\1", text), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
