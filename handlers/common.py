@@ -2,10 +2,13 @@
 
 import html
 
+import structlog
 from telegram import MessageEntity
 
 import db
 import settings
+
+logger = structlog.get_logger(__name__)
 
 
 def resolve_target(update):
@@ -28,6 +31,24 @@ def is_superuser(user_id):
 
 async def is_admin_user(user_id):
     return is_superuser(user_id) or await db.is_admin(user_id)
+
+
+async def is_chat_admin(context, chat_id, user_id):
+    """Whether this user administrates the group. False if Telegram will not say.
+
+    A group's own admins are the right authority for anything scoped to that group: they
+    are usually the person who notices the session is still running after the game ended,
+    or who decides whether the group wants joins announced at all. Neither question is
+    answered by the bot-wide admin table, which is why this asks Telegram.
+    """
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except Exception as exc:
+        # An unreachable API must not hand a group's controls to someone with no claim
+        # to them, so failure is "no" rather than an exception taking the command down.
+        logger.warning("chat_admin_lookup_failed", chat_id=chat_id, user_id=user_id, error=str(exc))
+        return False
+    return getattr(member, "status", None) in ("administrator", "creator")
 
 
 def utf16_units(text):
