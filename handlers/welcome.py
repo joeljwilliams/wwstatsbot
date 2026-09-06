@@ -91,7 +91,6 @@ async def _player_line(user):
         return t.WELCOME_NO_GAMES.format(user_id=user.id, name=name)
     achievements = await api.get_achievement_count(user.id)
     return t.WELCOME_PLAYER.format(
-        user_id=user.id,
         name=name,
         role=builders.role_label(stats["mostCommonRole"]),
         # Grouped here rather than in the template: a format spec in a translatable

@@ -66,11 +66,11 @@ async def get_achievement_count(user_id):
 def player_url(user_id):
     """The human-facing stats page for a player, for linking out of a message.
 
-    Same endpoint the fetchers use, minus `json=true` — without it the site serves the
-    HTML page, which is exactly what a person tapping a link wants and what every fetcher
-    above is careful never to ask for.
+    A different route from the fetchers above: those read the JSON endpoints, this is the
+    page a person lands on. The `referer` tag is how the site attributes arrivals to this
+    bot, so it belongs on every link we hand out.
     """
-    return "{}/PlayerStats/?pid={}".format(BASE, user_id)
+    return "{}/Player/{}?referer=wwstatsbot".format(BASE, user_id)
 
 
 async def close():

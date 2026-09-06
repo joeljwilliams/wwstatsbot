@@ -141,10 +141,11 @@ async def test_a_join_says_nothing_when_the_chat_has_not_opted_in(stats_api):
 
 async def test_a_join_announces_games_and_achievements(stats_api):
     msg = await joins(welcome_ctx(enabled=True))
+    stats_url = "https://www.tgwerewolf.com/Stats/Player/7?referer=wwstatsbot"
     assert msg.last_reply == (
-        "\N{WAVING HAND SIGN} <a href='tg://user?id=7'>Alice</a> the Villager 👱 has "
+        "<a href='{url}'>Alice the Villager 👱</a> has "
         "<b>100</b> games played and <b>2</b> achievements unlocked \N{EM DASH} "
-        "<a href='https://www.tgwerewolf.com/Stats/PlayerStats/?pid=7'>full stats</a>.\n"
+        "<a href='{url}'>full stats</a>.\n".format(url=stats_url)
     )
 
 
@@ -157,7 +158,7 @@ async def test_large_game_counts_are_grouped(stats_api):
 async def test_a_player_with_no_games_is_still_greeted(stats_api):
     stats_api.routes["/Stats/PlayerStats/"] = {}
     msg = await joins(welcome_ctx(enabled=True))
-    assert msg.last_reply == ("\N{WAVING HAND SIGN} <a href='tg://user?id=7'>Alice</a> has not played any games yet.\n")
+    assert msg.last_reply == "<a href='tg://user?id=7'>Alice</a> has not played any games yet.\n"
 
 
 async def test_a_joining_bot_is_not_greeted(stats_api):

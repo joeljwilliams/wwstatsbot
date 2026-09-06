@@ -277,19 +277,18 @@ ABOUT = N_(
 # sitting in is a bot people remove, so the announcement is opt-in per chat and the
 # switch belongs to the group's own admins rather than to this bot's.
 
-# One line per joining player. The name is a mention so the greeting reaches them, and
-# the counts carry the link out to the full stats page — the numbers are the part someone
-# wants more of, so they are what the link hangs off.
+# One line per joining player. Name and role together are the link out to their stats
+# page, so the whole of "Alice the Chemist 🧪" is tappable rather than a word at the end
+# of the sentence.
 WELCOME_PLAYER = N_(
-    "\N{WAVING HAND SIGN} <a href='tg://user?id={user_id}'>{name}</a> the {role} has "
+    "<a href='{url}'>{name} the {role}</a> has "
     "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked \N{EM DASH} "
     "<a href='{url}'>full stats</a>.\n"
 )
 # Somebody with no games at all. Greeted anyway rather than passed over in silence: the
-# group asked for joins to be announced, and "who is this" is answered either way.
-WELCOME_NO_GAMES = N_(
-    "\N{WAVING HAND SIGN} <a href='tg://user?id={user_id}'>{name}</a> has not played any games yet.\n"
-)
+# group asked for joins to be announced, and "who is this" is answered either way. Their
+# name stays a Telegram mention: there is no record to send anyone to.
+WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not played any games yet.\n")
 # A mass add is bounded rather than turned into a wall of text. What was left out is
 # always said — a silent cap reads as "these are everyone who joined".
 WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
