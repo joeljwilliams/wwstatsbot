@@ -292,6 +292,10 @@ WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not playe
 # A mass add is bounded rather than turned into a wall of text. What was left out is
 # always said — a silent cap reads as "these are everyone who joined".
 WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
+# The footer, once per announcement however many people arrived: what a group wants a
+# newcomer to have done before they are dealt into a game. It is addressed to whoever just
+# joined, which is why it sits below the record rather than inside anybody's line.
+WELCOME_HOUSE_RULES = N_("<i>Please read /rules and answer the #quiz before playing</i>\n")
 
 # The /welcome switch itself.
 WELCOME_ON = N_("Join announcements are <b>on</b> for this chat.")

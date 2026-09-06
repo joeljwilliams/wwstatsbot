@@ -145,7 +145,8 @@ async def test_a_join_announces_games_and_achievements(stats_api):
     assert msg.last_reply == (
         "<a href='{url}'>Alice the Villager 👱</a> has "
         "<b>100</b> games played and <b>2</b> achievements unlocked \N{EM DASH} "
-        "<a href='{url}'>full stats</a>.\n".format(url=stats_url)
+        "<a href='{url}'>full stats</a>.\n"
+        "<i>Please read /rules and answer the #quiz before playing</i>\n".format(url=stats_url)
     )
 
 
@@ -158,7 +159,10 @@ async def test_large_game_counts_are_grouped(stats_api):
 async def test_a_player_with_no_games_is_still_greeted(stats_api):
     stats_api.routes["/Stats/PlayerStats/"] = {}
     msg = await joins(welcome_ctx(enabled=True))
-    assert msg.last_reply == "<a href='tg://user?id=7'>Alice</a> has not played any games yet.\n"
+    assert msg.last_reply == (
+        "<a href='tg://user?id=7'>Alice</a> has not played any games yet.\n"
+        "<i>Please read /rules and answer the #quiz before playing</i>\n"
+    )
 
 
 async def test_a_joining_bot_is_not_greeted(stats_api):
@@ -187,6 +191,30 @@ async def test_a_mass_add_is_capped_and_says_how_many_were_left_out(stats_api):
 
     assert msg.last_reply.count("full stats") == welcome._MAX_ANNOUNCED
     assert "and 3 more joined" in msg.last_reply
+
+
+async def test_the_house_rules_line_appears_once_however_many_joined(stats_api):
+    """It is addressed to the people who arrived, not to any one record — so it sits at
+    the bottom once, not on every line."""
+    msg = await joins(welcome_ctx(enabled=True), users=((7, "Alice"), (8, "Bob")))
+    assert msg.last_reply.count("read /rules") == 1
+    assert msg.last_reply.endswith("<i>Please read /rules and answer the #quiz before playing</i>\n")
+
+
+async def test_the_house_rules_line_comes_after_the_capped_note(stats_api):
+    """The "N more joined" note qualifies the list above it; the rules line addresses
+    everyone who joined. Reversing them reads as the note qualifying the rules."""
+    joined = tuple((i, "Player{}".format(i)) for i in range(1, 9))
+    msg = await joins(welcome_ctx(enabled=True), users=joined)
+    assert msg.last_reply.index("more joined") < msg.last_reply.index("read /rules")
+
+
+async def test_a_silent_join_carries_no_house_rules_line(stats_api):
+    """The footer must not turn a join we could say nothing about into a message that is
+    only a footer."""
+    stats_api.fail_pids.add("7")
+    msg = await joins(welcome_ctx(enabled=True))
+    assert msg.replies == []
 
 
 async def test_one_failed_lookup_does_not_sink_the_greeting(stats_api):

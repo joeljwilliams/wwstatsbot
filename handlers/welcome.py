@@ -130,6 +130,10 @@ async def greet_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if len(joined) > len(shown):
         msg += t.WELCOME_MORE.format(count=len(joined) - len(shown))
+    # Once, at the bottom: it is aimed at the people who just arrived, not at any one of
+    # their records. A player with no games needs it most, so it is not conditional on
+    # having any.
+    msg += t.WELCOME_HOUSE_RULES
 
     logger.info("welcome_announced", chat_id=update.message.chat.id, joined=len(joined), announced=len(shown))
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
