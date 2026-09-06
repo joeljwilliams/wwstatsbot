@@ -20,6 +20,7 @@ from unidecode import unidecode
 
 import api
 import builders
+import db
 import templates as t
 from handlers.common import is_admin_user, mentioned_users, resolve_target
 
@@ -188,6 +189,9 @@ def _render_schall(payload, token, show_have):
     )
     if payload["unresolved"]:
         msg += t.SCHALL_UNRESOLVED.format(names=", ".join(html.escape(n) for n in payload["unresolved"]))
+    # Payloads stored before this field existed have no key, hence .get().
+    if payload.get("alts"):
+        msg += t.SCHALL_IGNORED_ALTS.format(names=", ".join(html.escape(n) for n in payload["alts"]))
 
     label = t.SCHALL_TOGGLE_TO_MISSING if show_have else t.SCHALL_TOGGLE_TO_HAVE
     view = _SCHALL_MISSING if show_have else _SCHALL_HAVE
@@ -254,6 +258,20 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(t.SCHALL_NEEDS_DIRECT_MENTIONS, parse_mode=ParseMode.HTML)
         return
 
+    # An alt is a second account of somebody already in the room, so its stats are not that
+    # player's — it would sit in "not obtained" for everything and read as a real gap. Same
+    # reason bots never reach here (see mentioned_users). Filtered at check time rather than
+    # when the list is remembered, so unmarking an alt brings them back to a cached roster.
+    # Who was dropped is carried through to the reply: silently checking fewer players than
+    # were named would look like a mention had gone missing.
+    alts = [uname for uid, uname in users if db.is_alt_account(uid)]
+    users = [(uid, uname) for uid, uname in users if not db.is_alt_account(uid)]
+    if not users:
+        await update.message.reply_text(t.SCHALL_ONLY_ALTS, parse_mode=ParseMode.HTML)
+        return
+    if alts:
+        logger.info("schall_alts_skipped", count=len(alts))
+
     # Single best match, exactly like /info (results are rank-ordered).
     found = await builders.build_info_results(search)
     if not found:
@@ -288,6 +306,9 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "missing": missing,
         "have": have,
         "unresolved": unresolved,
+        # Named in the footer of both views. Stored unescaped, like every other name here,
+        # so a persistence round-trip cannot escape them twice.
+        "alts": alts,
         # Who may work the toggle. Stored rather than read from the callback's message,
         # because Telegram does not tell us who sent the message a button is attached to.
         "requested_by": requester_id,

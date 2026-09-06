@@ -199,7 +199,7 @@ def test_sql_result_escapes_html_in_values():
 
 async def test_stats_msg(stats_api):
     assert await builders.build_stats_msg(7, "Alice") == (
-        "<a href='tg://user?id=7'>Alice the Villager</a>\n"
+        "<a href='tg://user?id=7'>Alice the Villager 👱</a>\n"
         "<code>2    </code> Achievements Unlocked!\n"
         "<code>60   </code> Games Won <code>(60%)</code>\n"
         "<code>40   </code> Games Lost <code>(40%)</code>\n"
@@ -212,8 +212,36 @@ async def test_stats_msg(stats_api):
 
 async def test_stats_msg_by_id_omits_the_user_link(stats_api):
     msg = await builders.build_stats_msg(7, "7", by_id=True)
-    assert msg.startswith("7 the Villager\n")
+    assert msg.startswith("7 the Villager 👱\n")
     assert "tg://user" not in msg
+
+
+async def test_stats_msg_carries_the_role_emoji(stats_api):
+    """The API sends a bare role name; roles.py holds the emoji for it."""
+    stats_api.routes["/Stats/PlayerStats/"] = dict(stats_api.routes["/Stats/PlayerStats/"], mostCommonRole="Chemist")
+    assert (await builders.build_stats_msg(7, "Alice")).startswith(
+        "<a href='tg://user?id=7'>Alice the Chemist 👨‍🔬</a>\n"
+    )
+
+
+def test_every_role_the_api_can_send_has_an_emoji():
+    """The stats API's vocabulary is the game's own role names, which is exactly what
+    roles.py holds — so every one of them must come back adorned. A role added to the
+    registry under a name the API does not use would pass unnoticed; one the API sends
+    and the registry has never heard of is what this catches."""
+    import roles
+
+    plain = [name for name in (r["name"] for r in roles.ROLES.values()) if builders.role_label(name) == name]
+    assert not plain, "no emoji resolved for: {}".format(plain)
+
+
+async def test_an_unknown_role_is_passed_through_escaped(stats_api):
+    """A role the API knows and the registry does not must read plainer, not break."""
+    stats_api.routes["/Stats/PlayerStats/"] = dict(
+        stats_api.routes["/Stats/PlayerStats/"], mostCommonRole="Fish & Chips"
+    )
+    msg = await builders.build_stats_msg(7, "Alice")
+    assert msg.startswith("<a href='tg://user?id=7'>Alice the Fish &amp; Chips</a>\n")
 
 
 async def test_stats_msg_no_games(stats_api):

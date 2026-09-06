@@ -17,6 +17,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     InlineQueryHandler,
+    MessageHandler,
+    filters,
 )
 
 import api
@@ -24,7 +26,7 @@ import db
 import health
 import settings
 import templates as t
-from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats
+from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats, welcome
 from logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
@@ -102,6 +104,7 @@ def build_application():
     app.add_handler(CommandHandler("deaths", stats.display_deaths))
     app.add_handler(CommandHandler(["search", "sch"], search.display_search))
     app.add_handler(CommandHandler("schall", search.display_search_all))
+    app.add_handler(CommandHandler("welcome", welcome.welcome_cmd))
     app.add_handler(CommandHandler("about", misc.display_about))
     app.add_handler(CommandHandler("version", misc.display_version))
     app.add_handler(CommandHandler(["achievements", "achv"], achievements.display_achv))
@@ -130,6 +133,9 @@ def build_application():
     app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
     app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
     app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))
+    # Join announcements. A service message, not a command, so it arrives as an ordinary
+    # message update — no allowed_updates change needed, unlike a ChatMemberHandler.
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome.greet_new_members))
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 
