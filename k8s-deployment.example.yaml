@@ -5,9 +5,9 @@
 # For a webhook deployment, add WEBHOOK_URL (the public base URL Telegram should
 # call) and put a Service/Ingress in front of this same port: the update path is
 # served next to /healthz on HEALTH_PORT, so one port covers both. WEBHOOK_SECRET
-# is generated per pod when unset, which is fine for a single replica; set it
-# explicitly if you scale beyond one, since each pod would otherwise register its
-# own secret and only the last one to start would be accepted by Telegram.
+# needs no value: it is derived from BOT_TOKEN, so every pod computes the same one
+# and any number of replicas agree. Set it explicitly only if something in front of
+# the bot has to know the value.
 #
 # Create the secret first (DATABASE_URL points at your external Postgres):
 #   kubectl create secret generic wwstatsbot \

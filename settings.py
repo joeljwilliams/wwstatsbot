@@ -19,8 +19,8 @@ stay safe to import from a test process that has no token and no database. Fail-
 missing required settings happens in require(), called from main().
 """
 
+import hashlib
 import os
-import secrets
 
 # The local development fallback. Each import is guarded separately because config.py is
 # optional (absent in every container) and may legitimately define only some names — an
@@ -87,12 +87,30 @@ REDIS_URL = os.environ.get("REDIS_URL", _CFG_REDIS_URL)
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", _CFG_WEBHOOK_URL)
 WEBHOOK_PATH = os.environ.get("WEBHOOK_PATH", "/telegram")
 
+
 # The token Telegram echoes in X-Telegram-Bot-Api-Secret-Token, and the only thing that
-# distinguishes a real update from anyone who has guessed the URL. Generated when unset
-# rather than left empty: a webhook with no secret accepts forged updates from the whole
-# internet, and that must not be what you get by forgetting a variable. A generated one
-# changes on restart, which is harmless — setWebhook is called with it on every boot.
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", _CFG_WEBHOOK_SECRET) or secrets.token_urlsafe(32)
+# distinguishes a real update from anyone who has guessed the URL. Never empty: a webhook
+# with no secret accepts forged updates from the whole internet, and that must not be what
+# forgetting a variable gets you.
+#
+# **Derived, not generated.** A per-boot random token was tried and is broken by any
+# deployment where two containers overlap — which is every rolling deploy, Railway's
+# included, even at one replica. Each container registers its own secret with setWebhook,
+# the last one to start wins, and the other rejects every update Telegram sends with a 401
+# while looking perfectly healthy. Observed exactly that on dev.
+#
+# A digest of the bot token is stable across restarts and identical in every replica with
+# no configuration at all, which is what makes "secure by default" actually work here. It
+# is not the token: SHA-256 is one-way, so leaking the webhook secret does not leak the
+# credential it came from. Namespaced so the same token used elsewhere cannot collide.
+def _derived_secret():
+    if not BOT_TOKEN:
+        # No token means no webhook is possible anyway; require() reports the real problem.
+        return None
+    return hashlib.sha256("wwstatsbot-webhook:{}".format(BOT_TOKEN).encode()).hexdigest()
+
+
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", _CFG_WEBHOOK_SECRET) or _derived_secret()
 
 
 def webhook_endpoint():

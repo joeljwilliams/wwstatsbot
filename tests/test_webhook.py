@@ -395,6 +395,59 @@ def test_a_secret_exists_even_when_unset():
     assert len(settings.WEBHOOK_SECRET) >= 32
 
 
+def test_the_secret_is_derived_from_the_token_not_generated(monkeypatch):
+    """The bug this pins, seen on dev: a per-boot random secret is broken by any deploy
+    where two containers overlap — every rolling deploy, Railway's included. Each registers
+    its own with setWebhook, the last to start wins, and the other 401s every update while
+    looking healthy. A digest of the token is identical in every replica with no config."""
+    monkeypatch.setattr(settings, "BOT_TOKEN", "123:ABC")
+    first = settings._derived_secret()
+    second = settings._derived_secret()
+    assert first == second, "two containers with the same token must agree"
+
+
+def test_a_different_token_gives_a_different_secret(monkeypatch):
+    monkeypatch.setattr(settings, "BOT_TOKEN", "123:ABC")
+    mine = settings._derived_secret()
+    monkeypatch.setattr(settings, "BOT_TOKEN", "456:DEF")
+    assert settings._derived_secret() != mine
+
+
+def test_the_secret_is_not_the_token(monkeypatch):
+    """SHA-256 is one-way, so leaking the webhook secret must not leak the credential."""
+    monkeypatch.setattr(settings, "BOT_TOKEN", "123:ABC")
+    assert "123:ABC" not in settings._derived_secret()
+
+
+def test_the_secret_is_a_shape_telegram_accepts(monkeypatch):
+    """Telegram allows 1-256 characters of A-Z a-z 0-9 _ and - only. A hex digest is
+    inside that; something like base64 with padding would not be."""
+    import re
+
+    monkeypatch.setattr(settings, "BOT_TOKEN", "123:ABC")
+    secret = settings._derived_secret()
+    assert re.fullmatch(r"[A-Za-z0-9_-]{1,256}", secret)
+
+
+def test_no_token_means_no_secret_rather_than_a_crash(monkeypatch):
+    """settings must stay importable without a token — require() reports that, not this."""
+    monkeypatch.setattr(settings, "BOT_TOKEN", None)
+    assert settings._derived_secret() is None
+
+
+def test_an_explicit_secret_wins(monkeypatch):
+    """Something in front of the bot may need to know the value."""
+    monkeypatch.setenv("WEBHOOK_SECRET", "chosen-by-hand")
+    import importlib
+
+    reloaded = importlib.reload(settings)
+    try:
+        assert reloaded.WEBHOOK_SECRET == "chosen-by-hand"
+    finally:
+        monkeypatch.delenv("WEBHOOK_SECRET")
+        importlib.reload(settings)
+
+
 # --- Over a real socket ------------------------------------------------------------
 
 

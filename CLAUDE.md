@@ -147,9 +147,13 @@ must answer `/healthz` on it, so the health server takes the POST and hands the 
 - The receiver runs on the **health server's thread**, so the update queue is fed through
   `loop.call_soon_threadsafe`. `asyncio.Queue` is not thread-safe, and feeding it directly
   loses updates in a way that looks like Telegram never sent them.
-- `WEBHOOK_SECRET` is **generated when unset**, and compared with `hmac.compare_digest`.
-  A webhook without one accepts forged updates from the whole internet, which must not be
-  what forgetting a variable gets you.
+- `WEBHOOK_SECRET` is **derived from `BOT_TOKEN`** when unset (a namespaced SHA-256), and
+  compared with `hmac.compare_digest`. A webhook without a secret accepts forged updates
+  from the whole internet, so it is never empty — but it must not be *random per boot*
+  either: every rolling deploy briefly runs two containers, each would register its own
+  with setWebhook, the last to start would win, and the other would 401 every update while
+  looking perfectly healthy. That was observed on dev, and a digest is what makes all
+  replicas agree with no configuration.
 - The POST route answers 503 until `initialize()` has installed the receiver, because the
   health server is up before the bot is — Telegram redelivers a 503.
 - Switching back to polling needs only the variable removed: PTB always calls

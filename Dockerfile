@@ -44,7 +44,8 @@ ENV PYTHONUNBUFFERED=1 \
 #   WEBHOOK_URL    public base URL, e.g. https://bot.example.com (optional; unset =
 #                                                        long polling, which is the default)
 #   WEBHOOK_PATH   path the webhook is served on        (optional, default /telegram)
-#   WEBHOOK_SECRET token Telegram echoes back           (optional; generated when unset)
+#   WEBHOOK_SECRET token Telegram echoes back           (optional; derived from BOT_TOKEN
+#                                                        when unset, so replicas agree)
 
 # Copy the prebuilt virtualenv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv

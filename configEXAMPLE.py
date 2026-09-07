@@ -9,7 +9,7 @@ REDIS_URL = None
 # should call — no path, that is WEBHOOK_PATH — and the bot serves it on HEALTH_PORT
 # alongside /healthz. Leave unset to poll, which needs no inbound connectivity at all.
 WEBHOOK_URL = None
-# Optional: the secret Telegram echoes back in X-Telegram-Bot-Api-Secret-Token. One is
-# generated per boot when unset, so leaving this alone is safe — set it only if something
-# in front of the bot needs to know the value.
+# Optional: the secret Telegram echoes back in X-Telegram-Bot-Api-Secret-Token. Derived
+# from BOT_TOKEN when unset, so leaving this alone is safe and every replica agrees — set
+# it only if something in front of the bot needs to know the value.
 WEBHOOK_SECRET = None
