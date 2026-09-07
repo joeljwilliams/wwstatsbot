@@ -899,6 +899,156 @@ def _dead_rows(text):
     return rows
 
 
+# --- The Arsonist's doused list --------------------------------------------
+#
+# Lives here rather than in a module of its own because everything it is worth doing with
+# the list needs the roster: matching a printed name to a player, and rendering them as a
+# tappable mention. Both helpers above are that roster's, and exporting them to a new
+# module would spread the session's internals for one message.
+
+# The game bot tells the arsonist in private prose: "You have already doused the house of:
+# A and B and C". Only that line is matched — the question above it changes with what the
+# arsonist can still do, while this phrasing is what carries the names.
+_DOUSED_LINE = re.compile(r"doused the house of:\s*(?P<names>.+)", re.IGNORECASE)
+
+# The separator, and also two letters inside some players' names.
+_DOUSED_JOIN = " and "
+
+# An HTML mention arrives as a text_link pointing here.
+_TG_USER_URL = re.compile(r"^tg://user\?id=(?P<id>\d+)")
+
+
+def _printed_mentions(message):
+    """Printed name -> user id for every player the *game bot* linked in this message.
+
+    A forward keeps its entities, so when the game bot links the names the ids arrive with
+    them and no name matching is needed at all — which is also the only way this works in a
+    chat with no session running.
+
+    Both spellings are read: a text_mention carries a whole User, and an HTML mention
+    (`<a href="tg://user?id=…">`) arrives as a text_link. Offsets are UTF-16 units, and
+    these names are made of emoji and script letters that cost two apiece — "𝒷ℯ𝒾 𓍼",
+    "KAI ✨", "Anoop Krishna 🥉" are all real — so the span is sliced with utf16_piece
+    rather than by character.
+    """
+    text = message.text if message.text is not None else (message.caption or "")
+    units = utf16_units(text)
+    found = {}
+    for ent in list(message.entities or ()) + list(message.caption_entities or ()):
+        piece = utf16_piece(units, ent.offset, ent.length).strip()
+        if not piece:
+            continue
+        if ent.type == MessageEntity.TEXT_MENTION and ent.user is not None:
+            found[piece] = ent.user.id
+        elif ent.type == MessageEntity.TEXT_LINK:
+            linked = _TG_USER_URL.match(getattr(ent, "url", "") or "")
+            if linked is not None:
+                found[piece] = int(linked.group("id"))
+    return found
+
+
+def _doused_owner(name, mentions, session_data):
+    """The user id behind a printed name, or None.
+
+    The message's own mention wins: it is the game bot naming the player outright, and it
+    is right even for somebody the roster has never heard of. The roster is the fallback
+    for a list printed as plain text.
+    """
+    uid = mentions.get(name.strip())
+    if uid is not None:
+        return uid
+    if session_data is None:
+        return None
+    return _roster_row_owner(session_data, name)
+
+
+def _split_doused(blob, mentions, session_data):
+    """The names in "A and B and C", in the order the game bot printed them.
+
+    " and " is the separator *and* a substring of names people really use, so "Sand and
+    Ashes" is one house or two depending on who is in the game. Resolution is the only
+    evidence available: a piece that names nobody is re-joined with the ones after it while
+    that makes somebody the message or the roster knows. With neither to check against, the
+    plain split stands — a guess backed by nothing is worse than the obvious reading.
+    """
+    pieces = blob.split(_DOUSED_JOIN)
+    if not mentions and session_data is None:
+        return [piece.strip() for piece in pieces if piece.strip()]
+
+    names = []
+    start = 0
+    while start < len(pieces):
+        end = start
+        candidate = pieces[start].strip()
+        while _doused_owner(candidate, mentions, session_data) is None and end + 1 < len(pieces):
+            end += 1
+            candidate = _DOUSED_JOIN.join(pieces[start : end + 1]).strip()
+        if _doused_owner(candidate, mentions, session_data) is None:
+            # Nothing resolved at any length, so keep the plain reading: an unrecognised
+            # name is still a doused house and still has to be listed.
+            candidate = pieces[start].strip()
+            end = start
+        if candidate:
+            names.append(candidate)
+        start = end + 1
+    return names
+
+
+async def doused_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """A forwarded Arsonist doused list: count the houses and link them to the roster.
+
+    No command, because the message arrives as a forward and asking someone to then reply
+    to it with a verb would be a worse trade than reading it on sight. The text pattern is
+    the gate — this handler sees every forward in the chat, so it has to be certain and
+    silent about everything else.
+    """
+    message = update.message
+    body = message.text or message.caption or ""
+    found = _DOUSED_LINE.search(body)
+    if found is None:
+        return
+
+    session_data = session.get(context.chat_data)
+    mentions = _printed_mentions(message)
+    names = _split_doused(found.group("names").strip(), mentions, session_data)
+    if not names:
+        return
+
+    # The denominator is the living roster, because the arsonist douses living houses. It
+    # is only printed when it can actually contain the count: a session started from an
+    # older player list, or one /dead was over-used on, has fewer names than the game does,
+    # and "Doused (8/5)" is worse than no denominator at all.
+    alive = None
+    if session_data is not None:
+        alive = sum(1 for _, entry in session.players_in_order(session_data) if entry["alive"])
+    if alive is None or alive < len(names):
+        msg = t.STANDIN_DOUSED_HEADER_LOOSE.format(count=len(names))
+    else:
+        msg = t.STANDIN_DOUSED_HEADER.format(count=len(names), alive=alive)
+
+    linked = 0
+    for name in names:
+        uid = _doused_owner(name, mentions, session_data)
+        if uid is None:
+            # Escaped here for the same reason every other name is: players really are
+            # called things like "ᐝѕнαяиαѕ <🌸>".
+            msg += t.STANDIN_DOUSED_ROW.format(name=html.escape(name))
+        else:
+            linked += 1
+            msg += t.STANDIN_DOUSED_ROW.format(name=_mention(uid, name))
+
+    logger.info(
+        "doused_parsed",
+        chat_id=message.chat.id,
+        user_id=message.from_user.id,
+        houses=len(names),
+        linked=linked,
+        printed_mentions=len(mentions),
+        session=session_data is not None,
+    )
+    await message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/ad` in reply to the game bot's roster — follow it wholesale.
 
