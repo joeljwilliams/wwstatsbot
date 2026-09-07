@@ -1,6 +1,13 @@
 # Example manifest for deploying wwstatsbot to Kubernetes.
-# The bot uses long-polling (no inbound traffic), so no Service/Ingress is
+# As written the bot long-polls (no inbound traffic), so no Service/Ingress is
 # needed — the exposed port is only for the health probes.
+#
+# For a webhook deployment, add WEBHOOK_URL (the public base URL Telegram should
+# call) and put a Service/Ingress in front of this same port: the update path is
+# served next to /healthz on HEALTH_PORT, so one port covers both. WEBHOOK_SECRET
+# needs no value: it is derived from BOT_TOKEN, so every pod computes the same one
+# and any number of replicas agree. Set it explicitly only if something in front of
+# the bot has to know the value.
 #
 # Create the secret first (DATABASE_URL points at your external Postgres):
 #   kubectl create secret generic wwstatsbot \

@@ -10,6 +10,9 @@
 # /info by @Olgabrezel
 # ptb v22 async rewrite + inline query support
 
+import asyncio
+import signal
+
 import structlog
 from telegram import BotCommand
 from telegram.ext import (
@@ -26,6 +29,7 @@ import db
 import health
 import settings
 import templates as t
+import webhook
 from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats, welcome
 from logging_config import configure_logging
 
@@ -148,11 +152,88 @@ def build_application():
     return app
 
 
+async def _serve_webhook(app):
+    """Run the bot on a webhook, feeding PTB's queue from the health server's port.
+
+    PTB's own `run_webhook` is deliberately not used: it starts a second HTTP server, and
+    there is only one port to have. So the lifecycle is driven by hand — the pieces are the
+    same ones `run_polling` uses, minus the Updater, which is what makes the update queue
+    ours to fill.
+
+    **The lifecycle hooks have to be called by hand too.** `initialize()` does not run
+    post_init, and `shutdown()` does not run post_shutdown — PTB only calls those from
+    run_polling/run_webhook, which is easy to miss and silent when missed: the bot comes up,
+    answers HTTP, and then every handler fails on a database pool that was never created.
+    They are read off the application rather than called directly, so a hook added in
+    build_application cannot be forgotten here.
+
+    Order matters. post_init is what creates the pool, loads the caches and publishes the
+    command menu, so the receiver is installed only after it has run — until then the POST
+    route answers 503 and Telegram redelivers, which is exactly what should happen to an
+    update that arrives before the bot can serve it.
+    """
+    await app.initialize()
+    if app.post_init:
+        await app.post_init(app)
+
+    health.set_update_receiver(
+        webhook.receiver(app, settings.WEBHOOK_PATH, settings.WEBHOOK_SECRET, asyncio.get_running_loop())
+    )
+    endpoint = settings.webhook_endpoint()
+    await app.bot.set_webhook(
+        url=endpoint,
+        secret_token=settings.WEBHOOK_SECRET,
+        # Same as polling: a restart should not replay whatever queued while we were down.
+        drop_pending_updates=True,
+    )
+    await app.start()
+    logger.info("webhook_started", endpoint=endpoint, path=settings.WEBHOOK_PATH, port=settings.HEALTH_PORT)
+
+    await _wait_for_stop()
+
+    logger.info("webhook_stopping")
+    # Refuse updates first: from here on there is no queue worth putting one on, and a 503
+    # has Telegram redeliver it to whatever comes up next.
+    health.set_update_receiver(None)
+    await app.stop()
+    if app.post_stop:
+        await app.post_stop(app)
+    # The webhook registration is left in place on purpose: deleting it would drop whatever
+    # Telegram delivers between now and the next boot. A later start in polling mode clears
+    # it anyway — PTB always calls deleteWebhook before getUpdates.
+    await app.shutdown()
+    if app.post_shutdown:
+        await app.post_shutdown(app)
+
+
+async def _wait_for_stop():
+    """Block until the process is asked to stop.
+
+    SIGTERM is how the platform asks, and without handling it the process is killed
+    mid-update with post_shutdown never run — leaving the pool and the HTTP client to be
+    reclaimed by the process dying rather than closed. Its own function so a test can drive
+    the shutdown path without sending itself a signal.
+    """
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signalled in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(signalled, stop.set)
+    await stop.wait()
+
+
+def start(app):
+    """Run the bot in the configured mode: webhook when WEBHOOK_URL is set, else polling."""
+    if settings.WEBHOOK_URL:
+        asyncio.run(_serve_webhook(app))
+    else:
+        app.run_polling(drop_pending_updates=True)
+
+
 def main():
     configure_logging()
     settings.require()
     health.start_health_server(settings.HEALTH_PORT)
-    build_application().run_polling(drop_pending_updates=True)
+    start(build_application())
 
 
 if __name__ == "__main__":
