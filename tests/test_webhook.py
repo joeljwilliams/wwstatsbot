@@ -268,6 +268,104 @@ def test_a_webhook_url_switches_mode(monkeypatch):
     assert app.polled is None, "a webhook deployment must not also poll"
 
 
+# --- The lifecycle ----------------------------------------------------------------
+
+
+class LifecycleApp:
+    """Records the lifecycle calls _serve_webhook makes, in order."""
+
+    def __init__(self):
+        self.calls = []
+        self.update_queue = asyncio.Queue()
+        self.bot = self
+        self.post_init = self._hook("post_init")
+        self.post_stop = self._hook("post_stop")
+        self.post_shutdown = self._hook("post_shutdown")
+
+    def _hook(self, name):
+        async def hook(app):
+            self.calls.append(name)
+
+        return hook
+
+    def _step(name):  # noqa: N805 (a factory, not a method)
+        async def step(self, *args, **kwargs):
+            self.calls.append(name)
+
+        return step
+
+    initialize = _step("initialize")
+    start = _step("start")
+    stop = _step("stop")
+    shutdown = _step("shutdown")
+
+    async def set_webhook(self, **kwargs):
+        self.calls.append("set_webhook")
+        self.webhook_kwargs = kwargs
+
+
+async def serve(monkeypatch, app=None):
+    monkeypatch.setattr(settings, "WEBHOOK_URL", "https://bot.example.com")
+    monkeypatch.setattr(settings, "WEBHOOK_PATH", "/telegram")
+
+    async def stop_at_once():
+        return None
+
+    monkeypatch.setattr(main, "_wait_for_stop", stop_at_once)
+    app = app or LifecycleApp()
+    await main._serve_webhook(app)
+    return app
+
+
+async def test_post_init_runs_before_updates_are_accepted(monkeypatch):
+    """The bug this pins: `initialize()` does not run post_init — PTB only does that from
+    run_polling/run_webhook. Without it the bot answers HTTP with no database pool, no
+    caches and no command menu, and every handler fails on the first update. It is silent
+    from the outside, which is why the order is asserted rather than trusted."""
+    app = await serve(monkeypatch)
+    assert app.calls.index("post_init") < app.calls.index("set_webhook")
+    assert app.calls.index("post_init") < app.calls.index("start")
+
+
+async def test_the_whole_lifecycle_runs_in_ptbs_own_order(monkeypatch):
+    app = await serve(monkeypatch)
+    assert app.calls == [
+        "initialize",
+        "post_init",
+        "set_webhook",
+        "start",
+        "stop",
+        "post_stop",
+        "shutdown",
+        "post_shutdown",
+    ]
+
+
+async def test_post_shutdown_runs_so_the_pool_is_closed(monkeypatch):
+    """SIGTERM otherwise kills the process with the pool and HTTP client never closed."""
+    app = await serve(monkeypatch)
+    assert app.calls[-1] == "post_shutdown"
+
+
+async def test_the_registration_carries_the_secret_and_drops_backlog(monkeypatch):
+    app = await serve(monkeypatch)
+    assert app.webhook_kwargs["url"] == "https://bot.example.com/telegram"
+    assert app.webhook_kwargs["secret_token"] == settings.WEBHOOK_SECRET
+    assert app.webhook_kwargs["drop_pending_updates"] is True
+
+
+async def test_the_receiver_is_installed_and_then_removed(monkeypatch):
+    """Installed for the run, and gone before stop(): from there on there is no queue
+    worth putting an update on, and a 503 has Telegram redeliver it."""
+    installed = []
+    monkeypatch.setattr(health, "set_update_receiver", lambda receiver: installed.append(receiver))
+    await serve(monkeypatch)
+
+    assert len(installed) == 2
+    assert callable(installed[0])
+    assert installed[1] is None
+
+
 # --- The registered URL ------------------------------------------------------------
 
 
