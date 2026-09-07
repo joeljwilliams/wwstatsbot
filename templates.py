@@ -459,6 +459,15 @@ STANDIN_ALT_NEEDS_TARGET = N_(
 )
 STANDIN_ALREADY_DEAD = N_("{name} is already dead.")
 
+# The Arsonist's own doused list, forwarded into the chat. The game bot tells the arsonist
+# in private, in prose, with the names run together by "and" — so the value in re-rendering
+# it is a count and one tappable line per house.
+STANDIN_DOUSED_HEADER = N_("<b>Doused ({count}/{alive})</b>\n")
+# No session, so there is no roster to count against and no names to link. The count still
+# stands on its own; inventing a denominator would be worse than leaving it out.
+STANDIN_DOUSED_HEADER_LOOSE = N_("<b>Doused ({count})</b>\n")
+STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
+
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
 # The roster states its own counts ("Players Alive: 11/16"), so a parse can be checked
 # before it is applied. It is applied as a full reset — anyone the game bot lists is alive,

@@ -247,11 +247,14 @@ class FakeChat:
 class FakeEntity:
     """Stands in for telegram.MessageEntity (compared by .type string)."""
 
-    def __init__(self, entity_type, offset=0, length=0, user=None):
+    def __init__(self, entity_type, offset=0, length=0, user=None, url=None):
         self.type = entity_type
         self.offset = offset
         self.length = length
         self.user = user
+        # A text_link's target. An HTML mention is a text_link to tg://user?id=…, which is
+        # how the game bot's doused list carries its player ids.
+        self.url = url
 
 
 class FakeMessage:
