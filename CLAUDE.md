@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `@wwstatsbot` — a Telegram bot that reads player stats and achievements from the
 Werewolf-for-Telegram public stats API (`tgwerewolf.com`) and renders them in chat.
 Long-lived fork of an older bot, rewritten for python-telegram-bot v22 (async).
-Python 3.12 in the container; runs as a **long-polling** process (no webhook).
+Python 3.12 in the container; long-polling by default, with an optional webhook mode
+(`WEBHOOK_URL`) served on the health port.
 
 ## Workflow
 
@@ -89,6 +90,10 @@ docker build -t wwstatsbot . && docker run -e BOT_TOKEN=... -e DATABASE_URL=... 
 # Health probes (HEALTH_PORT, default 8080)
 curl localhost:8080/healthz   # liveness — 200 while the process lives
 curl localhost:8080/readyz    # readiness — 503 until DB init + set_my_commands finish
+
+# Webhook mode. Needs the URL to be reachable from Telegram, so locally that means a
+# tunnel; the path is served on HEALTH_PORT next to the probes.
+WEBHOOK_URL=https://bot.example.com uv run python main.py
 ```
 
 A running instance can be inspected live: `/version` reports the release version, branch
@@ -129,7 +134,30 @@ Coverage is reported, never gated.
 Every setting is read as `os.environ.get("NAME", <config.py fallback>)` at the top of
 `main.py` — **env wins over `config.py`**. Required: `BOT_TOKEN`, `DATABASE_URL` (the
 process exits at import if either is missing). Optional: `SUPERUSER_ID`, `LOG_GROUP_ID`,
-`REDIS_URL`, `HEALTH_PORT`, `LOG_LEVEL`, `LOG_FORMAT`, `GITHUB_REPO`.
+`REDIS_URL`, `HEALTH_PORT`, `LOG_LEVEL`, `LOG_FORMAT`, `GITHUB_REPO`, `WEBHOOK_URL`,
+`WEBHOOK_PATH`, `WEBHOOK_SECRET`.
+
+**Polling vs webhook.** `WEBHOOK_URL` is the switch and nothing else: unset, the bot polls
+exactly as it always has. Set, `main.start()` drives the lifecycle by hand — `initialize()`,
+`set_webhook()`, `start()` — instead of `run_polling`, and PTB's own webhook server is
+*not* used. It serves only its update route, while a Railway service exposes one port and
+must answer `/healthz` on it, so the health server takes the POST and hands the body to
+`webhook.receiver` (see the docstrings in both). Consequences worth knowing:
+
+- The receiver runs on the **health server's thread**, so the update queue is fed through
+  `loop.call_soon_threadsafe`. `asyncio.Queue` is not thread-safe, and feeding it directly
+  loses updates in a way that looks like Telegram never sent them.
+- `WEBHOOK_SECRET` is **derived from `BOT_TOKEN`** when unset (a namespaced SHA-256), and
+  compared with `hmac.compare_digest`. A webhook without a secret accepts forged updates
+  from the whole internet, so it is never empty — but it must not be *random per boot*
+  either: every rolling deploy briefly runs two containers, each would register its own
+  with setWebhook, the last to start would win, and the other would 401 every update while
+  looking perfectly healthy. That was observed on dev, and a digest is what makes all
+  replicas agree with no configuration.
+- The POST route answers 503 until `initialize()` has installed the receiver, because the
+  health server is up before the bot is — Telegram redelivers a 503.
+- Switching back to polling needs only the variable removed: PTB always calls
+  `deleteWebhook` before `getUpdates`, so no stale registration can strand it.
 
 Deployed on Railway (`railway.json`, Dockerfile builder, healthcheck `/healthz`);
 `k8s-deployment.example.yaml` is a reference manifest. Redis/Postgres are wired in
@@ -155,8 +183,11 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
 - **`redis_persistence.py`** — durable `DictPersistence` subclass for PTB (whole state
   blob under one Redis key).
 - **`health.py`**, **`logging_config.py`**, **`version.py`** — stdlib health server on a
-  daemon thread; structlog-over-stdlib setup; release version plus git/Railway commit
-  resolution for `/version`.
+  daemon thread (and, in webhook mode, the update POST route); structlog-over-stdlib setup;
+  release version plus git/Railway commit resolution for `/version`.
+- **`webhook.py`** — webhook intake: authenticate the request, parse an `Update`, put it on
+  PTB's queue. Deliberately knows nothing about HTTP serving, and `health.py` deliberately
+  knows nothing about Telegram — they meet at a callable returning a status code.
 
 ### Releasing
 

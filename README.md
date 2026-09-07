@@ -45,6 +45,14 @@ configuration is supplied as environment variables — see the header comment in
 `Dockerfile` for the full list. `/healthz` and `/readyz` are exposed on `HEALTH_PORT`
 (default 8080).
 
+The bot long-polls by default, which needs no inbound connectivity. Setting `WEBHOOK_URL`
+to a public base URL switches it to a webhook, served on the **same port as the health
+probes** (`WEBHOOK_PATH`, default `/telegram`) — one port, because that is all a Railway
+service exposes and it has to answer `/healthz` too. Telegram's secret token is required, and
+derived from `BOT_TOKEN` when `WEBHOOK_SECRET` is unset — so a webhook is never left open to
+forged updates, and every replica agrees on the value without being configured. Switching
+back to polling needs only the variable removed.
+
 ## Credits
 
 - Originally made by Carson True
