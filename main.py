@@ -136,6 +136,12 @@ def build_application():
     # Join announcements. A service message, not a command, so it arrives as an ordinary
     # message update — no allowed_updates change needed, unlike a ChatMemberHandler.
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome.greet_new_members))
+    # The Arsonist's doused list, read on sight when somebody forwards it. Reaching this at
+    # all depends on the bot's group privacy mode being *off*; with it on, Telegram delivers
+    # only commands and this handler would never fire in a group. The filter narrows the
+    # traffic and the handler's own text match decides — it stays silent on every other
+    # forward.
+    app.add_handler(MessageHandler(filters.FORWARDED & (filters.TEXT | filters.CAPTION), gamesession.doused_forward))
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 
