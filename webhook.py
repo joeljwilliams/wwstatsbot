@@ -17,6 +17,7 @@ and putting to it directly from another thread loses updates in a way that looks
 Telegram never sent them.
 """
 
+import hashlib
 import hmac
 import json
 
@@ -29,6 +30,14 @@ logger = structlog.get_logger(__name__)
 # separating a real update from anybody who has guessed the URL, so a request without it
 # is refused rather than trusted.
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
+
+
+def _fingerprint(value):
+    """A short, non-reversible stand-in for a secret, so two of them can be compared in a
+    log without either being written to one."""
+    if not value:
+        return None
+    return hashlib.sha256(value.encode()).hexdigest()[:8]
 
 
 def receiver(application, path, secret_token, loop):
@@ -49,7 +58,22 @@ def receiver(application, path, secret_token, loop):
         # token a character at a time. A missing header is a str vs None comparison, hence
         # the "or" — compare_digest raises on None.
         if not hmac.compare_digest(secret or "", secret_token):
-            logger.warning("webhook_rejected", reason="bad_secret", path=request_path)
+            # A rejection has to say *why* it failed, and the first version of this line did
+            # not: "bad secret" reads the same whether the header never arrived (a proxy
+            # stripping it), arrived with the wrong value (a stale registration), or matched
+            # a value we compared wrongly. Diagnosing that from outside the process is
+            # impossible, so the shape of both sides is logged — presence, length, and a
+            # short digest, which is comparable without being reversible.
+            logger.warning(
+                "webhook_rejected",
+                reason="bad_secret",
+                path=request_path,
+                header_present=secret is not None,
+                header_len=len(secret or ""),
+                header_digest=_fingerprint(secret),
+                expected_len=len(secret_token),
+                expected_digest=_fingerprint(secret_token),
+            )
             return 401
 
         try:
@@ -71,6 +95,10 @@ def receiver(application, path, secret_token, loop):
         # put_nowait, because the queue is unbounded and this thread must not block the
         # health server waiting on the event loop.
         loop.call_soon_threadsafe(application.update_queue.put_nowait, update)
+        # An accepted update logged nothing at all in the first version, which made "the
+        # bot is not answering" indistinguishable from "nothing is arriving". Debug level:
+        # one line per update is too much for INFO, and the handlers log their own.
+        logger.debug("webhook_received", update_id=update.update_id)
         return 200
 
     return receive
