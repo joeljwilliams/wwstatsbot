@@ -41,6 +41,10 @@ ENV PYTHONUNBUFFERED=1 \
 #   LOG_FORMAT     json | console                       (optional, default json off a TTY)
 #   REDIS_URL      redis://host:port/db for persistence (optional; /allinfo buttons
 #                                                        survive restarts when set)
+#   WEBHOOK_URL    public base URL, e.g. https://bot.example.com (optional; unset =
+#                                                        long polling, which is the default)
+#   WEBHOOK_PATH   path the webhook is served on        (optional, default /telegram)
+#   WEBHOOK_SECRET token Telegram echoes back           (optional; generated when unset)
 
 # Copy the prebuilt virtualenv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv
