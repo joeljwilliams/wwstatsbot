@@ -100,28 +100,32 @@ def _addressed_to_us(message, username):
     return bool(addressed) and addressed.casefold() == (username or "").casefold()
 
 
+# Whether this chat has handed game management to this bot. Off by default, per chat, and
+# kept in chat_data so RedisPersistence carries it across restarts — a group's standing
+# choice about which bot runs their games must not quietly revert on a deploy.
+_GM_KEY = "game_management"
+
+
+def is_managing(context):
+    """Whether this chat has switched game management on. Default off."""
+    return bool(context.chat_data.get(_GM_KEY))
+
+
 async def _ours_to_answer(update, context):
     """Whether this game-manager command is ours, addressed or not.
 
-    `/gs@wwstatsbot` always is. A **bare** command normally is not — it belongs to the real
-    manager, and answering it means two bots racing to run one game, which is the failure
-    the addressing rule exists to prevent.
+    `/gs@wwstatsbot` always is. A **bare** command is not, by default: it belongs to the
+    real manager, and answering it means two bots racing to run one game — the failure the
+    addressing rule exists to prevent.
 
-    Being an admin in the chat changes that. Promoting this bot is the group's own statement
-    about which manager they mean; nobody makes a stats bot an admin by accident. So where
-    it is one, the @ becomes optional.
+    `/gm on` is what changes that, and it is deliberately a switch rather than something
+    inferred. Adminness was tried and is the wrong signal: the roster pin needs admin too,
+    so a group that promoted this bot only to let it pin would have been opted into
+    answering bare commands without ever asking for it.
 
-    The lookup happens *only* for a bare command, so the documented spelling costs no API
-    call — and a chat where this bot is not an admin pays one call to keep ignoring the
-    incumbent's traffic, which is the same price /gsend already pays to check a stopper.
+    No API call either way now — the answer is in chat_data.
     """
-    message = update.message
-    if _addressed_to_us(message, context.bot.username):
-        return True
-    bot_id = getattr(context.bot, "id", None)
-    if bot_id is None:
-        return False
-    return await is_chat_admin(context, message.chat.id, bot_id)
+    return _addressed_to_us(update.message, context.bot.username) or is_managing(context)
 
 
 def _session_for(update, context):
@@ -724,7 +728,13 @@ async def _pin_state(context, chat_id, session_data, message_id):
 
     Silent, because a pin notification pings every member of the group and an active game
     group starts a game every few minutes.
+
+    Only when this chat has switched game management on: pinning is something a *manager*
+    does, and a bot standing in for one game at a time has no business rearranging the top
+    of a chat that has not asked it to.
     """
+    if not is_managing(context):
+        return
     try:
         await context.bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
     except (BadRequest, Forbidden) as exc:
@@ -1496,6 +1506,57 @@ async def _idle_end(context):
 
 
 # --- /la -------------------------------------------------------------------
+
+
+# --- /gm -------------------------------------------------------------------
+
+
+async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/gm [on|off]` — hand this chat's game management to this bot, or take it back.
+
+    Answered when addressed, and also bare once management is on, so `/gm off` can be typed
+    the same way as everything else it governs. Turning it *on* needs the address, which is
+    what stops a bare `/gm` in somebody else's room being ours to act on.
+
+    The group's own admins decide, not this bot's: it is a statement about their room.
+    """
+    message = update.message
+    if not await _ours_to_answer(update, context):
+        return
+
+    user = message.from_user
+    args = context.args
+    logger.info("command", command="gm", user_id=user.id, user=unidecode(user.first_name), args=args)
+
+    if message.chat.type not in ("group", "supergroup"):
+        await message.reply_text(t.STANDIN_GM_GROUP_ONLY, parse_mode=ParseMode.HTML)
+        return
+
+    wanted = args[0].lower() if args else ""
+    if wanted not in ("on", "off"):
+        state = t.STANDIN_GM_STATE_ON if is_managing(context) else t.STANDIN_GM_STATE_OFF
+        await message.reply_text(t.STANDIN_GM_STATE.format(state=state), parse_mode=ParseMode.HTML)
+        return
+
+    # Asked only once a real change is on the table, so reading the state costs nobody an
+    # API call. Bot admins are included for the same reason /gsend includes them.
+    if not await is_chat_admin(context, message.chat.id, user.id) and not await is_admin_user(user.id):
+        await message.reply_text(t.STANDIN_GM_ADMINS_ONLY, parse_mode=ParseMode.HTML)
+        return
+
+    context.chat_data[_GM_KEY] = wanted == "on"
+    logger.info("standin_management", chat_id=message.chat.id, user_id=user.id, enabled=wanted == "on")
+    if wanted == "on":
+        await message.reply_text(t.STANDIN_GM_ON, parse_mode=ParseMode.HTML)
+        return
+    # Switching off mid-game leaves a pinned roster behind, which would be the one thing
+    # nobody could undo without finding the message. Take it down with the permission.
+    session_data = session.get(context.chat_data)
+    if session_data is not None:
+        await _unpin_state(context, message.chat.id, session_data)
+    await message.reply_text(
+        t.STANDIN_GM_OFF.format(username=html.escape(context.bot.username or "")), parse_mode=ParseMode.HTML
+    )
 
 
 # --- Lynch order -----------------------------------------------------------

@@ -134,6 +134,7 @@ def build_application():
     app.add_handler(CommandHandler("ad", gamesession.follow_roster_cmd))
     app.add_handler(CommandHandler("steal", gamesession.steal_cmd))
     app.add_handler(CommandHandler("alt", gamesession.alt_cmd))
+    app.add_handler(CommandHandler("gm", gamesession.game_management_cmd))
     app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
     # Lynch order. Short words another bot in the room may own, so all three answer only
     # when addressed — see the module section in handlers/gamesession.py.

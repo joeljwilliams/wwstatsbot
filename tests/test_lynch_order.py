@@ -264,10 +264,10 @@ async def test_a_bare_command_is_ignored_completely(context, handler, text):
         (gamesession.reset_lynch_order_cmd, "/rslo"),
     ],
 )
-async def test_a_bare_command_is_honoured_when_this_bot_is_an_admin(context, handler, text):
-    """An admin bot is the manager the group meant, so the @ becomes optional."""
-    context.bot = FakeBot(chat_admins=(424242,))
+async def test_a_bare_command_is_honoured_once_game_management_is_on(context, handler, text):
+    """/gm on is the group saying which bot runs their games, so the @ becomes optional."""
     await start_session(context)
+    context.chat_data[gamesession._GM_KEY] = True
     msg = await invoke(handler, context, text)
     assert msg.replies, "an admin bot answers a bare game-manager command"
 
@@ -638,3 +638,136 @@ class FakeContextWith:
         self.args = []
         self.job_queue = original.job_queue
         self.bot_data = original.bot_data
+
+
+# --- The /gm switch ----------------------------------------------------------------
+
+
+async def gm(context, args="", user_id=1, name="Ren"):
+    text = "/gm@wwstatsbot" + (" " + args if args else "")
+    return await invoke(gamesession.game_management_cmd, context, text, user_id=user_id, name=name)
+
+
+async def test_management_is_off_by_default(context):
+    assert gamesession.is_managing(context) is False
+
+
+async def test_an_admin_switches_it_on(context):
+    context.bot = FakeBot(chat_admins=(1,))
+    msg = await gm(context, "on")
+
+    assert gamesession.is_managing(context) is True
+    assert "<b>on</b>" in msg.last_reply
+
+
+async def test_switching_on_says_what_it_now_does(context):
+    """Two things change at once, and a switch whose effects are a surprise is worse than
+    one that names them."""
+    context.bot = FakeBot(chat_admins=(1,))
+    msg = await gm(context, "on")
+    assert "without being addressed" in msg.last_reply
+    assert "pin" in msg.last_reply
+
+
+async def test_an_admin_switches_it_off_again(context):
+    context.bot = FakeBot(chat_admins=(1,))
+    await gm(context, "on")
+    msg = await gm(context, "off")
+
+    assert gamesession.is_managing(context) is False
+    assert "<b>off</b>" in msg.last_reply
+    assert "/gs@wwstatsbot" in msg.last_reply, "and how to reach us without it"
+
+
+async def test_a_player_who_is_not_an_admin_cannot_switch_it(context):
+    """Asserted on the stored flag, not merely on the refusal."""
+    msg = await gm(context, "on")
+
+    assert gamesession.is_managing(context) is False
+    assert "admins" in msg.last_reply
+
+
+async def test_no_argument_reports_the_state(context):
+    msg = await gm(context)
+    assert "currently <b>off</b>" in msg.last_reply
+
+    context.chat_data[gamesession._GM_KEY] = True
+    assert "currently <b>on</b>" in (await gm(context)).last_reply
+
+
+async def test_an_unknown_argument_reports_the_state_rather_than_guessing(context):
+    context.bot = FakeBot(chat_admins=(1,))
+    msg = await gm(context, "yes")
+
+    assert gamesession.is_managing(context) is False
+    assert "currently <b>off</b>" in msg.last_reply
+
+
+async def test_reading_the_state_costs_no_admin_lookup(context):
+    """The check happens only once a real change is on the table."""
+    asked = []
+
+    async def tripwire(ctx, chat_id, user_id):
+        asked.append(user_id)
+        return False
+
+    monkeyed = gamesession.is_chat_admin
+    gamesession.is_chat_admin = tripwire
+    try:
+        await gm(context)
+    finally:
+        gamesession.is_chat_admin = monkeyed
+    assert asked == []
+
+
+async def test_a_bare_gm_is_ignored_while_management_is_off(context):
+    """Turning it on takes the address. Otherwise a bare /gm in somebody else's room would
+    be ours to act on, which is the whole thing this switch exists to avoid."""
+    msg = await invoke(gamesession.game_management_cmd, context, "/gm on")
+    assert msg.replies == []
+    assert gamesession.is_managing(context) is False
+
+
+async def test_a_bare_gm_works_once_management_is_on(context):
+    """So /gm off is typed the same way as everything else it governs."""
+    context.chat_data[gamesession._GM_KEY] = True
+    context.bot = FakeBot(chat_admins=(1,))
+    msg = await invoke(gamesession.game_management_cmd, context, "/gm off")
+
+    assert gamesession.is_managing(context) is False
+    assert "<b>off</b>" in msg.last_reply
+
+
+async def test_it_is_refused_in_a_private_chat(context):
+    from conftest import FakeChat
+
+    msg = addressed("/gm@wwstatsbot on", user_id=1)
+    msg.chat = FakeChat(chat_type="private")
+    context.args = ["on"]
+    await gamesession.game_management_cmd(FakeUpdate(message=msg), context)
+
+    assert gamesession.is_managing(context) is False
+    assert "group setting" in msg.last_reply
+
+
+async def test_the_switch_survives_the_persistence_roundtrip(context):
+    """A group's standing choice about which bot runs their games must not revert on a
+    deploy."""
+    from conftest import assert_json_roundtrips
+
+    context.bot = FakeBot(chat_admins=(1,))
+    await gm(context, "on")
+    restored = assert_json_roundtrips(context.chat_data)
+
+    assert restored[gamesession._GM_KEY] is True
+
+
+async def test_the_switch_outlives_a_game(context):
+    """It is a property of the chat, not of the session: ending a game must not hand
+    management back."""
+    context.bot = FakeBot(chat_admins=(1,))
+    await gm(context, "on")
+    await start_session(context)
+    session.end(context.chat_data)
+
+    assert gamesession.is_managing(context) is True

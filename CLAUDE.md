@@ -284,16 +284,23 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
-**An admin bot answers bare game-manager commands; otherwise the `@` is required.**
-`_ours_to_answer` gates `/gs` and the lynch-order trio: `/gs@wwstatsbot` always passes, a
-bare `/gs` passes only where this bot is a chat admin. The reasoning is that promoting it
-is the group's own statement about which manager they mean. The lookup happens *only* for
-a bare command, so the documented spelling costs no API call.
+**`/gm on` is what hands a chat's game management to this bot.** Off by default, per chat,
+stored in `chat_data` so it survives restarts and outlives any single game. On, two things
+change together: `_ours_to_answer` accepts a **bare** `/gs` and lynch-order command (not
+just `/gs@wwstatsbot`), and `_pin_state` pins the roster for the length of a game. Off,
+only addressed commands are answered and nothing is ever pinned.
 
-Worth knowing before relying on it: the pin feature also wants admin, so a group that
-promoted the bot **just to let it pin** has implicitly opted into bare commands too — and
-in a chat where the real manager is running the game, a bare `/gs` will now start both.
-That is the trade the addressing rule originally existed to avoid.
+Adminness was tried as the signal for this and is the wrong one: the pin *also* needs the
+Telegram permission, so a group that promoted the bot only to let it pin would have been
+opted into answering bare commands without asking. A switch says which bot runs the games;
+a permission does not. The switch also costs no API call, where the admin check needed a
+`getChatMember` on every bare command.
+
+Two details in `/gm` itself. Turning it **on** requires the address — a bare `/gm` while
+management is off is not ours to act on, which is the whole point — while `/gm off` works
+bare once on, so it is typed like everything else it governs. And switching off mid-game
+unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
+nobody can undo without going to find the message.
 
 **The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
 attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
@@ -303,7 +310,7 @@ and no complaint. Pinned silently, because the notification pings every member a
 active group starts a game every few minutes.
 
 `_unpin_state` runs from `_finish`, which is the single place all three endings funnel
-through (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
+through (and from `/gm off`) (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
 unpin **by message id**, never the bare call — that removes the group's most recent pin,
 which by the end of a game may be a rules post somebody else put there — and unpin only
 what `pinned_message_id` records, which is the evidence *we* pinned it. Without that

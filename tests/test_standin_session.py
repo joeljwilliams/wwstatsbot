@@ -16,7 +16,6 @@ import html
 
 import pytest
 from conftest import (
-    FakeBot,
     FakeCallbackQuery,
     FakeEntity,
     FakeMessage,
@@ -118,18 +117,18 @@ async def test_a_bare_gs_is_ignored_completely(context):
     assert context.bot.sent == []
 
 
-async def test_a_bare_gs_is_honoured_when_this_bot_is_an_admin(context):
-    """Promoting this bot is the group's own statement about which manager they mean, so
-    the @ becomes optional. Nobody makes a stats bot an admin by accident."""
-    context.bot = FakeBot(chat_admins=(424242,))
+async def test_a_bare_gs_is_honoured_once_game_management_is_on(context):
+    """/gm on is a group saying which bot runs their games, which is the only thing that
+    makes a bare /gs ours to act on."""
+    context.chat_data[gamesession._GM_KEY] = True
     msg = gs_message(text="/gs", reply_to=roster_message())
     await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
     assert session.get(context.chat_data) is not None
 
 
-async def test_an_addressed_command_costs_no_admin_lookup(context):
-    """The documented spelling must not pay for the bare one: /gs@bot is unambiguous, and
-    asking Telegram about it on every game start would be a call for nothing."""
+async def test_deciding_whether_a_command_is_ours_costs_no_api_call(context):
+    """Adminness was tried as the signal and needed a getChatMember on every bare command.
+    The switch lives in chat_data, so neither spelling asks Telegram anything."""
     asked = []
 
     async def tripwire(ctx, chat_id, user_id):
@@ -143,11 +142,14 @@ async def test_an_addressed_command_costs_no_admin_lookup(context):
     try:
         msg = gs_message(text="/gs@wwstatsbot", reply_to=roster_message())
         await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
+
+        context.chat_data[gamesession._GM_KEY] = True
+        bare = gs_message(text="/gs", reply_to=roster_message())
+        await gamesession.start_session_cmd(FakeUpdate(message=bare), context)
     finally:
         gs.is_chat_admin = original
 
-    assert session.get(context.chat_data) is not None
-    assert asked == [], "an addressed command asked Telegram nothing"
+    assert asked == [], "neither an addressed nor a bare command asked Telegram anything"
 
 
 async def test_gs_addressed_to_us_is_honoured_whatever_the_casing(context):

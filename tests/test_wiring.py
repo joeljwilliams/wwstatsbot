@@ -66,6 +66,9 @@ UNADVERTISED = [
     "lo",
     "slo",
     "rslo",
+    # The switch that governs them. Out of the menu with the rest: it does nothing in a
+    # private chat, and it is a group-admin decision rather than a player's.
+    "gm",
 ]
 
 # Aliases for the stand-in's lynch-order commands: the spelt-out forms of lo/slo/rslo.
@@ -152,6 +155,7 @@ def test_commands_are_wired_to_the_expected_callbacks():
         "lo": gamesession.lynch_order_cmd,
         "slo": gamesession.set_lynch_order_cmd,
         "rslo": gamesession.reset_lynch_order_cmd,
+        "gm": gamesession.game_management_cmd,
     }
     for command, callback in expected.items():
         assert registered[command] is callback, "/{} is wired to {}".format(command, registered[command])

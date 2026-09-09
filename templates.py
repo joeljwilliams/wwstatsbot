@@ -468,6 +468,28 @@ STANDIN_DOUSED_HEADER = N_("<b>Doused ({count}/{alive})</b>\n")
 STANDIN_DOUSED_HEADER_LOOSE = N_("<b>Doused ({count})</b>\n")
 STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
 
+# --- HTML: the /gm switch (handlers/gamesession.py) ------------------------
+#
+# Off by default, and per chat. On, this bot answers the game-manager commands without
+# being addressed and pins the roster for the length of a game — both of which are things
+# only one bot in a room can sensibly do, which is why they are asked for rather than
+# assumed.
+STANDIN_GM_ON = N_(
+    "Game management is <b>on</b>. I'll answer game commands without being addressed, "
+    "and pin the roster while a game runs."
+)
+STANDIN_GM_OFF = N_(
+    "Game management is <b>off</b>. Address me directly \N{EM DASH} <code>/gs@{username}</code> "
+    "\N{EM DASH} and I won't pin anything."
+)
+STANDIN_GM_STATE = N_(
+    "Game management is currently <b>{state}</b>.\nUse <code>/gm on</code> or <code>/gm off</code> to change it."
+)
+STANDIN_GM_STATE_ON = N_("on")
+STANDIN_GM_STATE_OFF = N_("off")
+STANDIN_GM_GROUP_ONLY = N_("Game management is a group setting \N{EM DASH} there is no game to manage here.")
+STANDIN_GM_ADMINS_ONLY = N_("Only this group's admins can switch game management.")
+
 # --- HTML: the lynch order (handlers/gamesession.py) -----------------------
 #
 # Two orders, one message shape. The rotating order is the living roster with the first

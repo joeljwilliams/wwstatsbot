@@ -47,7 +47,11 @@ def addressed(text, user_id=1, name="Ren", reply_to=None):
     )
 
 
-async def start_session(context):
+async def start_session(context, managing=True):
+    """Start a game. Pinning is part of game management, so that is on unless a test is
+    about what happens when it is not."""
+    if managing:
+        context.chat_data[gamesession._GM_KEY] = True
     msg = addressed("/gs@wwstatsbot", reply_to=roster_message())
     await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
     return session.get(context.chat_data)
@@ -58,6 +62,33 @@ async def end_with_command(context):
     context.args = []
     await gamesession.end_session_cmd(FakeUpdate(message=msg), context)
     return msg
+
+
+# --- The switch that governs it ----------------------------------------------------
+
+
+async def test_nothing_is_pinned_when_management_is_off(context):
+    """The default. Pinning is something a *manager* does, and a bot standing in for one
+    game has no business rearranging the top of a chat that has not asked it to."""
+    current = await start_session(context, managing=False)
+
+    assert context.bot.pins == []
+    assert current["pinned_message_id"] is None
+
+
+async def test_switching_management_off_mid_game_takes_the_pin_down(context):
+    """Otherwise the pin outlives the permission, and it is the one thing nobody could
+    undo without going and finding the message."""
+    await start_session(context)
+    pinned_id = session.get(context.chat_data)["pinned_message_id"]
+
+    msg = addressed("/gm@wwstatsbot off")
+    context.args = ["off"]
+    context.bot.chat_admins.add(1)
+    await gamesession.game_management_cmd(FakeUpdate(message=msg), context)
+
+    assert [u["message_id"] for u in context.bot.unpins] == [pinned_id]
+    assert gamesession.is_managing(context) is False
 
 
 # --- Pinning on start --------------------------------------------------------------
