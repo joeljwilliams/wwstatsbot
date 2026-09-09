@@ -302,6 +302,58 @@ bare once on, so it is typed like everything else it governs. And switching off 
 unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
 nobody can undo without going to find the message.
 
+**`/gm auto` is a third state, and it needs three things nobody can check.** On, the game
+bot's own messages drive the session: its player list opens the roster, every later one
+follows it, and its closing message closes it — `/gs`, `/ad` and `/gsend` all still work
+and a human still wins. Reaching that at all needs **all three** of Bot-to-Bot
+Communication Mode on for this bot in @BotFather, this bot an **admin** in the group, and
+its Group Privacy Mode off; Telegram says which one is missing by delivering nothing. So
+`/gm auto` answers with whichever of three replies is true, and two of them are "it can't
+work yet" — silence would leave a group with the switch on, nothing happening, and no way
+to find out why. It is a state of its own rather than the meaning of `on` so that a group
+already running games this way does not silently start having its rosters opened for it by
+a deploy.
+
+The game engine cooperates by accident of how it already works: `SendPlayerList` is called
+from its lynch, day and night cycles and only when the list changed, so a full roster
+arrives at the start of a game and after every death with nobody asking. The **end** is
+matched on `Game Length: hh:mm:ss`, which the engine appends exactly once, at game end. The
+win messages are the obvious alternative and are the wrong one — they are GIF captions, and
+they differ in every one of the game's hundred-odd language variants. Everything read here
+is English, like `_ROSTER_COUNTS`, `_DEAD_ROW` and `_DOUSED_LINE` before it; a group playing
+in another language keeps typing `/gs`.
+
+**Which bot is the game bot is learned, never guessed.** A group has several bots in it and
+a roster-shaped message is not proof of anything, so the answer is whichever bot a human ran
+`/gs` or `/ad` against — recorded in `chat_data` the moment they do, from a list we could
+actually read. One `/gs` per chat, ever. A configured username was the alternative and is
+worse: the official bot has many forks and regional instances, and a chat following the
+wrong one would have its live game reset by a stranger.
+
+**The closing message is checked before the roster, and that ordering is load-bearing.** It
+carries a player-list header of its own — `Players Alive: 3 / 12` over every player, the
+*dead ones mentioned too* — so read as a roster it would raise the dead in the last thing
+anybody sees. `_read_roster`'s count guard refuses it as well; the ordering is what stops it
+getting that far.
+
+**`game_bot_message` is a shield as much as a feature, and it is why enabling any of this is
+safe.** Every message every bot in the room posts now arrives, and this module answers
+several of the real manager's command words *bare* once `/gm` is on — so a bot posting `/gs`
+or `/gm off`, for its own reasons or by echoing somebody, would be issuing them to us. One
+handler in group **-1** sees all bot traffic and stops the update, whatever happens to it.
+The stop is unconditional and the failure log reads nothing off the update, because PTB
+dispatches the next handler group when an error handler does not claim one: an exception in
+there — including one raised while reporting an exception — would leak a bot's message into
+exactly the handlers this exists to shield. Nothing else in this bot has ever seen a bot
+speak, and nothing else should start.
+
+Loop prevention is a documented requirement of bot-to-bot communication, not a nicety, since
+two bots answering each other in a group has no natural end. Three things bound it: only the
+learned bot is read, a message id is acted on once (which also makes an *edit* of a message
+already followed a no-op), and opening a session — the one path that costs an API call per
+player — has a sixty-second floor under it. Following a roster deliberately has none: those
+arrive every phase, and the publish debounce already coalesces the edits they cause.
+
 **The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
 attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
 a snapshot that can be stale by the time it is used, and the API's refusal is the

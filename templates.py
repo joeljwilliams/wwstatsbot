@@ -482,11 +482,33 @@ STANDIN_GM_OFF = N_(
     "Game management is <b>off</b>. Address me directly \N{EM DASH} <code>/gs@{username}</code> "
     "\N{EM DASH} and I won't pin anything."
 )
+# `auto` is `on` plus running the session off the game bot's own messages. Three replies,
+# because switching it on has three possible outcomes and only one of them works: Telegram
+# delivers another bot's messages to a group admin and nobody else, and following the game
+# bot means knowing which bot that is. Saying nothing would leave a group with the switch on,
+# nothing happening, and no way to find out which piece is missing.
+STANDIN_GM_AUTO = N_(
+    "Game management is <b>on</b>, and automatic. I'll open the roster when the game bot posts "
+    "a player list, follow it as players die, and close it when the game ends \N{EM DASH} "
+    "<code>/gs</code>, <code>/ad</code> and <code>/gsend</code> still work if you'd rather."
+)
+STANDIN_GM_AUTO_NEEDS_ADMIN = N_(
+    "Game management is <b>on</b>, and automatic \N{EM DASH} but Telegram only shows one bot's "
+    "messages to another when it's a group admin, so I can't see the game bot's player lists "
+    "yet. Make me an admin and I'll take it from there."
+)
+STANDIN_GM_AUTO_UNLEARNED = N_(
+    "Game management is <b>on</b>, and automatic \N{EM DASH} but I don't know which bot in here "
+    "runs the games yet. Reply to its player list with <code>/gs@{username}</code> once, and "
+    "I'll follow it from then on."
+)
 STANDIN_GM_STATE = N_(
-    "Game management is currently <b>{state}</b>.\nUse <code>/gm on</code> or <code>/gm off</code> to change it."
+    "Game management is currently <b>{state}</b>.\nUse <code>/gm on</code>, <code>/gm auto</code> "
+    "or <code>/gm off</code> to change it."
 )
 STANDIN_GM_STATE_ON = N_("on")
 STANDIN_GM_STATE_OFF = N_("off")
+STANDIN_GM_STATE_AUTO = N_("automatic")
 STANDIN_GM_GROUP_ONLY = N_("Game management is a group setting \N{EM DASH} there is no game to manage here.")
 STANDIN_GM_ADMINS_ONLY = N_("Only this group's admins can switch game management.")
 

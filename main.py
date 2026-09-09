@@ -152,6 +152,15 @@ def build_application():
     # traffic and the handler's own text match decides — it stays silent on every other
     # forward.
     app.add_handler(MessageHandler(filters.FORWARDED & (filters.TEXT | filters.CAPTION), gamesession.doused_forward))
+    # Everything another bot says in a group, and the only handler that will ever see it.
+    # Group -1 so it runs *before* the command words above and stops the update there: with
+    # bot-to-bot communication enabled, a bare /gs or /gm off from some other bot in the room
+    # would otherwise be a command issued to us. See the module section in
+    # handlers/gamesession.py for what it does with the game bot's own messages.
+    app.add_handler(
+        MessageHandler(gamesession.FROM_A_BOT & (filters.TEXT | filters.CAPTION), gamesession.game_bot_message),
+        group=-1,
+    )
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 
