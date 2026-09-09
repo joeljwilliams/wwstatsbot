@@ -144,7 +144,7 @@ def test_shorthand_seen_in_play_resolves():
 
 
 def test_a_two_word_alias_resolves_either_way_it_is_typed():
-    """"town hunter" is stored as one alias, not two. normalise() folds the space away, so
+    """Stored as one alias rather than two words. normalise() folds the space away, so
     listing the spaced form covers the run-together one — and neither "town" nor "hunter"
     on its own becomes a claim on the role by accident."""
     assert roles.resolve("town hunter") == ("hunter",)
