@@ -284,6 +284,17 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
+**An admin bot answers bare game-manager commands; otherwise the `@` is required.**
+`_ours_to_answer` gates `/gs` and the lynch-order trio: `/gs@wwstatsbot` always passes, a
+bare `/gs` passes only where this bot is a chat admin. The reasoning is that promoting it
+is the group's own statement about which manager they mean. The lookup happens *only* for
+a bare command, so the documented spelling costs no API call.
+
+Worth knowing before relying on it: the pin feature also wants admin, so a group that
+promoted the bot **just to let it pin** has implicitly opted into bare commands too — and
+in a chat where the real manager is running the game, a bare `/gs` will now start both.
+That is the trade the addressing rule originally existed to avoid.
+
 **The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
 attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
 a snapshot that can be stale by the time it is used, and the API's refusal is the

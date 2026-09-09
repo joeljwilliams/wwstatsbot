@@ -349,8 +349,12 @@ class FakeBot:
         chat_admins=(),
         pin_error=None,
         unpin_error=None,
+        bot_id=424242,
     ):
         self.username = username
+        # The bot's own id, which is what an "am I an admin here" lookup asks about. Put
+        # this id in chat_admins to make the fake bot an admin of the fake chat.
+        self.id = bot_id
         # Telegram chat administrators, by user id. The stand-in session asks so that an
         # admin who is not playing can still stop a game that outlived its round.
         self.chat_admins = set(chat_admins)

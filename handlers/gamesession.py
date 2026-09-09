@@ -100,6 +100,30 @@ def _addressed_to_us(message, username):
     return bool(addressed) and addressed.casefold() == (username or "").casefold()
 
 
+async def _ours_to_answer(update, context):
+    """Whether this game-manager command is ours, addressed or not.
+
+    `/gs@wwstatsbot` always is. A **bare** command normally is not — it belongs to the real
+    manager, and answering it means two bots racing to run one game, which is the failure
+    the addressing rule exists to prevent.
+
+    Being an admin in the chat changes that. Promoting this bot is the group's own statement
+    about which manager they mean; nobody makes a stats bot an admin by accident. So where
+    it is one, the @ becomes optional.
+
+    The lookup happens *only* for a bare command, so the documented spelling costs no API
+    call — and a chat where this bot is not an admin pays one call to keep ignoring the
+    incumbent's traffic, which is the same price /gsend already pays to check a stopper.
+    """
+    message = update.message
+    if _addressed_to_us(message, context.bot.username):
+        return True
+    bot_id = getattr(context.bot, "id", None)
+    if bot_id is None:
+        return False
+    return await is_chat_admin(context, message.chat.id, bot_id)
+
+
 def _session_for(update, context):
     """This chat's session if the sender may write to it, else None.
 
@@ -334,8 +358,9 @@ async def _refresh_state(context, chat_id, session_data):
 async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/gs@wwstatsbot`, in reply to the game bot's player list, starts standing in."""
     message = update.message
-    if not _addressed_to_us(message, context.bot.username):
-        # A bare /gs belongs to the real manager. Not an error, not ours: say nothing.
+    if not await _ours_to_answer(update, context):
+        # A bare /gs belongs to the real manager, unless this bot is an admin here. Not an
+        # error, not ours: say nothing.
         return
 
     user = message.from_user
@@ -1555,8 +1580,9 @@ async def _lynch_session(update, context, command):
     above the module section.
     """
     message = update.message
-    if not _addressed_to_us(message, context.bot.username):
-        # A bare /lo is somebody else's command, or nobody's. Not ours to answer.
+    if not await _ours_to_answer(update, context):
+        # A bare /lo is somebody else's command, or nobody's — unless this bot is an admin
+        # here. Not ours to answer.
         return None
 
     user = message.from_user

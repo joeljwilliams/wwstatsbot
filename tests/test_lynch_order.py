@@ -256,6 +256,22 @@ async def test_a_bare_command_is_ignored_completely(context, handler, text):
     assert session.lynch_order(session.get(context.chat_data)) is None
 
 
+@pytest.mark.parametrize(
+    ("handler", "text"),
+    [
+        (gamesession.lynch_order_cmd, "/lo"),
+        (gamesession.set_lynch_order_cmd, "/slo A then B"),
+        (gamesession.reset_lynch_order_cmd, "/rslo"),
+    ],
+)
+async def test_a_bare_command_is_honoured_when_this_bot_is_an_admin(context, handler, text):
+    """An admin bot is the manager the group meant, so the @ becomes optional."""
+    context.bot = FakeBot(chat_admins=(424242,))
+    await start_session(context)
+    msg = await invoke(handler, context, text)
+    assert msg.replies, "an admin bot answers a bare game-manager command"
+
+
 async def test_addressing_is_case_insensitive(context):
     await start_session(context)
     msg = await invoke(gamesession.lynch_order_cmd, context, "/lo@WWStatsBot")

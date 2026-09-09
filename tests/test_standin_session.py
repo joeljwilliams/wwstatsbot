@@ -15,7 +15,16 @@ escaping the roster message needs to survive a player named `ᐝѕнαяиαѕ <
 import html
 
 import pytest
-from conftest import FakeCallbackQuery, FakeEntity, FakeMessage, FakeUpdate, FakeUser, bot_message, message
+from conftest import (
+    FakeBot,
+    FakeCallbackQuery,
+    FakeEntity,
+    FakeMessage,
+    FakeUpdate,
+    FakeUser,
+    bot_message,
+    message,
+)
 
 import session
 from handlers import gamesession
@@ -107,6 +116,38 @@ async def test_a_bare_gs_is_ignored_completely(context):
     assert msg.replies == []
     assert session.get(context.chat_data) is None
     assert context.bot.sent == []
+
+
+async def test_a_bare_gs_is_honoured_when_this_bot_is_an_admin(context):
+    """Promoting this bot is the group's own statement about which manager they mean, so
+    the @ becomes optional. Nobody makes a stats bot an admin by accident."""
+    context.bot = FakeBot(chat_admins=(424242,))
+    msg = gs_message(text="/gs", reply_to=roster_message())
+    await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
+    assert session.get(context.chat_data) is not None
+
+
+async def test_an_addressed_command_costs_no_admin_lookup(context):
+    """The documented spelling must not pay for the bare one: /gs@bot is unambiguous, and
+    asking Telegram about it on every game start would be a call for nothing."""
+    asked = []
+
+    async def tripwire(ctx, chat_id, user_id):
+        asked.append(user_id)
+        return False
+
+    import handlers.gamesession as gs
+
+    original = gs.is_chat_admin
+    gs.is_chat_admin = tripwire
+    try:
+        msg = gs_message(text="/gs@wwstatsbot", reply_to=roster_message())
+        await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
+    finally:
+        gs.is_chat_admin = original
+
+    assert session.get(context.chat_data) is not None
+    assert asked == [], "an addressed command asked Telegram nothing"
 
 
 async def test_gs_addressed_to_us_is_honoured_whatever_the_casing(context):
