@@ -474,17 +474,15 @@ STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
 # name repeated at the bottom: everybody lynches the player below them, which closes the
 # cycle and gives every player exactly one vote. A typed order replaces it verbatim.
 #
-# Worded to match the incumbent, like the rest of this module: its own reply is
-# "Lynchorder:" over one mention per line, and "The lynchorder was reset by <name>". A
-# stand-in that invented its own phrasing would read as a different tool at the moment
-# people are looking for a familiar one.
+# Worded to match the incumbent exactly, like the rest of this module: "Lynchorder:" over
+# one mention per line, and nothing else. A stand-in that invented its own phrasing would
+# read as a different tool at the moment people are looking for a familiar one — and that
+# includes decoration meant to be helpful. There is deliberately no marker distinguishing
+# a set order from the rotating one: the incumbent has no such marker, so neither do we,
+# and the two are told apart by asking whoever set it.
 #
 # Every name is a mention, as in the real manager's list and this bot's own roster.
 STANDIN_LYNCH_HEADER = N_("<b>Lynchorder:</b>\n")
-# Ours has two modes and the incumbent has one, so a typed order says so — a set order
-# nobody remembers setting is otherwise indistinguishable from the rotating default, and
-# the two behave differently the moment somebody dies.
-STANDIN_LYNCH_HEADER_SET = N_("<b>Lynchorder</b> <i>(set)</i>:\n")
 STANDIN_LYNCH_ROW = N_("{name}\n")
 STANDIN_LYNCH_SET = N_("The lynchorder was set by {name}\n")
 # An order can be named player by player — @handle, a tapped mention, or a bare id — and

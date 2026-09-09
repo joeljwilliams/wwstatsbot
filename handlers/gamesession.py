@@ -1466,19 +1466,6 @@ def _sender_mention(message):
     return _mention(message.from_user.id, message.from_user.first_name)
 
 
-def _lynch_reset_reply(message, session_data):
-    """The reply to a reset: who did it, then what is now in force.
-
-    The order is printed as well as announced, which the incumbent does not do. It is one
-    message either way, and the point of resetting is to see the rotating order — being
-    told it happened and then having to ask what it is would be a worse trade than a few
-    extra lines.
-    """
-    reply = t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message))
-    rendered, _ = _render_lynch_order(session_data)
-    return reply + rendered
-
-
 def _render_lynch_order(session_data):
     """The lynch order as it stands: (message_html, found_anything).
 
@@ -1494,13 +1481,13 @@ def _render_lynch_order(session_data):
         players = session.close_lynch_cycle(session.lynch_order_players(session_data, stored))
         if not players:
             return t.STANDIN_LYNCH_NOBODY, False
-        msg = t.STANDIN_LYNCH_HEADER_SET
+        msg = t.STANDIN_LYNCH_HEADER
         msg += "".join(t.STANDIN_LYNCH_ROW.format(name=_mention(uid, name)) for uid, name in players)
         return msg, True
     if stored:
         # Free text nobody could resolve to players: printed verbatim, and the one place
         # this module renders text it did not compose.
-        return t.STANDIN_LYNCH_HEADER_SET + t.STANDIN_LYNCH_ROW.format(name=html.escape(stored)), True
+        return t.STANDIN_LYNCH_HEADER + t.STANDIN_LYNCH_ROW.format(name=html.escape(stored)), True
 
     players = session.rotating_lynch_order(session_data)
     if not players:
@@ -1573,10 +1560,10 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         session.set_lynch_order(session_data, [uid for uid, _ in living])
         _lynch_written(context, message, session_data)
-        rendered, _ = _render_lynch_order(session_data)
-        reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)) + rendered
-        # Dropped players are named rather than silently left out: an order one name short
-        # of what somebody typed is worse than being told why.
+        reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message))
+        # A dead player named at set time is dropped, and saying so is the one addition
+        # kept: an order silently one name short of what somebody typed is a wrong answer,
+        # not decoration. It appears only when it applies.
         dropped = [uid for uid in ids if uid not in {luid for luid, _ in living}]
         if dropped:
             reply += t.STANDIN_LYNCH_SKIPPED_DEAD.format(
@@ -1603,7 +1590,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not wanted:
         session.set_lynch_order(session_data, None)
         _lynch_written(context, message, session_data)
-        await message.reply_text(_lynch_reset_reply(message, session_data), parse_mode=ParseMode.HTML)
+        await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
         return
 
     if len(wanted) > _LYNCH_ORDER_MAX:
@@ -1615,9 +1602,8 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     session.set_lynch_order(session_data, wanted)
     _lynch_written(context, message, session_data)
-    msg, _ = _render_lynch_order(session_data)
     await message.reply_text(
-        t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)) + msg,
+        t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
@@ -1636,7 +1622,7 @@ async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TY
 
     session.set_lynch_order(session_data, None)
     _lynch_written(context, message, session_data)
-    await message.reply_text(_lynch_reset_reply(message, session_data), parse_mode=ParseMode.HTML)
+    await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
 
 
 async def list_achievements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

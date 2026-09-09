@@ -190,15 +190,17 @@ async def test_lo_shows_the_rotating_order(context):
     )
 
 
-async def test_lo_says_which_order_it_is_showing(context):
-    """A set order nobody remembers setting is otherwise indistinguishable from the
-    default, and the two behave differently when somebody dies. The incumbent has one mode
-    and says only "Lynchorder:", so the marker is ours to add."""
+async def test_both_orders_render_identically(context):
+    """The incumbent has one mode and one header, so neither reply may hint at which of
+    ours is in force — a marker distinguishing them would read as a different tool."""
     await start_session(context)
-    assert "(set)" not in (await show(context)).last_reply
+    rotating = (await show(context)).last_reply
+    assert rotating.startswith("<b>Lynchorder:</b>\n")
 
     await set_order(context, "omu then Ren")
-    assert "(set)" in (await show(context)).last_reply
+    typed = (await show(context)).last_reply
+    assert typed.startswith("<b>Lynchorder:</b>\n")
+    assert "set" not in typed.replace("Lynchorder", ""), "no marker, no note, no decoration"
 
 
 async def test_lo_follows_a_death_without_being_retyped(context):
@@ -284,9 +286,9 @@ async def test_slo_sets_a_typed_order(context):
     msg = await set_order(context, "omu then Ren then J J")
 
     assert session.lynch_order(session.get(context.chat_data)) == "omu then Ren then J J"
-    assert "The lynchorder was set by" in msg.last_reply
-    assert "<a href='tg://user?id=1'>Ren</a>" in msg.last_reply, "and by whom"
-    assert "omu then Ren then J J" in msg.last_reply
+    assert msg.last_reply == "The lynchorder was set by <a href='tg://user?id=1'>Ren</a>\n", (
+        "one line, as the incumbent's own reply is"
+    )
 
 
 async def test_a_typed_order_survives_a_death(context):
@@ -303,15 +305,15 @@ async def test_slo_takes_the_replied_to_message_when_given_no_argument(context):
     msg = await set_order(context, reply_to=written_down)
 
     assert session.lynch_order(session.get(context.chat_data)) == "J J\nomu\nRen\nJ J"
-    assert "The lynchorder was set by" in msg.last_reply
+    assert msg.last_reply == "The lynchorder was set by <a href='tg://user?id=1'>Ren</a>\n"
 
 
 async def test_a_typed_argument_beats_a_reply(context):
     """Naming the order outright is the more specific instruction."""
     await start_session(context)
-    msg = await set_order(context, "typed wins", reply_to=bot_message("replied loses"))
+    await set_order(context, "typed wins", reply_to=bot_message("replied loses"))
     assert session.lynch_order(session.get(context.chat_data)) == "typed wins"
-    assert "replied loses" not in msg.last_reply
+    assert "replied loses" not in (await show(context)).last_reply
 
 
 async def test_slo_reads_a_caption_too(context):
@@ -331,8 +333,9 @@ async def test_slo_with_nothing_to_set_resets(context):
     msg = await set_order(context)
 
     assert session.lynch_order(session.get(context.chat_data)) is None
-    assert "The lynchorder was reset by" in msg.last_reply
-    assert "<b>Lynchorder:</b>" in msg.last_reply, "and it shows what is now in force"
+    assert msg.last_reply == "The lynchorder was reset by <a href='tg://user?id=1'>Ren</a>\n", (
+        "the incumbent announces the reset and nothing else"
+    )
 
 
 async def test_an_order_that_is_only_whitespace_resets(context):
@@ -345,9 +348,10 @@ async def test_an_order_that_is_only_whitespace_resets(context):
 async def test_a_typed_order_is_escaped(context):
     """The one place this module renders text it did not compose."""
     await start_session(context)
-    msg = await set_order(context, "<b>A</b> then B")
-    assert "&lt;b&gt;A&lt;/b&gt;" in msg.last_reply
-    assert "<b>A</b>" not in msg.last_reply
+    await set_order(context, "<b>A</b> then B")
+    reply = (await show(context)).last_reply
+    assert "&lt;b&gt;A&lt;/b&gt;" in reply
+    assert "<b>A</b>" not in reply
 
 
 async def test_an_over_long_order_is_refused_where_it_is_set(context):
@@ -375,8 +379,7 @@ async def test_rslo_clears_a_typed_order(context):
     msg = await reset_order(context)
 
     assert session.lynch_order(session.get(context.chat_data)) is None
-    assert "The lynchorder was reset by" in msg.last_reply
-    assert "<a href='tg://user?id=2'>omu</a>" in msg.last_reply, "the order is shown, not just named"
+    assert msg.last_reply == "The lynchorder was reset by <a href='tg://user?id=1'>Ren</a>\n"
 
 
 async def test_rslo_on_an_already_rotating_order_is_harmless(context):
@@ -473,9 +476,9 @@ async def test_tapped_mentions_become_the_order(context):
     msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (3, "J J"), (1, "Ren")]))
 
     assert session.lynch_order(session.get(context.chat_data)) == [2, 3, 1]
-    assert msg.last_reply == (
-        "The lynchorder was set by <a href='tg://user?id=1'>Ren</a>\n"
-        "<b>Lynchorder</b> <i>(set)</i>:\n"
+    assert msg.last_reply == "The lynchorder was set by <a href='tg://user?id=1'>Ren</a>\n"
+    assert (await show(context)).last_reply == (
+        "<b>Lynchorder:</b>\n"
         "<a href='tg://user?id=2'>omu</a>\n"
         "<a href='tg://user?id=3'>J J</a>\n"
         "<a href='tg://user?id=1'>Ren</a>\n"
@@ -494,19 +497,19 @@ async def test_a_named_order_closes_the_cycle(context):
 async def test_a_single_player_is_not_told_to_lynch_themselves(context):
     """Which is also what "/slo @somebody" means on its own: one target, one mention."""
     await start_session(context)
-    msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu")]))
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu")]))
 
     assert session.lynch_order(session.get(context.chat_data)) == [2]
-    assert msg.last_reply.count("tg://user?id=2") == 1
+    assert (await show(context)).last_reply == "<b>Lynchorder:</b>\n<a href='tg://user?id=2'>omu</a>\n"
 
 
 async def test_a_bare_user_id_names_a_player(context):
     """The one typed form that cannot be misread, and it is checked against the roster."""
     await start_session(context)
-    msg = await run(context, pointing("/slo@wwstatsbot 3 2"))
+    await run(context, pointing("/slo@wwstatsbot 3 2"))
 
     assert session.lynch_order(session.get(context.chat_data)) == [3, 2]
-    assert "<a href='tg://user?id=3'>J J</a>" in msg.last_reply
+    assert "<a href='tg://user?id=3'>J J</a>" in (await show(context)).last_reply
 
 
 async def test_an_at_handle_names_a_player_the_roster_taught_us(context):
@@ -514,9 +517,9 @@ async def test_an_at_handle_names_a_player_the_roster_taught_us(context):
     current = await start_session(context)
     session.set_username(current, 2, "omu_plays")
 
-    msg = await run(context, handle_mention("/slo@wwstatsbot", ["@omu_plays"]))
+    await run(context, handle_mention("/slo@wwstatsbot", ["@omu_plays"]))
     assert session.lynch_order(session.get(context.chat_data)) == [2]
-    assert "<a href='tg://user?id=2'>omu</a>" in msg.last_reply
+    assert "<a href='tg://user?id=2'>omu</a>" in (await show(context)).last_reply
 
 
 async def test_naming_somebody_twice_counts_once(context):
@@ -554,7 +557,7 @@ async def test_naming_a_dead_player_says_who_was_left_out(context):
     msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (3, "J J"), (1, "Ren")]))
 
     assert session.lynch_order(session.get(context.chat_data)) == [2, 1]
-    assert "already dead" in msg.last_reply
+    assert "already dead" in msg.last_reply, "the one addition kept: a silently short order is wrong"
     assert "J J" in msg.last_reply
 
 
@@ -582,19 +585,19 @@ async def test_a_mention_of_somebody_outside_the_roster_is_questioned_not_obeyed
 async def test_free_text_still_works_alongside(context):
     """Anything nobody could resolve to players is still stored and printed verbatim."""
     await start_session(context)
-    msg = await run(context, pointing("/slo@wwstatsbot whoever shouts loudest"))
+    await run(context, pointing("/slo@wwstatsbot whoever shouts loudest"))
 
     assert session.lynch_order(session.get(context.chat_data)) == "whoever shouts loudest"
-    assert "whoever shouts loudest" in msg.last_reply
+    assert "whoever shouts loudest" in (await show(context)).last_reply
 
 
 async def test_players_win_over_leftover_text(context):
     """ "/slo @omu then @ren" is an order of two players, not a sentence about them."""
     await start_session(context)
-    msg = await run(context, pointing("/slo@wwstatsbot then", mentions=[(2, "omu"), (1, "Ren")]))
+    await run(context, pointing("/slo@wwstatsbot then", mentions=[(2, "omu"), (1, "Ren")]))
 
     assert session.lynch_order(session.get(context.chat_data)) == [2, 1]
-    assert "then" not in msg.last_reply
+    assert "then" not in (await show(context)).last_reply
 
 
 async def test_a_named_order_survives_the_persistence_roundtrip(context):
