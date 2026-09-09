@@ -114,6 +114,19 @@ SHORTHAND_IN_PLAY = {
     "tm": "troublemaker",
     "sm": "sandman",
     "arso": "arsonist",
+    # Added from what the group actually types, 2026-09-09.
+    "lvg": "villager",
+    "slut": "harlot",
+    "hoe": "harlot",
+    "dete": "detective",
+    "th": "hunter",
+    "my": "mayor",
+    "ora": "oracle",
+    "peace": "pacifist",
+    "paci": "pacifist",
+    "wise": "wise_elder",
+    "au": "augur",
+    "aug": "augur",
 }
 
 
@@ -128,6 +141,16 @@ def test_shorthand_seen_in_play_resolves():
     assert roles.resolve("alpha") == ("alpha_wolf",)
     assert roles.resolve("wolf") == ("werewolf",)
     assert roles.resolve("elder") == ("wise_elder",)
+
+
+def test_a_two_word_alias_resolves_either_way_it_is_typed():
+    """"town hunter" is stored as one alias, not two. normalise() folds the space away, so
+    listing the spaced form covers the run-together one — and neither "town" nor "hunter"
+    on its own becomes a claim on the role by accident."""
+    assert roles.resolve("town hunter") == ("hunter",)
+    assert roles.resolve("townhunter") == ("hunter",)
+    assert roles.resolve("TOWN HUNTER") == ("hunter",)
+    assert roles.resolve("town") == (), "the first word alone is nobody's alias"
 
 
 # --- Normalisation ---------------------------------------------------------
