@@ -468,6 +468,68 @@ STANDIN_DOUSED_HEADER = N_("<b>Doused ({count}/{alive})</b>\n")
 STANDIN_DOUSED_HEADER_LOOSE = N_("<b>Doused ({count})</b>\n")
 STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
 
+# --- HTML: the /gm switch (handlers/gamesession.py) ------------------------
+#
+# Off by default, and per chat. On, this bot answers the game-manager commands without
+# being addressed and pins the roster for the length of a game — both of which are things
+# only one bot in a room can sensibly do, which is why they are asked for rather than
+# assumed.
+STANDIN_GM_ON = N_(
+    "Game management is <b>on</b>. I'll answer game commands without being addressed, "
+    "and pin the roster while a game runs."
+)
+STANDIN_GM_OFF = N_(
+    "Game management is <b>off</b>. Address me directly \N{EM DASH} <code>/gs@{username}</code> "
+    "\N{EM DASH} and I won't pin anything."
+)
+STANDIN_GM_STATE = N_(
+    "Game management is currently <b>{state}</b>.\nUse <code>/gm on</code> or <code>/gm off</code> to change it."
+)
+STANDIN_GM_STATE_ON = N_("on")
+STANDIN_GM_STATE_OFF = N_("off")
+STANDIN_GM_GROUP_ONLY = N_("Game management is a group setting \N{EM DASH} there is no game to manage here.")
+STANDIN_GM_ADMINS_ONLY = N_("Only this group's admins can switch game management.")
+
+# --- HTML: the lynch order (handlers/gamesession.py) -----------------------
+#
+# Two orders, one message shape. The rotating order is the living roster with the first
+# name repeated at the bottom: everybody lynches the player below them, which closes the
+# cycle and gives every player exactly one vote. A typed order replaces it verbatim.
+#
+# Worded to match the incumbent exactly, like the rest of this module: "Lynchorder:" over
+# one mention per line, and nothing else. A stand-in that invented its own phrasing would
+# read as a different tool at the moment people are looking for a familiar one — and that
+# includes decoration meant to be helpful. There is deliberately no marker distinguishing
+# a set order from the rotating one: the incumbent has no such marker, so neither do we,
+# and the two are told apart by asking whoever set it.
+#
+# Every name is a mention, as in the real manager's list and this bot's own roster.
+STANDIN_LYNCH_HEADER = N_("<b>Lynchorder:</b>\n")
+STANDIN_LYNCH_ROW = N_("{name}\n")
+STANDIN_LYNCH_SET = N_("The lynchorder was set by {name}\n")
+# An order can be named player by player — @handle, a tapped mention, or a bare id — and
+# the dead among them are dropped rather than left in for somebody to be pointed at.
+STANDIN_LYNCH_SKIPPED_DEAD = N_("<i>Left out, already dead: {names}</i>\n")
+STANDIN_LYNCH_ALL_DEAD = N_("Everybody you named is already dead.")
+# A mistyped @handle is cut out of the text like any other mention, so without this it
+# would look exactly like a bare /slo and reset the order instead of being questioned.
+STANDIN_LYNCH_UNKNOWN = N_(
+    "I don't know who that is. Name players by @handle, by tapping their name, or by user id "
+    "\N{EM DASH} they have to be in this game's roster."
+)
+STANDIN_LYNCH_RESET = N_("The lynchorder was reset by {name}\n")
+# Nobody alive to order. A session exists but the roster is empty or everyone is dead.
+STANDIN_LYNCH_NOBODY = N_("There is nobody left to lynch.")
+# These commands answer only when addressed (<code>/lo@{username}</code>), so a session-less
+# chat gets told rather than ignored: somebody who named this bot outright is owed an answer.
+STANDIN_LYNCH_NO_SESSION = N_(
+    "No game is running here. Reply to the game bot's player list with <code>/gs@{username}</code> to start one."
+)
+STANDIN_LYNCH_NOT_YOURS = N_("Only this game's players and the group's admins can change the lynch order.")
+# A typed order is stored as-is and re-rendered, so its length is capped where it is set
+# rather than discovered when Telegram refuses the reply.
+STANDIN_LYNCH_TOO_LONG = N_("That's too long for a lynch order ({count} characters, limit {limit}).")
+
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
 # The roster states its own counts ("Players Alive: 11/16"), so a parse can be checked
 # before it is applied. It is applied as a full reset — anyone the game bot lists is alive,

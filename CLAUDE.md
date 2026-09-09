@@ -284,6 +284,70 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
+**`/gm on` is what hands a chat's game management to this bot.** Off by default, per chat,
+stored in `chat_data` so it survives restarts and outlives any single game. On, two things
+change together: `_ours_to_answer` accepts a **bare** `/gs` and lynch-order command (not
+just `/gs@wwstatsbot`), and `_pin_state` pins the roster for the length of a game. Off,
+only addressed commands are answered and nothing is ever pinned.
+
+Adminness was tried as the signal for this and is the wrong one: the pin *also* needs the
+Telegram permission, so a group that promoted the bot only to let it pin would have been
+opted into answering bare commands without asking. A switch says which bot runs the games;
+a permission does not. The switch also costs no API call, where the admin check needed a
+`getChatMember` on every bare command.
+
+Two details in `/gm` itself. Turning it **on** requires the address — a bare `/gm` while
+management is off is not ours to act on, which is the whole point — while `/gm off` works
+bare once on, so it is typed like everything else it governs. And switching off mid-game
+unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
+nobody can undo without going to find the message.
+
+**The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
+attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
+a snapshot that can be stale by the time it is used, and the API's refusal is the
+authoritative answer anyway — so a group that has not made the bot an admin gets no pin
+and no complaint. Pinned silently, because the notification pings every member and an
+active group starts a game every few minutes.
+
+`_unpin_state` runs from `_finish`, which is the single place all three endings funnel
+through (and from `/gm off`) (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
+unpin **by message id**, never the bare call — that removes the group's most recent pin,
+which by the end of a game may be a rules post somebody else put there — and unpin only
+what `pinned_message_id` records, which is the evidence *we* pinned it. Without that
+record a session that could not pin would still try to unpin at the end and clear whatever
+the group actually has.
+
+**The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
+(plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when
+addressed** — `/lo@wwstatsbot`, never a bare `/lo`, because these are short words another
+bot in the room may own. Being addressed also changes what silence means: unlike the
+incumbent's command words, a chat with no session is *told* so rather than ignored.
+
+`/slo` names players three ways — `@handle`, a tapped mention, or a bare user id — all
+resolved against the roster by the same `_pointed_at` every other command in the module
+uses. A named order is stored as a **list of ids**, so names and aliveness resolve at
+render time: it follows a rename and drops a player who dies after it was set. Anything
+that resolves to nobody is stored as free text instead, *except* a mention that failed to
+match — `_pointed_at` cuts every mention out of the text whether or not it resolved, so a
+mistyped `@handle` would otherwise look exactly like a bare `/slo` and silently reset the
+order. That case is questioned instead.
+
+The rotating order is computed from the **living** roster on demand — the first name
+repeated at the bottom, so everybody lynches the name below them and each player receives
+exactly one vote — so it follows deaths with nobody re-typing it, and a dead player is
+never left in for two players to be pointed at. A typed order is stored verbatim in the
+session and wins until cleared; `/slo` with neither argument nor reply *is* the reset,
+since "set it to nothing" and "go back to rotating" are the same instruction. It is
+session-scoped on purpose (the rotating order is a fact about this roster, so an override
+of it means nothing next game), capped at `_LYNCH_ORDER_MAX` where it is set rather than
+where Telegram would refuse it, and read with `.get()` — sessions predating the field are
+still in Redis. Output mimics the incumbent's exactly: "Lynchorder:" over one mention
+per line and nothing else, "The lynchorder was set/reset by <name>" as a single line with
+no order appended. There is deliberately **no marker** distinguishing a set order from the
+rotating one, because the incumbent has none — decoration meant to be helpful still reads
+as a different tool. The one addition is a note naming a dead player dropped at set time,
+which is a wrong answer avoided rather than decoration.
+
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
