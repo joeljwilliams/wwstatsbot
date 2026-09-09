@@ -47,6 +47,7 @@ from handlers.common import (
     is_chat_admin,
     mentioned_usernames,
     mentioned_users,
+    remember_players,
     utf16_piece,
     utf16_units,
 )
@@ -392,6 +393,26 @@ async def _refresh_state(context, chat_id, session_data):
 # --- /gs -------------------------------------------------------------------
 
 
+def _remember_table(context, session_data):
+    """Hand this chat's table to the shared player list `/schall` reads with no reply.
+
+    The **whole** table, dead included. Achievements do not die with the player, and a
+    list that shrank every round would look exactly like a mention having gone missing —
+    the failure /schall already names dropped alts to avoid. That is also why the session
+    is the source rather than the roster message it came from: the game bot stops linking a
+    player once they are out, so its later lists name only the living, while the session
+    keeps everybody and their ids for the length of the game.
+
+    Re-recorded on every list we follow, not only at the start, so the age /schall prints
+    reads as "when this line-up was last confirmed" — seconds, during a live game, rather
+    than however long ago the game began.
+    """
+    players = [(uid, entry["name"]) for uid, entry in session.players_in_order(session_data)]
+    if not players:
+        return
+    remember_players(context.chat_data, players, session_data["unresolved"], _now())
+
+
 async def _open_session(context, chat_id, starter_id, roster):
     """Start a session for this chat from a game bot's player list. Returns it, or None.
 
@@ -409,6 +430,7 @@ async def _open_session(context, chat_id, starter_id, roster):
     for handle, uid in mentioned_usernames(roster).items():
         session.set_username(session_data, uid, handle)
     await _load_attained(session_data, players)
+    _remember_table(context, session_data)
     msg, keyboard = render_state(session_data)
     posted = await context.bot.send_message(
         chat_id=chat_id,
@@ -1239,6 +1261,7 @@ async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
             learned.append(entry["name"])
 
     changes = session.apply_transforms(session_data)
+    _remember_table(context, session_data)
     await _changed(context, chat_id, session_data)
     return died, revived, learned, changes
 

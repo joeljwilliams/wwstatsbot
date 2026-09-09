@@ -115,20 +115,24 @@ SCHALL_ONLY_ALTS = N_("Everyone mentioned there is marked as an alt, so there's 
 # Shown when someone other than the requester (or an admin) taps the toggle. Callback
 # answers are plain text — no HTML, and Telegram truncates past ~200 characters.
 SCHALL_NOT_YOURS = N_("Only {name} can switch this list. Send /sch yourself to get your own.")
-# /schall with no reply re-uses the players from this chat's last reply-based run. The age
-# is always shown, so a result built from a remembered roster is never mistaken for a fresh
-# one — a game group's line-up changes every round. Deliberately terse: it qualifies the
-# "Checked N players" line above it rather than explaining itself.
+# /schall with no reply re-uses this chat's remembered players — whoever a reply named, or
+# the roster of a game this bot is running. The age is always shown, so a result built from
+# a remembered line-up is never mistaken for a fresh one; during a live game it reads "just
+# now", because every roster followed re-confirms the table. Deliberately terse: it
+# qualifies the "Checked N players" line above it rather than explaining itself.
 SCHALL_FROM_CACHE = N_("🕐 <i>{age}</i>\n")
-# Nothing remembered for this chat yet.
+# Nothing remembered for this chat yet. Names both ways in, because a group whose games this
+# bot runs never has to do the first one.
 SCHALL_NO_REPLY_NO_CACHE = N_(
     "Reply to a message that mentions players with <code>/sch &lt;achievement&gt;</code>.\n"
-    "After that, <code>/schall &lt;achievement&gt;</code> re-checks the same players for {ttl}."
+    "After that, <code>/schall &lt;achievement&gt;</code> re-checks the same players for {ttl} "
+    "\N{EM DASH} and while I'm running a game I already know the roster, so you can skip the reply."
 )
 # Remembered, but older than the TTL.
 SCHALL_CACHE_STALE = N_(
     "This chat's remembered player list is more than {ttl} old, so I've forgotten it.\n"
-    "Reply to a player list with <code>/sch &lt;achievement&gt;</code> to start again."
+    "Reply to a player list with <code>/sch &lt;achievement&gt;</code> to start again, or let me "
+    "run the game and I'll keep the roster myself."
 )
 
 # --- HTML: /info achievement card pager (handlers/achievements.py) ---------
@@ -249,7 +253,7 @@ SCHALL_NEEDS_DIRECT_MENTIONS = N_(
 # Fallback when a stored payload has an owner id but no name.
 SCHALL_REQUESTER_FALLBACK = N_("the requester")
 # The cache lifetime, worded. A placeholder rather than a baked-in "60 minutes" so the
-# number has one source (handlers.search._SCHALL_CACHE_TTL) and the phrasing can be
+# number has one source (handlers.common.PLAYERS_TTL) and the phrasing can be
 # translated around it. Becomes an ngettext call when plurals land.
 SCHALL_TTL_LABEL = N_("{count} minutes")
 

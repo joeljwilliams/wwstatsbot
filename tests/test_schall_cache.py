@@ -1,9 +1,10 @@
 """/schall remembering a chat's player list.
 
 Checking a second achievement against the same roster used to mean scrolling back to the
-game bot's player list and replying to it again. Now a reply-based run caches the
-`text_mention` user ids in `chat_data`, and `/schall <achievement>` with **no** reply
-re-checks them.
+game bot's player list and replying to it again. Two things fill the list now, and
+`/schall <achievement>` with **no** reply re-checks whatever is in it: a reply-based run
+records the `text_mention` user ids it saw, and a stand-in session records its table — so
+a group whose games this bot runs never has to prime it at all.
 
 Three constraints shape the design, and each has tests below:
 
@@ -16,11 +17,15 @@ Three constraints shape the design, and each has tests below:
   a remembered result must never be mistaken for a fresh one.
 """
 
+import json
 import time
 
 from conftest import FakeChat, FakeContext, FakeEntity, FakeUpdate, FakeUser, bot_message, message
+from test_standin_auto import auto, roster, seen
+from test_standin_session import BRACKETS, start_session
 
-from handlers import common, search
+import session
+from handlers import common, gamesession, search
 
 
 def player_mention(user_id=1, name="Alice", offset=0, length=5):
@@ -257,3 +262,91 @@ def test_recall_normalises_persisted_lists_back_to_tuples():
     assert users == [(1, "Alice")]
     assert unresolved == []
     assert age >= 0
+
+
+# --- The other way in: a session's table ------------------------------------
+#
+# The stand-in session records its whole table, which is what makes /schall work with no
+# reply in a group whose games this bot runs. The table rather than the game bot's latest
+# list, deliberately: the game bot stops linking a player once they are out, so its later
+# lists name only the living, and a roster that shrank every round would look exactly like
+# a mention having gone missing.
+
+
+async def session_context(chat_data):
+    """A chat with a stand-in session running, sharing chat_data with the /schall runs."""
+    context = FakeContext(chat_data=chat_data)
+    await start_session(context)
+    return context
+
+
+async def test_a_session_remembers_its_table_with_no_reply_at_all(achievements, no_fts, stats_api):
+    chat_data = {}
+    await session_context(chat_data)
+
+    reply = await run(message("/schall busy"), {"chat_data": chat_data})
+
+    assert "Checked 4 players" in reply
+    assert "🕐" in reply, "a remembered list must never pass for a fresh one"
+
+
+async def test_the_table_keeps_players_who_have_died(achievements, no_fts, stats_api):
+    """Achievements do not die with the player, and a list that shrank every round would
+    read as a mention having gone missing."""
+    chat_data = {}
+    context = await session_context(chat_data)
+    living = [(uid, entry["name"]) for uid, entry in session.players_in_order(session.get(chat_data))][:3]
+
+    await gamesession.follow_roster_cmd(
+        FakeUpdate(message=message("/ad", reply_to_message=roster(living, total=4))), context
+    )
+
+    assert session.player(session.get(chat_data), 4) is not None
+    reply = await run(message("/schall busy"), {"chat_data": chat_data})
+    assert "Checked 4 players" in reply
+
+
+async def test_following_a_list_re_confirms_the_age(monkeypatch, achievements, no_fts, stats_api):
+    """The age reads "when this line-up was last confirmed", so a live game says "just now"
+    however long ago it started."""
+    chat_data = {}
+    context = await session_context(chat_data)
+    started = chat_data[common.PLAYERS_KEY]["at"]
+
+    monkeypatch.setattr(gamesession, "_now", lambda: started + 40 * 60)
+    players = [(uid, entry["name"]) for uid, entry in session.players_in_order(session.get(chat_data))]
+    await gamesession.follow_roster_cmd(
+        FakeUpdate(message=message("/ad", reply_to_message=roster(players, total=4))), context
+    )
+
+    monkeypatch.setattr(search, "_now", lambda: started + 40 * 60)
+    reply = await run(message("/schall busy"), {"chat_data": chat_data})
+    assert "just now" in reply, "a followed roster re-confirms the table"
+
+
+async def test_a_roster_read_off_the_game_bot_is_remembered(achievements, no_fts, stats_api):
+    """The whole point: nobody typed anything. /gm auto opened the session from the game
+    bot's own list, and /schall can check it."""
+    chat_data = {}
+    context = FakeContext(chat_data=chat_data)
+    auto(context)
+    await seen(context, roster())
+
+    reply = await run(message("/schall busy"), {"chat_data": chat_data})
+
+    assert "Checked 3 players" in reply
+
+
+async def test_a_session_table_survives_a_persistence_roundtrip(achievements, no_fts, stats_api):
+    """Names are stored unescaped and come back as lists, like every other remembered
+    list — /schall must not be able to tell where the table came from."""
+    chat_data = {}
+    await session_context(chat_data)
+
+    restored = json.loads(json.dumps(chat_data[common.PLAYERS_KEY]))
+    users, _, _ = common.recall_players({common.PLAYERS_KEY: restored}, search._now())
+
+    # A real name from the group, and the one that broke the incumbent's own reply: stored
+    # unescaped, escaped once at render time, so a round-trip cannot double-escape it.
+    assert BRACKETS in [name for _, name in users]
+    assert all(isinstance(pair, tuple) for pair in users)
