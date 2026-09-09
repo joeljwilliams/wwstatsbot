@@ -51,6 +51,63 @@ async def is_chat_admin(context, chat_id, user_id):
     return getattr(member, "status", None) in ("administrator", "creator")
 
 
+# --- This chat's player list -----------------------------------------------
+#
+# Who is playing in this chat, remembered between commands. It lives here rather than in
+# handlers/search.py because two command families write it now: /schall remembers whoever a
+# reply mentioned, and the stand-in session remembers the game bot's roster (see
+# handlers/gamesession.py). /schall reads it either way, which is what lets
+# `/schall <achievement>` work with no reply at all.
+#
+# In chat_data, so it is per-chat — one group's line-up can never leak into another's
+# results — and persisted by RedisPersistence when REDIS_URL is set. Stored
+# JSON-serializable for that reason, which is also why recall normalises pairs back to
+# tuples: JSON turns them into lists.
+#
+# It expires, because a game group's line-up changes every round and silently checking last
+# night's players would be worse than refusing. The age is always reported, so even inside
+# the window a remembered result is never mistaken for a fresh one.
+#
+# The key still reads "schall_players": renaming it would orphan every list already in
+# Redis, and the only thing that buys is a tidier string.
+PLAYERS_KEY = "schall_players"
+PLAYERS_TTL = 60 * 60
+
+
+def describe_age(seconds):
+    """Compact age for the remembered-list notice: "just now", "12m ago"."""
+    minutes = int(seconds // 60)
+    return "just now" if minutes < 1 else "{}m ago".format(minutes)
+
+
+def remember_players(chat_data, users, unresolved, now):
+    """Record this chat's player list. `now` comes from the caller's own clock."""
+    chat_data[PLAYERS_KEY] = {
+        "users": [[uid, name] for uid, name in users],
+        "unresolved": list(unresolved),
+        "at": now,
+    }
+
+
+def recall_players(chat_data, now):
+    """This chat's remembered players as (users, unresolved, age_seconds).
+
+    Returns None when nothing is remembered and the string "stale" when what is remembered
+    is older than PLAYERS_TTL. The caller distinguishes the two because "reply to a list"
+    and "your list expired" are different things to be told.
+    """
+    stored = chat_data.get(PLAYERS_KEY)
+    if not stored:
+        return None
+    age = now - stored["at"]
+    if age > PLAYERS_TTL:
+        # Dropped rather than left to be re-checked on every future call.
+        chat_data.pop(PLAYERS_KEY, None)
+        return "stale"
+    users = [(uid, name) for uid, name in stored["users"]]
+    return users, list(stored["unresolved"]), age
+
+
 def utf16_units(text):
     """`text` as UTF-16 code units — what Telegram entity offsets actually index.
 

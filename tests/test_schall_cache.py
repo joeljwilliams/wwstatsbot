@@ -20,7 +20,7 @@ import time
 
 from conftest import FakeChat, FakeContext, FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
-from handlers import search
+from handlers import common, search
 
 
 def player_mention(user_id=1, name="Alice", offset=0, length=5):
@@ -56,14 +56,14 @@ async def test_a_reply_based_run_remembers_the_players(achievements, no_fts, sta
     chat_data = {}
     await reply_run({"chat_data": chat_data})
 
-    cached = chat_data[search._SCHALL_CACHE_KEY]
+    cached = chat_data[common.PLAYERS_KEY]
     assert cached["users"] == [[1, "Alice"], [2, "Bob"]]
     assert cached["at"] > 0
 
 
 async def test_the_cache_is_json_serializable(achievements, no_fts, stats_api):
     """chat_data is persisted as JSON by RedisPersistence, so the roster must survive a
-    restart — and tuples degrade to lists, which _recall_players normalises back."""
+    restart — and tuples degrade to lists, which recall_players normalises back."""
     from conftest import assert_json_roundtrips
 
     chat_data = {}
@@ -76,7 +76,7 @@ async def test_a_later_reply_replaces_the_remembered_list(achievements, no_fts, 
     chat_data = {}
     await reply_run({"chat_data": chat_data}, users=((1, "Alice"),))
     await reply_run({"chat_data": chat_data}, users=((9, "Zoe"), (8, "Yan")))
-    assert chat_data[search._SCHALL_CACHE_KEY]["users"] == [[9, "Zoe"], [8, "Yan"]]
+    assert chat_data[common.PLAYERS_KEY]["users"] == [[9, "Zoe"], [8, "Yan"]]
 
 
 async def test_an_uncheckable_reply_does_not_wipe_a_good_list(achievements, no_fts, stats_api):
@@ -89,7 +89,7 @@ async def test_an_uncheckable_reply_does_not_wipe_a_good_list(achievements, no_f
     msg = message("/sch busy", reply_to_message=usernames_only)
     await search.display_search_all(FakeUpdate(message=msg), FakeContext(args=["busy"], chat_data=chat_data))
 
-    assert chat_data[search._SCHALL_CACHE_KEY]["users"] == [[1, "Alice"]]
+    assert chat_data[common.PLAYERS_KEY]["users"] == [[1, "Alice"]]
 
 
 # --- Using the cache --------------------------------------------------------------
@@ -127,7 +127,7 @@ async def test_the_notice_reports_the_lists_actual_age(monkeypatch, achievements
     await reply_run({"chat_data": chat_data})
 
     # Twelve minutes later, still inside the hour.
-    real = chat_data[search._SCHALL_CACHE_KEY]["at"]
+    real = chat_data[common.PLAYERS_KEY]["at"]
     monkeypatch.setattr(search, "_now", lambda: real + 12 * 60)
     reply = await run(message("/schall busy"), {"chat_data": chat_data})
     assert "🕐" in reply
@@ -168,7 +168,7 @@ async def test_a_list_older_than_an_hour_is_refused(monkeypatch, achievements, n
     chat_data = {}
     await reply_run({"chat_data": chat_data})
 
-    real = chat_data[search._SCHALL_CACHE_KEY]["at"]
+    real = chat_data[common.PLAYERS_KEY]["at"]
     monkeypatch.setattr(search, "_now", lambda: real + 61 * 60)
     reply = await run(message("/schall busy"), {"chat_data": chat_data})
 
@@ -181,16 +181,16 @@ async def test_an_expired_list_is_discarded(monkeypatch, achievements, no_fts, s
     chat_data = {}
     await reply_run({"chat_data": chat_data})
 
-    real = chat_data[search._SCHALL_CACHE_KEY]["at"]
+    real = chat_data[common.PLAYERS_KEY]["at"]
     monkeypatch.setattr(search, "_now", lambda: real + 61 * 60)
     await run(message("/schall busy"), {"chat_data": chat_data})
-    assert search._SCHALL_CACHE_KEY not in chat_data
+    assert common.PLAYERS_KEY not in chat_data
 
 
 async def test_a_list_just_inside_the_hour_still_works(monkeypatch, achievements, no_fts, stats_api):
     chat_data = {}
     await reply_run({"chat_data": chat_data})
-    real = chat_data[search._SCHALL_CACHE_KEY]["at"]
+    real = chat_data[common.PLAYERS_KEY]["at"]
     monkeypatch.setattr(search, "_now", lambda: real + 59 * 60)
     reply = await run(message("/schall busy"), {"chat_data": chat_data})
     assert "Checked 2 players" in reply
@@ -239,23 +239,21 @@ async def test_sch_with_no_reply_still_checks_the_sender(achievements, no_fts, s
 
 
 def test_describe_age_wording():
-    assert search._describe_age(0) == "just now"
-    assert search._describe_age(59) == "just now"
-    assert search._describe_age(60) == "1m ago"
-    assert search._describe_age(12 * 60) == "12m ago"
-    assert search._describe_age(59 * 60) == "59m ago"
+    assert common.describe_age(0) == "just now"
+    assert common.describe_age(59) == "just now"
+    assert common.describe_age(60) == "1m ago"
+    assert common.describe_age(12 * 60) == "12m ago"
+    assert common.describe_age(59 * 60) == "59m ago"
 
 
 def test_recall_returns_none_for_an_untouched_chat():
-    assert search._recall_players(FakeContext()) is None
+    assert common.recall_players(FakeContext().chat_data, search._now()) is None
 
 
 def test_recall_normalises_persisted_lists_back_to_tuples():
     """After a Redis round-trip the pairs are lists; the handler must not be able to tell."""
-    ctx = FakeContext(
-        chat_data={search._SCHALL_CACHE_KEY: {"users": [[1, "Alice"]], "unresolved": [], "at": time.time()}}
-    )
-    users, unresolved, age = search._recall_players(ctx)
+    ctx = FakeContext(chat_data={common.PLAYERS_KEY: {"users": [[1, "Alice"]], "unresolved": [], "at": time.time()}})
+    users, unresolved, age = common.recall_players(ctx.chat_data, search._now())
     assert users == [(1, "Alice")]
     assert unresolved == []
     assert age >= 0

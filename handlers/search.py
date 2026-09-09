@@ -22,7 +22,15 @@ import api
 import builders
 import db
 import templates as t
-from handlers.common import is_admin_user, mentioned_users, resolve_target
+from handlers.common import (
+    PLAYERS_TTL,
+    describe_age,
+    is_admin_user,
+    mentioned_users,
+    recall_players,
+    remember_players,
+    resolve_target,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -107,58 +115,14 @@ def _store_schall_result(context, payload):
     return token
 
 
-# /schall with no reply re-uses the players from this chat's last reply-based run, so
-# checking a second achievement against the same roster doesn't mean scrolling back to the
-# player list. It lives in chat_data, which is per-chat (one group's line-up can never leak
-# into another) and is persisted by RedisPersistence when REDIS_URL is set.
-#
-# It expires after an hour: a game group's roster changes every round, and silently checking
-# last night's players would be worse than refusing. The reply always says how old the list
-# is, so even inside the hour a remembered result is never mistaken for a fresh one.
-_SCHALL_CACHE_KEY = "schall_players"
-_SCHALL_CACHE_TTL = 60 * 60
-_SCHALL_CACHE_TTL_LABEL = t.SCHALL_TTL_LABEL.format(count=_SCHALL_CACHE_TTL // 60)
+# The remembered player list itself lives in handlers/common.py, because the stand-in
+# session writes it too. Only the wording of the age notice belongs to this module.
+_SCHALL_CACHE_TTL_LABEL = t.SCHALL_TTL_LABEL.format(count=PLAYERS_TTL // 60)
 
 
 def _now():
-    """Wall clock, wrapped so tests can control the cache's age."""
+    """Wall clock, wrapped so tests can control the remembered list's age."""
     return time.time()
-
-
-def _describe_age(seconds):
-    """Compact age for the cache notice: "just now", "12m ago"."""
-    minutes = int(seconds // 60)
-    return "just now" if minutes < 1 else "{}m ago".format(minutes)
-
-
-def _remember_players(context, users, unresolved):
-    """Cache this chat's player list. Stored JSON-serializable for persistence."""
-    context.chat_data[_SCHALL_CACHE_KEY] = {
-        "users": [[uid, name] for uid, name in users],
-        "unresolved": list(unresolved),
-        "at": _now(),
-    }
-
-
-def _recall_players(context):
-    """This chat's remembered players as (users, unresolved, age_seconds).
-
-    Returns None when nothing is remembered, and ("stale") when what is remembered is
-    older than the TTL — the caller distinguishes the two because "reply to a list" and
-    "your list expired" are different things to be told.
-    """
-    cached = context.chat_data.get(_SCHALL_CACHE_KEY)
-    if not cached:
-        return None
-    age = _now() - cached["at"]
-    if age > _SCHALL_CACHE_TTL:
-        # Drop it rather than leave it to be re-checked on every future call.
-        context.chat_data.pop(_SCHALL_CACHE_KEY, None)
-        return "stale"
-    # JSON turns the stored pairs into lists; normalise back to tuples so the rest of the
-    # handler cannot tell a cached run from a fresh one.
-    users = [(uid, name) for uid, name in cached["users"]]
-    return users, list(cached["unresolved"]), age
 
 
 def _render_schall(payload, token, show_have):
@@ -239,9 +203,9 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if users:
             # Only remember a list that is actually checkable, so replying to a message
             # of bare @usernames cannot wipe a good one.
-            _remember_players(context, users, unresolved)
+            remember_players(context.chat_data, users, unresolved, _now())
     else:
-        remembered = _recall_players(context)
+        remembered = recall_players(context.chat_data, _now())
         if remembered is None:
             await update.message.reply_text(
                 t.SCHALL_NO_REPLY_NO_CACHE.format(ttl=_SCHALL_CACHE_TTL_LABEL), parse_mode=ParseMode.HTML
@@ -315,7 +279,7 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "requested_by_name": update.message.from_user.first_name,
         # None on a fresh run. Frozen at run time on purpose — the toggle re-renders the
         # same result, so a growing age (eventually exceeding the TTL) would misdescribe it.
-        "from_cache_age": None if cached_age is None else _describe_age(cached_age),
+        "from_cache_age": None if cached_age is None else describe_age(cached_age),
     }
     token = _store_schall_result(context, payload)
     msg, keyboard = _render_schall(payload, token, show_have=False)

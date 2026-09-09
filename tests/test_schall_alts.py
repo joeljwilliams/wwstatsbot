@@ -15,7 +15,7 @@ otherwise reads as a mention the bot failed to see.
 from conftest import FakeContext, FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
 import db
-from handlers import search
+from handlers import common, search
 
 
 def player_list(*users):
@@ -134,7 +134,7 @@ async def test_the_remembered_roster_still_holds_the_alt(achievements, no_fts, s
     db._ALTS = {2}
     chat_data = {}
     await run(chat_data=chat_data)
-    assert chat_data[search._SCHALL_CACHE_KEY]["users"] == [[1, "Alice"], [2, "Bob"]]
+    assert chat_data[common.PLAYERS_KEY]["users"] == [[1, "Alice"], [2, "Bob"]]
 
     db._ALTS = set()
     followup = message("/schall busy")
