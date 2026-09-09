@@ -66,6 +66,11 @@ def start(chat_data, user_id, players, unresolved, now):
         "unresolved": list(unresolved),
         "state_message_id": None,
         "list_message_id": None,
+        # The roster message, once pinned. Stored rather than assumed from
+        # state_message_id, because it is the record of *us having pinned it*: without it
+        # a session that could not pin (no permission) would still try to unpin at the end
+        # and clear whatever pin the group actually has.
+        "pinned_message_id": None,
         "stop_armed_by": None,
         "stop_armed_at": None,
         # What the Beholder told us. The Beholder is *shown* the real Seer at the start of

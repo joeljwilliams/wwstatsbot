@@ -284,6 +284,21 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
+**The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
+attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
+a snapshot that can be stale by the time it is used, and the API's refusal is the
+authoritative answer anyway — so a group that has not made the bot an admin gets no pin
+and no complaint. Pinned silently, because the notification pings every member and an
+active group starts a game every few minutes.
+
+`_unpin_state` runs from `_finish`, which is the single place all three endings funnel
+through (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
+unpin **by message id**, never the bare call — that removes the group's most recent pin,
+which by the end of a game may be a rules post somebody else put there — and unpin only
+what `pinned_message_id` records, which is the evidence *we* pinned it. Without that
+record a session that could not pin would still try to unpin at the end and clear whatever
+the group actually has.
+
 **The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
 (plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when
 addressed** — `/lo@wwstatsbot`, never a bare `/lo`, because these are short words another

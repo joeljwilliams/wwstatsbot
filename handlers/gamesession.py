@@ -31,7 +31,7 @@ import time
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
@@ -376,6 +376,7 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # each reveal instead of updated.
     if posted is not None:
         session_data["state_message_id"] = posted.message_id
+        await _pin_state(context, message.chat.id, session_data, posted.message_id)
     # A session nobody ever touches still has to expire, so the idle clock starts here
     # rather than on the first reveal.
     _schedule_idle(context, message.chat.id)
@@ -687,8 +688,57 @@ async def _announce_stopped(context, chat_id, user_id, name):
     )
 
 
+async def _pin_state(context, chat_id, session_data, message_id):
+    """Pin the roster message, when this bot is allowed to.
+
+    Attempted rather than checked first. A getChatMember answer is a snapshot that can be
+    stale by the time it is acted on, and the API's refusal is the authoritative answer
+    anyway — so the permission is discovered by using it. A group that has not made this
+    bot an admin gets no pin and no complaint: the pin is a convenience, and a game that
+    refused to start over it would be worse than one with nothing at the top of the chat.
+
+    Silent, because a pin notification pings every member of the group and an active game
+    group starts a game every few minutes.
+    """
+    try:
+        await context.bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
+    except (BadRequest, Forbidden) as exc:
+        logger.info("standin_pin_skipped", chat_id=chat_id, error=str(exc))
+        return
+    session_data["pinned_message_id"] = message_id
+    logger.info("standin_pinned", chat_id=chat_id, message_id=message_id)
+
+
+async def _unpin_state(context, chat_id, session_data):
+    """Unpin the roster message, but only the one this session pinned.
+
+    By id, never the bare call: unpin_chat_message with no message removes the *most
+    recent* pin, which by the end of a game may well be somebody else's — a rules post, a
+    tournament bracket — and clearing a group's pin because our game ended would be the
+    kind of thing that gets a bot removed.
+
+    Cleared from the session before the call, so a failure cannot leave a stale id behind
+    for a later end to try again.
+    """
+    message_id = session_data.get("pinned_message_id")
+    if message_id is None:
+        return
+    session_data["pinned_message_id"] = None
+    try:
+        await context.bot.unpin_chat_message(chat_id=chat_id, message_id=message_id)
+    except (BadRequest, Forbidden) as exc:
+        # Somebody unpinned it by hand, or the permission was taken away mid-game. Either
+        # way the pin is not there to remove, which is the outcome wanted.
+        logger.info("standin_unpin_skipped", chat_id=chat_id, error=str(exc))
+
+
 async def _finish(context, chat_id, session_data):
-    """Close the roster message out: ended header, no instructions, no live button."""
+    """Close the roster message out: ended header, no instructions, no live button.
+
+    The pin goes first, and outside the early return below: a pinned roster outliving its
+    game is exactly what somebody scrolling to the top of the chat would be misled by.
+    """
+    await _unpin_state(context, chat_id, session_data)
     message_id = session_data.get("state_message_id")
     if message_id is None:
         return
