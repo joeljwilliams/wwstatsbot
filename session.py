@@ -73,6 +73,11 @@ def start(chat_data, user_id, players, unresolved, now):
         # question for everybody else — see set_no_seer/set_seer.
         "no_seer": False,
         "seer_id": None,
+        # A lynch order somebody typed, overriding the rotating one derived from the
+        # roster. None means "use the rotating order", which is the default and what
+        # /rslo goes back to. Session-scoped on purpose: the rotating order is a fact
+        # about *this* roster, so an override of it has no meaning in the next game.
+        "lynch_order": None,
         "last_activity": now,
     }
     chat_data[KEY] = session
@@ -323,6 +328,48 @@ def revealed_roles(session, alive_only=True):
         if entry["roles"]:
             revealed[uid] = tuple(entry["roles"])
     return revealed
+
+
+# --- Lynch order -----------------------------------------------------------
+#
+# Two orders exist and only one is stored. The rotating order is computed from the living
+# roster on demand, so it follows deaths without anybody re-typing it; a typed order is
+# stored verbatim and wins until it is cleared.
+
+
+def set_lynch_order(session, text):
+    """Store a typed lynch order, or clear it with None. Returns what is now in force."""
+    session["lynch_order"] = text or None
+    return session["lynch_order"]
+
+
+def lynch_order(session):
+    """The typed lynch order, or None when the rotating one is in force.
+
+    `.get()` rather than `[]`: sessions started before this field existed are still in
+    Redis, and one of them must not take a command down.
+    """
+    return session.get("lynch_order")
+
+
+def rotating_lynch_order(session):
+    """The living roster with the first name repeated at the end.
+
+    Everybody lynches the player below them, so repeating the first name closes the cycle
+    and every player receives exactly one vote — which is the whole point, and is why the
+    list is one longer than the roster.
+
+    The *living* roster: a dead player can neither vote nor be voted for, so leaving them
+    in would hand two players an instruction pointing at a corpse.
+    """
+    names = [entry["name"] for _, entry in players_in_order(session) if entry["alive"]]
+    if not names:
+        return []
+    # A single survivor has nobody below them; the cycle would tell them to lynch
+    # themselves, so it is left as the one name.
+    if len(names) == 1:
+        return names
+    return names + [names[0]]
 
 
 def revealed_count(session):

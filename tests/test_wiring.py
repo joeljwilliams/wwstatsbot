@@ -60,10 +60,19 @@ UNADVERTISED = [
     # A group-admin switch, gated like the privileged ones and kept out of the menu for
     # the same reason: it does nothing for the person who taps it in a private chat.
     "welcome",
+    # The lynch order. Out of the menu with the rest of the stand-in's words: they only
+    # answer when addressed, and advertising a command that ignores a plain tap would be
+    # worse than not listing it.
+    "lo",
+    "slo",
+    "rslo",
 ]
 
+# Aliases for the stand-in's lynch-order commands: the spelt-out forms of lo/slo/rslo.
+LYNCH_ALIASES = {"lynchorder": "lo", "setlynchorder": "slo", "resetlynchorder": "rslo"}
+
 # Aliases that must keep working alongside their primary verb.
-ALIASES = ["sch", "achv", "getachv"]
+ALIASES = ["sch", "achv", "getachv", "lynchorder", "setlynchorder", "resetlynchorder"]
 
 
 def application():
@@ -113,6 +122,8 @@ def test_aliases_share_a_callback_with_their_primary_verb():
     assert registered["sch"] is registered["search"]
     assert registered["achv"] is registered["achievements"]
     assert registered["getachv"] is registered["info"]
+    for alias, primary in LYNCH_ALIASES.items():
+        assert registered[alias] is registered[primary], "/{} is not /{}".format(alias, primary)
 
 
 def test_commands_are_wired_to_the_expected_callbacks():
@@ -138,6 +149,9 @@ def test_commands_are_wired_to_the_expected_callbacks():
         "setnote": admin.set_note_cmd,
         "clearnote": admin.clear_note_cmd,
         "db": admin.db_console_cmd,
+        "lo": gamesession.lynch_order_cmd,
+        "slo": gamesession.set_lynch_order_cmd,
+        "rslo": gamesession.reset_lynch_order_cmd,
     }
     for command, callback in expected.items():
         assert registered[command] is callback, "/{} is wired to {}".format(command, registered[command])

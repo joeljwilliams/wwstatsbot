@@ -284,6 +284,23 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
+**The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
+(plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when
+addressed** — `/lo@wwstatsbot`, never a bare `/lo`, because these are short words another
+bot in the room may own. Being addressed also changes what silence means: unlike the
+incumbent's command words, a chat with no session is *told* so rather than ignored.
+
+The rotating order is computed from the **living** roster on demand — the first name
+repeated at the bottom, so everybody lynches the name below them and each player receives
+exactly one vote — so it follows deaths with nobody re-typing it, and a dead player is
+never left in for two players to be pointed at. A typed order is stored verbatim in the
+session and wins until cleared; `/slo` with neither argument nor reply *is* the reset,
+since "set it to nothing" and "go back to rotating" are the same instruction. It is
+session-scoped on purpose (the rotating order is a fact about this roster, so an override
+of it means nothing next game), capped at `_LYNCH_ORDER_MAX` where it is set rather than
+where Telegram would refuse it, and read with `.get()` — sessions predating the field are
+still in Redis.
+
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still

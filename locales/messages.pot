@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-07 13:18+0200\n"
+"POT-Creation-Date: 2026-09-09 10:21+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -965,13 +965,60 @@ msgstr ""
 msgid "🔥 {name}\n"
 msgstr ""
 
-#: templates.py:471
+#: templates.py:480
+msgid "<b>Lynch order</b>\n"
+msgstr ""
+
+#: templates.py:481
+msgid "<b>Lynch order</b> <i>(set)</i>\n"
+msgstr ""
+
+#: templates.py:482 templates.py:542
+#, python-brace-format
+msgid "{name}\n"
+msgstr ""
+
+#: templates.py:485
+msgid "<i>Rotating: everyone lynches the name below them.</i>\n"
+msgstr ""
+
+#: templates.py:486
+msgid "Lynch order set.\n"
+msgstr ""
+
+#: templates.py:487
+msgid "Lynch order cleared — back to the rotating order.\n"
+msgstr ""
+
+#: templates.py:489
+msgid "There is nobody left to lynch."
+msgstr ""
+
+#: templates.py:493
+#, python-brace-format
+msgid ""
+"No game is running here. Reply to the game bot's player list with "
+"<code>/gs@{username}</code> to start one."
+msgstr ""
+
+#: templates.py:495
+msgid ""
+"Only this game's players and the group's admins can change the lynch "
+"order."
+msgstr ""
+
+#: templates.py:498
+#, python-brace-format
+msgid "That's too long for a lynch order ({count} characters, limit {limit})."
+msgstr ""
+
+#: templates.py:500
 msgid ""
 "Reply to the game bot's player list with <code>/ad</code> and I'll follow"
 " it."
 msgstr ""
 
-#: templates.py:476
+#: templates.py:505
 #, python-brace-format
 msgid ""
 "That roster says {claimed} of {total} alive, but I can only see {found} "
@@ -979,144 +1026,139 @@ msgid ""
 "game, or it didn't mention everyone directly."
 msgstr ""
 
-#: templates.py:479
+#: templates.py:508
 msgid "Roster matches what I have — nobody's status changed."
 msgstr ""
 
-#: templates.py:480
+#: templates.py:509
 msgid "Roster followed.\n"
 msgstr ""
 
-#: templates.py:481
+#: templates.py:510
 #, python-brace-format
 msgid "💀 Now dead: {names}\n"
 msgstr ""
 
-#: templates.py:482
+#: templates.py:511
 #, python-brace-format
 msgid "🙂 Back among the living: {names}\n"
 msgstr ""
 
-#: templates.py:483
+#: templates.py:512
 #, python-brace-format
 msgid "Learned from the death notices: {names}\n"
 msgstr ""
 
-#: templates.py:486
+#: templates.py:515
 msgid "\n"
 msgstr ""
 
-#: templates.py:488
+#: templates.py:517
 #, python-brace-format
 msgid "🔁 {name} is now {role} ({reason})\n"
 msgstr ""
 
-#: templates.py:490
+#: templates.py:519
 #, python-brace-format
 msgid "💔 {name} dies of sorrow.\n"
 msgstr ""
 
-#: templates.py:491
+#: templates.py:520
 msgid "their rolemodel died"
 msgstr ""
 
-#: templates.py:492
+#: templates.py:521
 msgid "the seer is gone"
 msgstr ""
 
-#: templates.py:493
+#: templates.py:522
 msgid "the wolves are gone"
 msgstr ""
 
-#: templates.py:495
+#: templates.py:524
 msgid "Usage: <code>/steal @player</code>, or reply to them."
 msgstr ""
 
-#: templates.py:496
+#: templates.py:525
 msgid "Only the Thief 😈 can steal a role."
 msgstr ""
 
-#: templates.py:499
+#: templates.py:528
 #, python-brace-format
 msgid "The Thief can't steal from {name} — {role} is out of reach."
 msgstr ""
 
-#: templates.py:500
+#: templates.py:529
 #, python-brace-format
 msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
 msgstr ""
 
-#: templates.py:510
+#: templates.py:539
 msgid ""
 "Possible Achievements:\n"
 "\n"
 msgstr ""
 
-#: templates.py:513
-#, python-brace-format
-msgid "{name}\n"
-msgstr ""
-
-#: templates.py:516
+#: templates.py:545
 #, python-brace-format
 msgid " - {name}\n"
 msgstr ""
 
-#: templates.py:517
+#: templates.py:546
 #, python-brace-format
 msgid " - ❓ {name}\n"
 msgstr ""
 
-#: templates.py:518
+#: templates.py:547
 #, python-brace-format
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: templates.py:519
+#: templates.py:548
 #, python-brace-format
 msgid " - <i>…and {count} more</i>\n"
 msgstr ""
 
-#: templates.py:520
+#: templates.py:549
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:524
+#: templates.py:553
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:531
+#: templates.py:560
 #, python-brace-format
 msgid "{name} ({count}):\n"
 msgstr ""
 
-#: templates.py:532
+#: templates.py:561
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: templates.py:535
+#: templates.py:564
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:541
+#: templates.py:570
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:543
+#: templates.py:572
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:544
+#: templates.py:573
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:547
+#: templates.py:576
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1124,7 +1166,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:550
+#: templates.py:579
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

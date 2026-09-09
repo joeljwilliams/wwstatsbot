@@ -1423,6 +1423,149 @@ async def _idle_end(context):
 # --- /la -------------------------------------------------------------------
 
 
+# --- Lynch order -----------------------------------------------------------
+#
+# All three commands answer **only when addressed** — /lo@wwstatsbot, never a bare /lo.
+# These are short words another bot in the room may well own, and the cost of guessing
+# wrong is answering somebody else's command in a running game. Being addressed also
+# changes what silence means: a chat with no session is *told* so, rather than ignored,
+# because somebody who named this bot outright is owed an answer.
+
+# A typed order is stored in the session and re-rendered on every /lo, so its length is
+# capped here rather than discovered when Telegram refuses a 4096-character reply. Room
+# for a long roster with notes against each name, and nothing like a pasted essay.
+_LYNCH_ORDER_MAX = 1000
+
+
+def _lynch_written(context, message, session_data):
+    """Record a lynch-order change as activity.
+
+    Not _changed(): that also schedules a publish, and the lynch order appears in neither
+    live message, so there would be nothing to publish. The idle timer does matter — a
+    group setting the order is plainly still playing, and the session must not expire
+    underneath them.
+    """
+    session.touch(session_data, _now())
+    _schedule_idle(context, message.chat.id)
+
+
+def _render_lynch_order(session_data):
+    """The lynch order as it stands: (message_html, found_anything).
+
+    A typed order is printed verbatim — whatever somebody wrote is the answer, and this is
+    the one place in the module that renders text it did not compose, hence the escape. The
+    rotating order is computed from the living roster instead, so it follows deaths with
+    nobody re-typing anything.
+    """
+    typed = session.lynch_order(session_data)
+    if typed:
+        return t.STANDIN_LYNCH_HEADER_SET + t.STANDIN_LYNCH_ROW.format(name=html.escape(typed)), True
+
+    names = session.rotating_lynch_order(session_data)
+    if not names:
+        return t.STANDIN_LYNCH_NOBODY, False
+    msg = t.STANDIN_LYNCH_HEADER
+    msg += "".join(t.STANDIN_LYNCH_ROW.format(name=html.escape(name)) for name in names)
+    msg += t.STANDIN_LYNCH_ROTATING_NOTE
+    return msg, True
+
+
+async def _lynch_session(update, context, command):
+    """The session these commands act on, or None once a refusal has been sent.
+
+    Shared by all three because the gate is identical: addressed to us, and a session to
+    talk about. Unlike _session_for it answers rather than going quiet, for the reason
+    above the module section.
+    """
+    message = update.message
+    if not _addressed_to_us(message, context.bot.username):
+        # A bare /lo is somebody else's command, or nobody's. Not ours to answer.
+        return None
+
+    user = message.from_user
+    logger.info("command", command=command, user_id=user.id, user=unidecode(user.first_name))
+
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        await message.reply_text(
+            t.STANDIN_LYNCH_NO_SESSION.format(username=html.escape(context.bot.username or "")),
+            parse_mode=ParseMode.HTML,
+        )
+        return None
+    return session_data
+
+
+async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/lo@bot` — show the lynch order in force, typed or rotating."""
+    session_data = await _lynch_session(update, context, "lo")
+    if session_data is None:
+        return
+
+    msg, _ = _render_lynch_order(session_data)
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/slo@bot <order>`, or in reply to a message carrying one.
+
+    With neither, it is a reset: "set it to nothing" and "go back to the rotating order"
+    are the same instruction, and refusing a bare /slo would only make somebody type /rslo
+    to say what they already said.
+    """
+    session_data = await _lynch_session(update, context, "slo")
+    if session_data is None:
+        return
+
+    message = update.message
+    if not await _may_manage(context, message.chat.id, session_data, message.from_user.id):
+        await message.reply_text(t.STANDIN_LYNCH_NOT_YOURS, parse_mode=ParseMode.HTML)
+        return
+
+    # Typed arguments win over a reply: naming an order outright is the more specific
+    # instruction, and a reply is what somebody uses when the order is already written down
+    # somewhere. The replied-to message may be a photo caption, hence both.
+    replied = message.reply_to_message
+    wanted = " ".join(context.args).strip()
+    if not wanted and replied is not None:
+        wanted = ((replied.text or replied.caption) or "").strip()
+
+    if not wanted:
+        session.set_lynch_order(session_data, None)
+        _lynch_written(context, message, session_data)
+        msg, _ = _render_lynch_order(session_data)
+        await message.reply_text(t.STANDIN_LYNCH_RESET + msg, parse_mode=ParseMode.HTML)
+        return
+
+    if len(wanted) > _LYNCH_ORDER_MAX:
+        await message.reply_text(
+            t.STANDIN_LYNCH_TOO_LONG.format(count=len(wanted), limit=_LYNCH_ORDER_MAX),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    session.set_lynch_order(session_data, wanted)
+    _lynch_written(context, message, session_data)
+    msg, _ = _render_lynch_order(session_data)
+    await message.reply_text(t.STANDIN_LYNCH_SET + msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/rslo@bot` — drop a typed order and go back to the rotating one."""
+    session_data = await _lynch_session(update, context, "rslo")
+    if session_data is None:
+        return
+
+    message = update.message
+    if not await _may_manage(context, message.chat.id, session_data, message.from_user.id):
+        await message.reply_text(t.STANDIN_LYNCH_NOT_YOURS, parse_mode=ParseMode.HTML)
+        return
+
+    session.set_lynch_order(session_data, None)
+    _lynch_written(context, message, session_data)
+    msg, _ = _render_lynch_order(session_data)
+    await message.reply_text(t.STANDIN_LYNCH_RESET + msg, parse_mode=ParseMode.HTML)
+
+
 async def list_achievements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/la` — point at the live list rather than posting a second copy of it.
 

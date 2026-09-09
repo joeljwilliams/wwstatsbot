@@ -468,6 +468,35 @@ STANDIN_DOUSED_HEADER = N_("<b>Doused ({count}/{alive})</b>\n")
 STANDIN_DOUSED_HEADER_LOOSE = N_("<b>Doused ({count})</b>\n")
 STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
 
+# --- HTML: the lynch order (handlers/gamesession.py) -----------------------
+#
+# Two orders, one message shape. The rotating order is the living roster with the first
+# name repeated at the bottom: everybody lynches the player below them, which closes the
+# cycle and gives every player exactly one vote. A typed order replaces it verbatim.
+#
+# Names are rendered as plain text, not mentions, unlike the roster: /lo is asked for
+# repeatedly during a round, and a tappable mention notifies the player every time. Nobody
+# reading a sequence needs to tap it.
+STANDIN_LYNCH_HEADER = N_("<b>Lynch order</b>\n")
+STANDIN_LYNCH_HEADER_SET = N_("<b>Lynch order</b> <i>(set)</i>\n")
+STANDIN_LYNCH_ROW = N_("{name}\n")
+# The rotating order is what a group gets without doing anything, so /lo says which one it
+# is looking at — a set order that nobody remembers setting is otherwise indistinguishable.
+STANDIN_LYNCH_ROTATING_NOTE = N_("<i>Rotating: everyone lynches the name below them.</i>\n")
+STANDIN_LYNCH_SET = N_("Lynch order set.\n")
+STANDIN_LYNCH_RESET = N_("Lynch order cleared \N{EM DASH} back to the rotating order.\n")
+# Nobody alive to order. A session exists but the roster is empty or everyone is dead.
+STANDIN_LYNCH_NOBODY = N_("There is nobody left to lynch.")
+# These commands answer only when addressed (<code>/lo@{username}</code>), so a session-less
+# chat gets told rather than ignored: somebody who named this bot outright is owed an answer.
+STANDIN_LYNCH_NO_SESSION = N_(
+    "No game is running here. Reply to the game bot's player list with <code>/gs@{username}</code> to start one."
+)
+STANDIN_LYNCH_NOT_YOURS = N_("Only this game's players and the group's admins can change the lynch order.")
+# A typed order is stored as-is and re-rendered, so its length is capped where it is set
+# rather than discovered when Telegram refuses the reply.
+STANDIN_LYNCH_TOO_LONG = N_("That's too long for a lynch order ({count} characters, limit {limit}).")
+
 STANDIN_AD_USAGE = N_("Reply to the game bot's player list with <code>/ad</code> and I'll follow it.")
 # The roster states its own counts ("Players Alive: 11/16"), so a parse can be checked
 # before it is applied. It is applied as a full reset — anyone the game bot lists is alive,
