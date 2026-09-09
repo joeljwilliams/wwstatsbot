@@ -660,15 +660,22 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Ending ----------------------------------------------------------------
 
 
-async def _may_stop(context, chat_id, session_data, user_id):
-    """Who can end a session: its players, and the group's admins.
+async def _may_manage(context, chat_id, session_data, user_id):
+    """Who can act on somebody else's behalf in a session: its players, and the admins.
 
-    The roster check comes first because it costs nothing — players stopping their own
-    game is the common case, and only the unusual one is worth an API call for.
+    The roster check comes first because it costs nothing — a player acting on their own
+    game is the common case, and only the unusual one is worth an API call for. A group
+    admin is not necessarily playing, and is the person who notices something needs fixing
+    from outside the roster.
     """
     if session.is_member(session_data, user_id):
         return True
     return await is_chat_admin(context, chat_id, user_id) or await is_admin_user(user_id)
+
+
+async def _may_stop(context, chat_id, session_data, user_id):
+    """Who can end a session. See _may_manage — ending it is one of the things it covers."""
+    return await _may_manage(context, chat_id, session_data, user_id)
 
 
 async def _announce_stopped(context, chat_id, user_id, name):
