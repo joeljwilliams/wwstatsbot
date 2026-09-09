@@ -337,19 +337,57 @@ def revealed_roles(session, alive_only=True):
 # stored verbatim and wins until it is cleared.
 
 
-def set_lynch_order(session, text):
-    """Store a typed lynch order, or clear it with None. Returns what is now in force."""
-    session["lynch_order"] = text or None
+def set_lynch_order(session, value):
+    """Store a lynch order, or clear it with None. Returns what is now in force.
+
+    Two shapes go in this one field, and which one it is says how to render it:
+
+    * a **list of user ids** — an order somebody named player by player, so names and
+      aliveness are resolved at render time and a rename cannot leave a stale label;
+    * a **string** — free text nobody could resolve to players, printed verbatim.
+
+    One field rather than two because they are alternatives, never both, and because
+    `isinstance` tells them apart with no tag to keep in sync. Both survive JSON: a list of
+    ints comes back as a list of ints.
+    """
+    session["lynch_order"] = value if value else None
     return session["lynch_order"]
 
 
 def lynch_order(session):
-    """The typed lynch order, or None when the rotating one is in force.
+    """The stored lynch order — ids, text, or None when the rotating one is in force.
 
     `.get()` rather than `[]`: sessions started before this field existed are still in
     Redis, and one of them must not take a command down.
     """
     return session.get("lynch_order")
+
+
+def lynch_order_players(session, ids):
+    """The living players among `ids`, in the order given, as (user_id, name) pairs.
+
+    Resolved on every render rather than stored, so the order follows a rename, and a
+    player who dies after it was set drops out instead of being an instruction pointing at
+    a corpse. Unknown ids are skipped: the roster can only shrink under us.
+    """
+    found = []
+    for uid in ids:
+        entry = player(session, uid)
+        if entry is not None and entry["alive"]:
+            found.append((uid, entry["name"]))
+    return found
+
+
+def close_lynch_cycle(players):
+    """Repeat the first player at the end, which is what makes an order a lynch order.
+
+    Everybody lynches the player below them, so the repeat closes the cycle and hands every
+    player exactly one vote. A single survivor is left alone: there is nobody below them,
+    and the closed form would tell them to lynch themselves.
+    """
+    if len(players) < 2:
+        return list(players)
+    return list(players) + [players[0]]
 
 
 def rotating_lynch_order(session):
@@ -367,13 +405,7 @@ def rotating_lynch_order(session):
     once at render time.
     """
     players = [(uid, entry["name"]) for uid, entry in players_in_order(session) if entry["alive"]]
-    if not players:
-        return []
-    # A single survivor has nobody below them; the cycle would tell them to lynch
-    # themselves, so it is left as the one player.
-    if len(players) == 1:
-        return players
-    return players + [players[0]]
+    return close_lynch_cycle(players)
 
 
 def revealed_count(session):

@@ -69,6 +69,38 @@ async def invoke(handler, context, text, user_id=1, name="Ren", reply_to=None):
     return msg
 
 
+def pointing(text, mentions=(), user_id=1, name="Ren", reply_to=None):
+    """An addressed command carrying a real text_mention entity for each player named.
+
+    Built rather than faked: an id in an entity is the only way these tests can be wrong
+    in the same direction production would be.
+    """
+    body = text
+    entities = [FakeEntity("bot_command", offset=0, length=len(text.split()[0]))]
+    for uid, uname in mentions:
+        body += " "
+        entities.append(FakeEntity("text_mention", offset=len(body), length=len(uname), user=FakeUser(uid, uname)))
+        body += uname
+    return FakeMessage(text=body, from_user=FakeUser(user_id, name), reply_to_message=reply_to, entities=entities)
+
+
+def handle_mention(text, handles, user_id=1, name="Ren"):
+    """An addressed command carrying @handle MENTION entities, which carry no id at all."""
+    body = text
+    entities = [FakeEntity("bot_command", offset=0, length=len(text.split()[0]))]
+    for handle in handles:
+        body += " "
+        entities.append(FakeEntity("mention", offset=len(body), length=len(handle)))
+        body += handle
+    return FakeMessage(text=body, from_user=FakeUser(user_id, name), entities=entities)
+
+
+async def run(context, msg):
+    context.args = msg.text.split()[1:]
+    await gamesession.set_lynch_order_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
 async def show(context, **kwargs):
     return await invoke(gamesession.lynch_order_cmd, context, "/lo@wwstatsbot", **kwargs)
 
@@ -430,3 +462,160 @@ async def test_ending_a_session_forgets_the_order(context):
     session.end(context.chat_data)
     await start_session(context)
     assert session.lynch_order(session.get(context.chat_data)) is None
+
+
+# --- Naming players: @handle, a tapped mention, or an id ---------------------------
+
+
+async def test_tapped_mentions_become_the_order(context):
+    """The order is the players named, in the order named, rendered as mentions."""
+    await start_session(context)
+    msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (3, "J J"), (1, "Ren")]))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [2, 3, 1]
+    assert msg.last_reply == (
+        "The lynchorder was set by <a href='tg://user?id=1'>Ren</a>\n"
+        "<b>Lynchorder</b> <i>(set)</i>:\n"
+        "<a href='tg://user?id=2'>omu</a>\n"
+        "<a href='tg://user?id=3'>J J</a>\n"
+        "<a href='tg://user?id=1'>Ren</a>\n"
+        "<a href='tg://user?id=2'>omu</a>\n"
+    )
+
+
+async def test_a_named_order_closes_the_cycle(context):
+    """Same mechanic as the rotating one: the first player is repeated at the bottom, so
+    everybody lynches the name below them and each receives exactly one vote."""
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (1, "Ren")]))
+    assert (await show(context)).last_reply.endswith("<a href='tg://user?id=2'>omu</a>\n")
+
+
+async def test_a_single_player_is_not_told_to_lynch_themselves(context):
+    """Which is also what "/slo @somebody" means on its own: one target, one mention."""
+    await start_session(context)
+    msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu")]))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [2]
+    assert msg.last_reply.count("tg://user?id=2") == 1
+
+
+async def test_a_bare_user_id_names_a_player(context):
+    """The one typed form that cannot be misread, and it is checked against the roster."""
+    await start_session(context)
+    msg = await run(context, pointing("/slo@wwstatsbot 3 2"))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [3, 2]
+    assert "<a href='tg://user?id=3'>J J</a>" in msg.last_reply
+
+
+async def test_an_at_handle_names_a_player_the_roster_taught_us(context):
+    """A plain @handle carries no id. The roster's own mentions taught us the mapping."""
+    current = await start_session(context)
+    session.set_username(current, 2, "omu_plays")
+
+    msg = await run(context, handle_mention("/slo@wwstatsbot", ["@omu_plays"]))
+    assert session.lynch_order(session.get(context.chat_data)) == [2]
+    assert "<a href='tg://user?id=2'>omu</a>" in msg.last_reply
+
+
+async def test_naming_somebody_twice_counts_once(context):
+    """Two votes to one player is exactly what the cycle exists to prevent."""
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (2, "omu"), (1, "Ren")]))
+    assert session.lynch_order(session.get(context.chat_data)) == [2, 1]
+
+
+async def test_a_named_order_follows_a_rename(context):
+    """Ids are stored, names resolved at render time, so a stale label is impossible."""
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (1, "Ren")]))
+    session.player(session.get(context.chat_data), 2)["name"] = "omu the second"
+
+    assert "omu the second" in (await show(context)).last_reply
+
+
+async def test_a_named_player_who_dies_later_drops_out(context):
+    """Unlike free text, a named order is a list of players — and a corpse in it would be
+    an instruction pointing at one."""
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (3, "J J"), (1, "Ren")]))
+    session.set_alive(session.get(context.chat_data), 3, False)
+
+    reply = (await show(context)).last_reply
+    assert "J J" not in reply
+    assert "omu" in reply and "Ren" in reply
+
+
+async def test_naming_a_dead_player_says_who_was_left_out(context):
+    """Silently one name short of what somebody typed is worse than being told why."""
+    await start_session(context)
+    session.set_alive(session.get(context.chat_data), 3, False)
+    msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (3, "J J"), (1, "Ren")]))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [2, 1]
+    assert "already dead" in msg.last_reply
+    assert "J J" in msg.last_reply
+
+
+async def test_naming_only_dead_players_is_refused(context):
+    await start_session(context)
+    session.set_alive(session.get(context.chat_data), 3, False)
+    msg = await run(context, pointing("/slo@wwstatsbot", mentions=[(3, "J J")]))
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+    assert "already dead" in msg.last_reply
+
+
+async def test_a_mention_of_somebody_outside_the_roster_is_questioned_not_obeyed(context):
+    """The trap this guards: _pointed_at cuts every mention out of the text whether or not
+    it resolved, so a mistyped @handle arrives looking exactly like a bare /slo — which
+    would *reset* the order instead of asking what was meant."""
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (1, "Ren")]))
+    msg = await run(context, handle_mention("/slo@wwstatsbot", ["@nobody_here"]))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [2, 1], "the order stands"
+    assert "don't know who that is" in msg.last_reply
+
+
+async def test_free_text_still_works_alongside(context):
+    """Anything nobody could resolve to players is still stored and printed verbatim."""
+    await start_session(context)
+    msg = await run(context, pointing("/slo@wwstatsbot whoever shouts loudest"))
+
+    assert session.lynch_order(session.get(context.chat_data)) == "whoever shouts loudest"
+    assert "whoever shouts loudest" in msg.last_reply
+
+
+async def test_players_win_over_leftover_text(context):
+    """ "/slo @omu then @ren" is an order of two players, not a sentence about them."""
+    await start_session(context)
+    msg = await run(context, pointing("/slo@wwstatsbot then", mentions=[(2, "omu"), (1, "Ren")]))
+
+    assert session.lynch_order(session.get(context.chat_data)) == [2, 1]
+    assert "then" not in msg.last_reply
+
+
+async def test_a_named_order_survives_the_persistence_roundtrip(context):
+    """A list of ints has to come back as a list of ints, not as strings."""
+    from conftest import assert_json_roundtrips
+
+    await start_session(context)
+    await run(context, pointing("/slo@wwstatsbot", mentions=[(2, "omu"), (1, "Ren")]))
+    restored = assert_json_roundtrips(context.chat_data)
+
+    assert session.lynch_order(session.get(restored)) == [2, 1]
+    assert "<a href='tg://user?id=2'>omu</a>" in (await show(FakeContextWith(restored, context))).last_reply
+
+
+class FakeContextWith:
+    """The same context with restored chat_data, so the render path is exercised on what
+    came back out of JSON rather than on what went in."""
+
+    def __init__(self, chat_data, original):
+        self.chat_data = chat_data
+        self.bot = original.bot
+        self.args = []
+        self.job_queue = original.job_queue
+        self.bot_data = original.bot_data

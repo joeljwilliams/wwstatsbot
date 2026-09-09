@@ -487,6 +487,16 @@ STANDIN_LYNCH_HEADER = N_("<b>Lynchorder:</b>\n")
 STANDIN_LYNCH_HEADER_SET = N_("<b>Lynchorder</b> <i>(set)</i>:\n")
 STANDIN_LYNCH_ROW = N_("{name}\n")
 STANDIN_LYNCH_SET = N_("The lynchorder was set by {name}\n")
+# An order can be named player by player — @handle, a tapped mention, or a bare id — and
+# the dead among them are dropped rather than left in for somebody to be pointed at.
+STANDIN_LYNCH_SKIPPED_DEAD = N_("<i>Left out, already dead: {names}</i>\n")
+STANDIN_LYNCH_ALL_DEAD = N_("Everybody you named is already dead.")
+# A mistyped @handle is cut out of the text like any other mention, so without this it
+# would look exactly like a bare /slo and reset the order instead of being questioned.
+STANDIN_LYNCH_UNKNOWN = N_(
+    "I don't know who that is. Name players by @handle, by tapping their name, or by user id "
+    "\N{EM DASH} they have to be in this game's roster."
+)
 STANDIN_LYNCH_RESET = N_("The lynchorder was reset by {name}\n")
 # Nobody alive to order. A session exists but the roster is empty or everyone is dead.
 STANDIN_LYNCH_NOBODY = N_("There is nobody left to lynch.")

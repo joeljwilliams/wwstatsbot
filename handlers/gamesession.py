@@ -1449,6 +1449,18 @@ def _lynch_written(context, message, session_data):
     _schedule_idle(context, message.chat.id)
 
 
+def _named_somebody(message):
+    """Whether the message tried to point at a player, however unsuccessfully.
+
+    Only the *attempt* matters: it is what separates "you meant somebody I cannot find"
+    from "you gave me nothing", which are answered very differently.
+    """
+    for ent in message.entities or ():
+        if ent.type in (MessageEntity.TEXT_MENTION, MessageEntity.MENTION):
+            return True
+    return False
+
+
 def _sender_mention(message):
     """Whoever issued the command, as a mention. The incumbent names them; so do we."""
     return _mention(message.from_user.id, message.from_user.first_name)
@@ -1475,9 +1487,20 @@ def _render_lynch_order(session_data):
     rotating order is computed from the living roster instead, so it follows deaths with
     nobody re-typing anything.
     """
-    typed = session.lynch_order(session_data)
-    if typed:
-        return t.STANDIN_LYNCH_HEADER_SET + t.STANDIN_LYNCH_ROW.format(name=html.escape(typed)), True
+    stored = session.lynch_order(session_data)
+    if isinstance(stored, list):
+        # An order named player by player. Names and aliveness are resolved now, so it
+        # follows renames and drops anybody who has died since it was set.
+        players = session.close_lynch_cycle(session.lynch_order_players(session_data, stored))
+        if not players:
+            return t.STANDIN_LYNCH_NOBODY, False
+        msg = t.STANDIN_LYNCH_HEADER_SET
+        msg += "".join(t.STANDIN_LYNCH_ROW.format(name=_mention(uid, name)) for uid, name in players)
+        return msg, True
+    if stored:
+        # Free text nobody could resolve to players: printed verbatim, and the one place
+        # this module renders text it did not compose.
+        return t.STANDIN_LYNCH_HEADER_SET + t.STANDIN_LYNCH_ROW.format(name=html.escape(stored)), True
 
     players = session.rotating_lynch_order(session_data)
     if not players:
@@ -1538,11 +1561,42 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         await message.reply_text(t.STANDIN_LYNCH_NOT_YOURS, parse_mode=ParseMode.HTML)
         return
 
-    # Typed arguments win over a reply: naming an order outright is the more specific
-    # instruction, and a reply is what somebody uses when the order is already written down
-    # somewhere. The replied-to message may be a photo caption, hence both.
+    # Players first. @handle, a tapped mention and a bare id are all resolved against the
+    # roster by _pointed_at, exactly as every other command in this module resolves who it
+    # was pointed at — so a lynch order can be named player by player and rendered as
+    # mentions, rather than being text that happens to contain names.
+    ids, remainder = _pointed_at(message, session_data)
+    if ids:
+        living = session.lynch_order_players(session_data, ids)
+        if not living:
+            await message.reply_text(t.STANDIN_LYNCH_ALL_DEAD, parse_mode=ParseMode.HTML)
+            return
+        session.set_lynch_order(session_data, [uid for uid, _ in living])
+        _lynch_written(context, message, session_data)
+        rendered, _ = _render_lynch_order(session_data)
+        reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)) + rendered
+        # Dropped players are named rather than silently left out: an order one name short
+        # of what somebody typed is worse than being told why.
+        dropped = [uid for uid in ids if uid not in {luid for luid, _ in living}]
+        if dropped:
+            reply += t.STANDIN_LYNCH_SKIPPED_DEAD.format(
+                names=", ".join(_mention_player(session_data, uid) for uid in dropped)
+            )
+        await message.reply_text(reply, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        return
+
+    # A mention that resolved to nobody must not be read as "no arguments" — _pointed_at
+    # cuts every mention out of the text whether or not it matched, so a mistyped @handle
+    # would otherwise arrive here looking exactly like a bare /slo and *reset* the order.
+    if _named_somebody(message) and not remainder:
+        await message.reply_text(t.STANDIN_LYNCH_UNKNOWN, parse_mode=ParseMode.HTML)
+        return
+
+    # Otherwise it is free text. Arguments win over a reply: naming an order outright is
+    # the more specific instruction, and a reply is what somebody uses when the order is
+    # already written down somewhere. The replied-to message may be a caption, hence both.
     replied = message.reply_to_message
-    wanted = " ".join(context.args).strip()
+    wanted = remainder
     if not wanted and replied is not None:
         wanted = ((replied.text or replied.caption) or "").strip()
 

@@ -290,6 +290,15 @@ addressed** — `/lo@wwstatsbot`, never a bare `/lo`, because these are short wo
 bot in the room may own. Being addressed also changes what silence means: unlike the
 incumbent's command words, a chat with no session is *told* so rather than ignored.
 
+`/slo` names players three ways — `@handle`, a tapped mention, or a bare user id — all
+resolved against the roster by the same `_pointed_at` every other command in the module
+uses. A named order is stored as a **list of ids**, so names and aliveness resolve at
+render time: it follows a rename and drops a player who dies after it was set. Anything
+that resolves to nobody is stored as free text instead, *except* a mention that failed to
+match — `_pointed_at` cuts every mention out of the text whether or not it resolved, so a
+mistyped `@handle` would otherwise look exactly like a bare `/slo` and silently reset the
+order. That case is questioned instead.
+
 The rotating order is computed from the **living** roster on demand — the first name
 repeated at the bottom, so everybody lynches the name below them and each player receives
 exactly one vote — so it follows deaths with nobody re-typing it, and a dead player is
