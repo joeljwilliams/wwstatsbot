@@ -32,7 +32,7 @@ import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, Forbidden
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
 import api
@@ -105,10 +105,43 @@ def _addressed_to_us(message, username):
 # choice about which bot runs their games must not quietly revert on a deploy.
 _GM_KEY = "game_management"
 
+# The third state, stored as a string in the same key rather than as a second flag: the
+# three are exclusive, and two keys could disagree about whether a chat that is automatic
+# is also managed. Old chat_data holds a plain bool, which still reads correctly as on/off.
+_GM_AUTO = "auto"
+
+# Which bot in this chat runs the games. Learned, never guessed — see _learn_game_bot.
+_GAME_BOT_KEY = "game_bot_id"
+
 
 def is_managing(context):
-    """Whether this chat has switched game management on. Default off."""
+    """Whether this chat has switched game management on. Default off. Auto counts."""
     return bool(context.chat_data.get(_GM_KEY))
+
+
+def is_auto(context):
+    """Whether this chat also asked us to drive the session from the game bot's messages."""
+    return context.chat_data.get(_GM_KEY) == _GM_AUTO
+
+
+def _learn_game_bot(context, roster):
+    """Remember which bot in this chat runs the games, from a list we just read.
+
+    The one thing the automation below cannot work out for itself. A group has several bots
+    in it, and a roster-shaped message is not proof of anything — so the answer is whichever
+    bot a human ran /gs or /ad against, recorded the moment they do. One /gs per chat, ever,
+    and `/gm auto` has something to follow.
+
+    Recorded only from a list we could actually read, because a reply to the wrong message
+    is how somebody would otherwise teach us that a quiz bot runs the games here.
+    """
+    sender = getattr(roster, "from_user", None)
+    if sender is None or not sender.is_bot or sender.id == context.bot.id:
+        return
+    if context.chat_data.get(_GAME_BOT_KEY) == sender.id:
+        return
+    context.chat_data[_GAME_BOT_KEY] = sender.id
+    logger.info("standin_game_bot_learned", chat_id=roster.chat.id, game_bot_id=sender.id)
 
 
 async def _ours_to_answer(update, context):
@@ -421,6 +454,8 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if await _open_session(context, message.chat.id, user.id, replied) is None:
         await message.reply_text(t.STANDIN_NO_PLAYERS, parse_mode=ParseMode.HTML)
+        return
+    _learn_game_bot(context, replied)
 
 
 async def _load_attained(session_data, players):
@@ -1242,6 +1277,7 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    _learn_game_bot(context, replied)
     died, revived, learned, changes = await _follow_roster(context, message.chat.id, session_data, replied, alive_ids)
 
     if not died and not revived and not learned and not changes:
@@ -1550,12 +1586,32 @@ async def _idle_end(context):
 # --- /gm -------------------------------------------------------------------
 
 
+async def _auto_confirmation(context, chat_id):
+    """What to say when a chat switches to `/gm auto`, given what can actually happen.
+
+    Three answers, because there are three states and only one of them is "it works". The
+    automation depends on Telegram delivering another bot's messages, which it does only to
+    a group admin, and on knowing which bot to follow — neither of which this command can
+    arrange. Silence would be the worst reply of the three: a group would sit there with the
+    switch on, nothing happening, and no way to find out why.
+    """
+    if not await is_chat_admin(context, chat_id, context.bot.id):
+        return t.STANDIN_GM_AUTO_NEEDS_ADMIN
+    if context.chat_data.get(_GAME_BOT_KEY) is None:
+        return t.STANDIN_GM_AUTO_UNLEARNED.format(username=html.escape(context.bot.username or ""))
+    return t.STANDIN_GM_AUTO
+
+
 async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """`/gm [on|off]` — hand this chat's game management to this bot, or take it back.
+    """`/gm [on|off|auto]` — hand this chat's game management to this bot, or take it back.
 
     Answered when addressed, and also bare once management is on, so `/gm off` can be typed
     the same way as everything else it governs. Turning it *on* needs the address, which is
     what stops a bare `/gm` in somebody else's room being ours to act on.
+
+    `auto` is `on` plus running the session off the game bot's own messages — a third state
+    rather than the meaning of `on`, so that a group already running games this way does not
+    silently start having its rosters opened for it by a deploy.
 
     The group's own admins decide, not this bot's: it is a statement about their room.
     """
@@ -1572,8 +1628,13 @@ async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     wanted = args[0].lower() if args else ""
-    if wanted not in ("on", "off"):
-        state = t.STANDIN_GM_STATE_ON if is_managing(context) else t.STANDIN_GM_STATE_OFF
+    if wanted not in ("on", "off", _GM_AUTO):
+        if is_auto(context):
+            state = t.STANDIN_GM_STATE_AUTO
+        elif is_managing(context):
+            state = t.STANDIN_GM_STATE_ON
+        else:
+            state = t.STANDIN_GM_STATE_OFF
         await message.reply_text(t.STANDIN_GM_STATE.format(state=state), parse_mode=ParseMode.HTML)
         return
 
@@ -1583,8 +1644,11 @@ async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         await message.reply_text(t.STANDIN_GM_ADMINS_ONLY, parse_mode=ParseMode.HTML)
         return
 
-    context.chat_data[_GM_KEY] = wanted == "on"
-    logger.info("standin_management", chat_id=message.chat.id, user_id=user.id, enabled=wanted == "on")
+    context.chat_data[_GM_KEY] = _GM_AUTO if wanted == _GM_AUTO else wanted == "on"
+    logger.info("standin_management", chat_id=message.chat.id, user_id=user.id, mode=wanted)
+    if wanted == _GM_AUTO:
+        await message.reply_text(await _auto_confirmation(context, message.chat.id), parse_mode=ParseMode.HTML)
+        return
     if wanted == "on":
         await message.reply_text(t.STANDIN_GM_ON, parse_mode=ParseMode.HTML)
         return
@@ -1596,6 +1660,149 @@ async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     await message.reply_text(
         t.STANDIN_GM_OFF.format(username=html.escape(context.bot.username or "")), parse_mode=ParseMode.HTML
     )
+
+
+# --- Driving the session from the game bot itself --------------------------
+#
+# Bot API 10.0 (May 2026) added bot-to-bot communication, and with it the manual half of
+# this module became avoidable: /gs to open a roster, /ad to follow it and /gsend to close
+# it were all somebody retyping what the game bot had just posted in the same chat.
+#
+# Telegram delivers another bot's *unaddressed* group messages only when all three of these
+# hold, and tells us which one is missing by staying silent:
+#
+#   * Bot-to-Bot Communication Mode is on for this bot in @BotFather,
+#   * this bot is an **admin** in the group,
+#   * this bot's Group Privacy Mode is off.
+#
+# So nothing here can be assumed to arrive. A chat with /gm auto on and no delivery has to
+# look like a chat with /gm off — silent — rather than broken, which is why all of this is
+# additive: the three commands still work, and a human doing it by hand still wins.
+#
+# Loop prevention is a documented requirement of the feature, not a nicety, since two bots
+# answering each other in a group has no natural end. Three things bound it: only the one
+# learned game bot is ever read, a message id is acted on once, and the only path that
+# costs API calls — opening a session, one stats lookup per player — has a floor under it.
+
+# The game bot's closing message is the only one in the whole engine that carries this:
+# "Game Length: 00:14:22", appended once, at game end. Matched instead of the win messages
+# because those are GIF captions that differ in every one of the game's hundred-odd
+# language variants, while this one is a single string in a single place.
+_GAME_OVER = re.compile(r"Game\s+Length:\s*\d+:\d\d:\d\d")
+
+# A game bot posts a player list every phase it changed in, so the expensive path is worth
+# a floor and the cheap ones are not: following a roster is local work plus an edit the
+# publish debounce already coalesces, while opening a session is one stats API call per
+# player. Sixty seconds is longer than a game takes to start twice.
+_AUTO_OPEN_FLOOR_SECONDS = 60
+_AUTO_OPEN_KEY = "game_bot_opened_at"
+_AUTO_SEEN_KEY = "game_bot_seen_message_id"
+
+
+class _SenderIsBot(filters.MessageFilter):
+    """Messages another bot posted. PTB has no filter for this, because until Bot API 10.0
+    there was no such update to filter: a bot never saw another bot speak."""
+
+    __slots__ = ()
+
+    def filter(self, message):
+        return bool(message.from_user is not None and message.from_user.is_bot)
+
+
+FROM_A_BOT = _SenderIsBot(name="wwstatsbot.FROM_A_BOT")
+
+
+async def game_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Everything another bot says in a group arrives here, and goes no further.
+
+    Registered ahead of every command handler and always stopping the update, which is what
+    makes enabling bot-to-bot communication safe rather than a new way to be driven. The
+    command words this module answers belong to the *real* manager and several are answered
+    bare once /gm is on, so a bot in the room posting `/gs` or `/gm off` — for its own
+    reasons, or by echoing somebody — would otherwise be issuing them to us. Nothing else in
+    this bot has ever seen a bot's message and nothing else should start.
+
+    The stop is unconditional, and the work is wrapped, because PTB hands an update to the
+    *next* handler group when an error handler does not claim it: an exception in here would
+    otherwise leak the message into exactly the handlers this exists to shield.
+    """
+    try:
+        await _drive_session(update, context)
+    except Exception:
+        # Nothing but the stop may follow this, so the log line reads nothing off the
+        # update: raising while reporting a failure would skip the stop and leak the
+        # message into the very handlers this shields.
+        logger.exception("game_bot_message_failed")
+    raise ApplicationHandlerStop
+
+
+async def _drive_session(update, context):
+    """Open, follow or close this chat's session from what the game bot just said."""
+    message = update.message
+    if message is None or message.chat.type not in ("group", "supergroup"):
+        return
+    # Cheapest first, and both are answered out of chat_data: a chat that has not asked for
+    # this must cost nothing to skip, because with the switch off this handler still sees
+    # every message every bot in the room posts.
+    if not is_auto(context):
+        return
+    sender = message.from_user
+    if sender is None or sender.id == context.bot.id:
+        return
+    if sender.id != context.chat_data.get(_GAME_BOT_KEY):
+        # Another bot in the room, or one nobody has pointed us at yet. A roster-shaped
+        # message is not proof of anything — see _learn_game_bot.
+        return
+    if context.chat_data.get(_AUTO_SEEN_KEY) == message.message_id:
+        return
+    context.chat_data[_AUTO_SEEN_KEY] = message.message_id
+
+    session_data = session.get(context.chat_data)
+    body = message.text or message.caption or ""
+
+    # The ending is checked first because the closing message carries a player list of its
+    # own — a "Players Alive: 3 / 12" header over every player, the dead ones mentioned too
+    # — and reading that as a roster would raise the dead in the last thing anybody sees.
+    # The count guard in _read_roster refuses it as well; this is the reason it never gets
+    # that far.
+    if _GAME_OVER.search(body):
+        if session_data is not None:
+            session.end(context.chat_data)
+            await _finish(context, message.chat.id, session_data)
+            logger.info("standin_auto_ended", chat_id=message.chat.id)
+        return
+
+    alive_ids, found, claimed, _ = _read_roster(message, session_data)
+    if alive_ids is None:
+        # Everything else the game bot says, which is most of what it says. Logged rather
+        # than answered: an automatic path that complained about every message it could not
+        # read would be a bot talking over a game.
+        if claimed != "?":
+            logger.info("standin_auto_roster_ignored", chat_id=message.chat.id, claimed=claimed, found=found)
+        return
+
+    if session_data is None:
+        if _now() - (context.chat_data.get(_AUTO_OPEN_KEY) or 0) < _AUTO_OPEN_FLOOR_SECONDS:
+            logger.info("standin_auto_open_throttled", chat_id=message.chat.id)
+            return
+        context.chat_data[_AUTO_OPEN_KEY] = _now()
+        # started_by is this bot: nobody started this one, and the roster message it posts
+        # is the only announcement it needs.
+        await _open_session(context, message.chat.id, context.bot.id, message)
+        return
+
+    _, _, _, changes = await _follow_roster(context, message.chat.id, session_data, message, alive_ids)
+    logger.info("standin_auto_followed", chat_id=message.chat.id, alive=len(alive_ids))
+    # Deaths need no announcement — the roster message shows them a few seconds later. A
+    # transform does: it is the one thing in a follow that nobody in the chat can see for
+    # themselves, and it was only ever visible as part of /ad's reply.
+    if changes:
+        await context.bot.send_message(
+            chat_id=message.chat.id,
+            text=_transform_lines(session_data, changes).strip(),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
 
 
 # --- Lynch order -----------------------------------------------------------

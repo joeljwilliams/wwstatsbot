@@ -301,6 +301,30 @@ def test_persistence_is_enabled_with_redis(monkeypatch):
     assert isinstance(application().persistence, RedisPersistence)
 
 
+def test_the_bot_message_shield_runs_before_every_command():
+    """Another bot's message must reach the game-bot watcher and nothing else in the table.
+
+    That is only true from a handler group *ahead* of the commands: PTB works through the
+    groups in order and the watcher stops the update in the first one. Registered alongside
+    the commands instead, a bare `/gs` or `/gm off` posted by some other bot in the room
+    would be a command issued to us — which is what enabling bot-to-bot communication would
+    otherwise have made possible.
+    """
+    app = application()
+    shield = [
+        group
+        for group, handlers in app.handlers.items()
+        for handler in handlers
+        if getattr(handler, "callback", None) is gamesession.game_bot_message
+    ]
+    commands = [
+        group for group, handlers in app.handlers.items() for handler in handlers if isinstance(handler, CommandHandler)
+    ]
+
+    assert len(shield) == 1, "the game-bot watcher is not registered"
+    assert shield[0] < min(commands)
+
+
 def test_the_handler_count_is_accounted_for():
     """A blunt backstop: if a handler is added or removed without updating this file,
     say so, so the lists above can't quietly fall behind the table."""
