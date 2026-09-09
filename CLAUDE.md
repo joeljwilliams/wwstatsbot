@@ -299,7 +299,8 @@ since "set it to nothing" and "go back to rotating" are the same instruction. It
 session-scoped on purpose (the rotating order is a fact about this roster, so an override
 of it means nothing next game), capped at `_LYNCH_ORDER_MAX` where it is set rather than
 where Telegram would refuse it, and read with `.get()` — sessions predating the field are
-still in Redis.
+still in Redis. Wording follows the incumbent's own reply ("Lynchorder:", "The lynchorder
+was reset by <name>") and every name is a mention, as in its list and our roster.
 
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;

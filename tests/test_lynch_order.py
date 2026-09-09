@@ -88,7 +88,12 @@ async def reset_order(context, **kwargs):
 def test_the_rotating_order_repeats_the_first_name_at_the_bottom():
     chat_data = {}
     session.start(chat_data, 1, ROSTER, [], 1000.0)
-    assert session.rotating_lynch_order(session.get(chat_data)) == ["Ren", "omu", "J J", "Ren"]
+    assert session.rotating_lynch_order(session.get(chat_data)) == [
+        (1, "Ren"),
+        (2, "omu"),
+        (3, "J J"),
+        (1, "Ren"),
+    ]
 
 
 def test_every_player_receives_exactly_one_vote():
@@ -96,7 +101,7 @@ def test_every_player_receives_exactly_one_vote():
     list hands each player exactly one vote and nobody two."""
     chat_data = {}
     session.start(chat_data, 1, ROSTER, [], 1000.0)
-    order = session.rotating_lynch_order(session.get(chat_data))
+    order = [name for _, name in session.rotating_lynch_order(session.get(chat_data))]
 
     votes = {}
     for _voter, target in zip(order[:-1], order[1:], strict=True):
@@ -108,7 +113,7 @@ def test_every_player_receives_exactly_one_vote():
 def test_nobody_lynches_themselves():
     chat_data = {}
     session.start(chat_data, 1, ROSTER, [], 1000.0)
-    order = session.rotating_lynch_order(session.get(chat_data))
+    order = [name for _, name in session.rotating_lynch_order(session.get(chat_data))]
     assert all(voter != target for voter, target in zip(order[:-1], order[1:], strict=True))
 
 
@@ -119,7 +124,7 @@ def test_the_dead_are_left_out():
     session.start(chat_data, 1, ROSTER, [], 1000.0)
     current = session.get(chat_data)
     session.set_alive(current, 2, False)
-    assert session.rotating_lynch_order(current) == ["Ren", "J J", "Ren"]
+    assert session.rotating_lynch_order(current) == [(1, "Ren"), (3, "J J"), (1, "Ren")]
 
 
 def test_a_lone_survivor_is_not_told_to_lynch_themselves():
@@ -128,7 +133,7 @@ def test_a_lone_survivor_is_not_told_to_lynch_themselves():
     current = session.get(chat_data)
     session.set_alive(current, 2, False)
     session.set_alive(current, 3, False)
-    assert session.rotating_lynch_order(current) == ["Ren"]
+    assert session.rotating_lynch_order(current) == [(1, "Ren")]
 
 
 def test_an_empty_roster_has_no_order():
@@ -145,20 +150,23 @@ async def test_lo_shows_the_rotating_order(context):
     msg = await show(context)
 
     assert msg.last_reply == (
-        "<b>Lynch order</b>\nRen\nomu\nJ J\nRen\n<i>Rotating: everyone lynches the name below them.</i>\n"
+        "<b>Lynchorder:</b>\n"
+        "<a href='tg://user?id=1'>Ren</a>\n"
+        "<a href='tg://user?id=2'>omu</a>\n"
+        "<a href='tg://user?id=3'>J J</a>\n"
+        "<a href='tg://user?id=1'>Ren</a>\n"
     )
 
 
 async def test_lo_says_which_order_it_is_showing(context):
     """A set order nobody remembers setting is otherwise indistinguishable from the
-    default, and the two behave differently when somebody dies."""
+    default, and the two behave differently when somebody dies. The incumbent has one mode
+    and says only "Lynchorder:", so the marker is ours to add."""
     await start_session(context)
-    assert "Rotating" in (await show(context)).last_reply
+    assert "(set)" not in (await show(context)).last_reply
 
     await set_order(context, "omu then Ren")
-    shown = (await show(context)).last_reply
-    assert "(set)" in shown
-    assert "Rotating" not in shown
+    assert "(set)" in (await show(context)).last_reply
 
 
 async def test_lo_follows_a_death_without_being_retyped(context):
@@ -175,11 +183,14 @@ async def test_a_name_with_brackets_is_escaped(context):
     assert BRACKETS not in reply
 
 
-async def test_lo_uses_plain_names_not_mentions(context):
-    """/lo is asked for repeatedly during a round, and a tappable mention notifies the
-    player every time it is. Nobody reading a sequence needs to tap it."""
+async def test_every_name_in_the_list_is_a_mention(context):
+    """As in the real manager's own lynchorder and this bot's roster: the list is read to
+    find yourself in it, and a plain name is neither tappable nor unambiguous when two
+    players have chosen similar ones."""
     await start_session(context)
-    assert "tg://user" not in (await show(context)).last_reply
+    reply = (await show(context)).last_reply
+    for uid, name in ROSTER:
+        assert "<a href='tg://user?id={}'>{}</a>".format(uid, name) in reply
 
 
 async def test_lo_when_everyone_is_dead_says_so(context):
@@ -241,7 +252,8 @@ async def test_slo_sets_a_typed_order(context):
     msg = await set_order(context, "omu then Ren then J J")
 
     assert session.lynch_order(session.get(context.chat_data)) == "omu then Ren then J J"
-    assert "Lynch order set" in msg.last_reply
+    assert "The lynchorder was set by" in msg.last_reply
+    assert "<a href='tg://user?id=1'>Ren</a>" in msg.last_reply, "and by whom"
     assert "omu then Ren then J J" in msg.last_reply
 
 
@@ -259,7 +271,7 @@ async def test_slo_takes_the_replied_to_message_when_given_no_argument(context):
     msg = await set_order(context, reply_to=written_down)
 
     assert session.lynch_order(session.get(context.chat_data)) == "J J\nomu\nRen\nJ J"
-    assert "Lynch order set" in msg.last_reply
+    assert "The lynchorder was set by" in msg.last_reply
 
 
 async def test_a_typed_argument_beats_a_reply(context):
@@ -287,8 +299,8 @@ async def test_slo_with_nothing_to_set_resets(context):
     msg = await set_order(context)
 
     assert session.lynch_order(session.get(context.chat_data)) is None
-    assert "cleared" in msg.last_reply
-    assert "Rotating" in msg.last_reply, "and it shows what is now in force"
+    assert "The lynchorder was reset by" in msg.last_reply
+    assert "<b>Lynchorder:</b>" in msg.last_reply, "and it shows what is now in force"
 
 
 async def test_an_order_that_is_only_whitespace_resets(context):
@@ -331,15 +343,15 @@ async def test_rslo_clears_a_typed_order(context):
     msg = await reset_order(context)
 
     assert session.lynch_order(session.get(context.chat_data)) is None
-    assert "cleared" in msg.last_reply
-    assert "Ren\nomu\nJ J\nRen" in msg.last_reply, "the rotating order is shown, not just named"
+    assert "The lynchorder was reset by" in msg.last_reply
+    assert "<a href='tg://user?id=2'>omu</a>" in msg.last_reply, "the order is shown, not just named"
 
 
 async def test_rslo_on_an_already_rotating_order_is_harmless(context):
     await start_session(context)
     msg = await reset_order(context)
     assert session.lynch_order(session.get(context.chat_data)) is None
-    assert "cleared" in msg.last_reply
+    assert "The lynchorder was reset by" in msg.last_reply
 
 
 # --- Who may change it -----------------------------------------------------------
@@ -348,7 +360,7 @@ async def test_rslo_on_an_already_rotating_order_is_harmless(context):
 async def test_a_player_may_set_it(context):
     await start_session(context)
     msg = await set_order(context, "omu first", user_id=2, name="omu")
-    assert "Lynch order set" in msg.last_reply
+    assert "The lynchorder was set by" in msg.last_reply
 
 
 async def test_a_passer_by_may_not(context):
@@ -369,14 +381,14 @@ async def test_a_group_admin_may(context):
     await start_session(context)
     msg = await set_order(context, "by an admin", user_id=777, name="Chat Admin")
     assert session.lynch_order(session.get(context.chat_data)) == "by an admin"
-    assert "Lynch order set" in msg.last_reply
+    assert "The lynchorder was set by" in msg.last_reply
 
 
 async def test_a_passer_by_may_still_read_it(context):
     """Reading is harmless, and refusing it would be unhelpful to a spectator."""
     await start_session(context)
     msg = await show(context, user_id=777, name="Passer By")
-    assert "Lynch order" in msg.last_reply
+    assert "Lynchorder" in msg.last_reply
 
 
 # --- State ------------------------------------------------------------------------
@@ -397,7 +409,7 @@ async def test_a_session_predating_the_field_still_works(context):
     await start_session(context)
     del session.get(context.chat_data)["lynch_order"]
     msg = await show(context)
-    assert "Rotating" in msg.last_reply
+    assert "<b>Lynchorder:</b>" in msg.last_reply
 
 
 async def test_setting_the_order_counts_as_activity(context):

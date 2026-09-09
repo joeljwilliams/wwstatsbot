@@ -474,17 +474,20 @@ STANDIN_DOUSED_ROW = N_("\N{FIRE} {name}\n")
 # name repeated at the bottom: everybody lynches the player below them, which closes the
 # cycle and gives every player exactly one vote. A typed order replaces it verbatim.
 #
-# Names are rendered as plain text, not mentions, unlike the roster: /lo is asked for
-# repeatedly during a round, and a tappable mention notifies the player every time. Nobody
-# reading a sequence needs to tap it.
-STANDIN_LYNCH_HEADER = N_("<b>Lynch order</b>\n")
-STANDIN_LYNCH_HEADER_SET = N_("<b>Lynch order</b> <i>(set)</i>\n")
+# Worded to match the incumbent, like the rest of this module: its own reply is
+# "Lynchorder:" over one mention per line, and "The lynchorder was reset by <name>". A
+# stand-in that invented its own phrasing would read as a different tool at the moment
+# people are looking for a familiar one.
+#
+# Every name is a mention, as in the real manager's list and this bot's own roster.
+STANDIN_LYNCH_HEADER = N_("<b>Lynchorder:</b>\n")
+# Ours has two modes and the incumbent has one, so a typed order says so — a set order
+# nobody remembers setting is otherwise indistinguishable from the rotating default, and
+# the two behave differently the moment somebody dies.
+STANDIN_LYNCH_HEADER_SET = N_("<b>Lynchorder</b> <i>(set)</i>:\n")
 STANDIN_LYNCH_ROW = N_("{name}\n")
-# The rotating order is what a group gets without doing anything, so /lo says which one it
-# is looking at — a set order that nobody remembers setting is otherwise indistinguishable.
-STANDIN_LYNCH_ROTATING_NOTE = N_("<i>Rotating: everyone lynches the name below them.</i>\n")
-STANDIN_LYNCH_SET = N_("Lynch order set.\n")
-STANDIN_LYNCH_RESET = N_("Lynch order cleared \N{EM DASH} back to the rotating order.\n")
+STANDIN_LYNCH_SET = N_("The lynchorder was set by {name}\n")
+STANDIN_LYNCH_RESET = N_("The lynchorder was reset by {name}\n")
 # Nobody alive to order. A session exists but the roster is empty or everyone is dead.
 STANDIN_LYNCH_NOBODY = N_("There is nobody left to lynch.")
 # These commands answer only when addressed (<code>/lo@{username}</code>), so a session-less

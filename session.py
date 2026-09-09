@@ -353,23 +353,27 @@ def lynch_order(session):
 
 
 def rotating_lynch_order(session):
-    """The living roster with the first name repeated at the end.
+    """The living roster as (user_id, name) pairs, with the first repeated at the end.
 
-    Everybody lynches the player below them, so repeating the first name closes the cycle
+    Everybody lynches the player below them, so repeating the first player closes the cycle
     and every player receives exactly one vote — which is the whole point, and is why the
     list is one longer than the roster.
 
     The *living* roster: a dead player can neither vote nor be voted for, so leaving them
     in would hand two players an instruction pointing at a corpse.
+
+    Ids as well as names, because the rendered list mentions each player, and a mention
+    needs the id. Names are unescaped here as everywhere in this module; escaping happens
+    once at render time.
     """
-    names = [entry["name"] for _, entry in players_in_order(session) if entry["alive"]]
-    if not names:
+    players = [(uid, entry["name"]) for uid, entry in players_in_order(session) if entry["alive"]]
+    if not players:
         return []
     # A single survivor has nobody below them; the cycle would tell them to lynch
-    # themselves, so it is left as the one name.
-    if len(names) == 1:
-        return names
-    return names + [names[0]]
+    # themselves, so it is left as the one player.
+    if len(players) == 1:
+        return players
+    return players + [players[0]]
 
 
 def revealed_count(session):

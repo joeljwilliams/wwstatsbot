@@ -1449,6 +1449,24 @@ def _lynch_written(context, message, session_data):
     _schedule_idle(context, message.chat.id)
 
 
+def _sender_mention(message):
+    """Whoever issued the command, as a mention. The incumbent names them; so do we."""
+    return _mention(message.from_user.id, message.from_user.first_name)
+
+
+def _lynch_reset_reply(message, session_data):
+    """The reply to a reset: who did it, then what is now in force.
+
+    The order is printed as well as announced, which the incumbent does not do. It is one
+    message either way, and the point of resetting is to see the rotating order — being
+    told it happened and then having to ask what it is would be a worse trade than a few
+    extra lines.
+    """
+    reply = t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message))
+    rendered, _ = _render_lynch_order(session_data)
+    return reply + rendered
+
+
 def _render_lynch_order(session_data):
     """The lynch order as it stands: (message_html, found_anything).
 
@@ -1461,12 +1479,11 @@ def _render_lynch_order(session_data):
     if typed:
         return t.STANDIN_LYNCH_HEADER_SET + t.STANDIN_LYNCH_ROW.format(name=html.escape(typed)), True
 
-    names = session.rotating_lynch_order(session_data)
-    if not names:
+    players = session.rotating_lynch_order(session_data)
+    if not players:
         return t.STANDIN_LYNCH_NOBODY, False
     msg = t.STANDIN_LYNCH_HEADER
-    msg += "".join(t.STANDIN_LYNCH_ROW.format(name=html.escape(name)) for name in names)
-    msg += t.STANDIN_LYNCH_ROTATING_NOTE
+    msg += "".join(t.STANDIN_LYNCH_ROW.format(name=_mention(uid, name)) for uid, name in players)
     return msg, True
 
 
@@ -1532,8 +1549,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not wanted:
         session.set_lynch_order(session_data, None)
         _lynch_written(context, message, session_data)
-        msg, _ = _render_lynch_order(session_data)
-        await message.reply_text(t.STANDIN_LYNCH_RESET + msg, parse_mode=ParseMode.HTML)
+        await message.reply_text(_lynch_reset_reply(message, session_data), parse_mode=ParseMode.HTML)
         return
 
     if len(wanted) > _LYNCH_ORDER_MAX:
@@ -1546,7 +1562,11 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     session.set_lynch_order(session_data, wanted)
     _lynch_written(context, message, session_data)
     msg, _ = _render_lynch_order(session_data)
-    await message.reply_text(t.STANDIN_LYNCH_SET + msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    await message.reply_text(
+        t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)) + msg,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1562,8 +1582,7 @@ async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TY
 
     session.set_lynch_order(session_data, None)
     _lynch_written(context, message, session_data)
-    msg, _ = _render_lynch_order(session_data)
-    await message.reply_text(t.STANDIN_LYNCH_RESET + msg, parse_mode=ParseMode.HTML)
+    await message.reply_text(_lynch_reset_reply(message, session_data), parse_mode=ParseMode.HTML)
 
 
 async def list_achievements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
