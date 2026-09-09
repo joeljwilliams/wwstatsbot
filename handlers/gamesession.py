@@ -359,6 +359,43 @@ async def _refresh_state(context, chat_id, session_data):
 # --- /gs -------------------------------------------------------------------
 
 
+async def _open_session(context, chat_id, starter_id, roster):
+    """Start a session for this chat from a game bot's player list. Returns it, or None.
+
+    None means the list mentioned nobody checkable, which is the one thing that makes a
+    player list unusable: only a text_mention carries a user id, and a roster keyed by
+    anything else could neither follow a rename nor be asked about at the stats API.
+    """
+    players, unresolved = mentioned_users(roster)
+    if not players:
+        return None
+
+    session_data = session.start(context.chat_data, starter_id, players, unresolved, _now())
+    # The roster's mentions carry whole User objects, so this is where every player's
+    # @handle is learned — after which a plain "@someone" in a later command resolves.
+    for handle, uid in mentioned_usernames(roster).items():
+        session.set_username(session_data, uid, handle)
+    await _load_attained(session_data, players)
+    msg, keyboard = render_state(session_data)
+    posted = await context.bot.send_message(
+        chat_id=chat_id,
+        text=msg,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    # The id is what every later edit needs; without it the roster would be re-posted on
+    # each reveal instead of updated.
+    if posted is not None:
+        session_data["state_message_id"] = posted.message_id
+        await _pin_state(context, chat_id, session_data, posted.message_id)
+    # A session nobody ever touches still has to expire, so the idle clock starts here
+    # rather than on the first reveal.
+    _schedule_idle(context, chat_id)
+    logger.info("standin_started", chat_id=chat_id, players=len(players), unresolved=len(unresolved))
+    return session_data
+
+
 async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/gs@wwstatsbot`, in reply to the game bot's player list, starts standing in."""
     message = update.message
@@ -382,34 +419,8 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    players, unresolved = mentioned_users(replied)
-    if not players:
+    if await _open_session(context, message.chat.id, user.id, replied) is None:
         await message.reply_text(t.STANDIN_NO_PLAYERS, parse_mode=ParseMode.HTML)
-        return
-
-    session_data = session.start(context.chat_data, user.id, players, unresolved, _now())
-    # The roster's mentions carry whole User objects, so this is where every player's
-    # @handle is learned — after which a plain "@someone" in a later command resolves.
-    for handle, uid in mentioned_usernames(replied).items():
-        session.set_username(session_data, uid, handle)
-    await _load_attained(session_data, players)
-    msg, keyboard = render_state(session_data)
-    posted = await context.bot.send_message(
-        chat_id=message.chat.id,
-        text=msg,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    # The id is what every later edit needs; without it the roster would be re-posted on
-    # each reveal instead of updated.
-    if posted is not None:
-        session_data["state_message_id"] = posted.message_id
-        await _pin_state(context, message.chat.id, session_data, posted.message_id)
-    # A session nobody ever touches still has to expire, so the idle clock starts here
-    # rather than on the first reveal.
-    _schedule_idle(context, message.chat.id)
-    logger.info("standin_started", chat_id=message.chat.id, players=len(players), unresolved=len(unresolved))
 
 
 async def _load_attained(session_data, players):
@@ -1141,6 +1152,62 @@ async def doused_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+def _read_roster(roster, session_data=None):
+    """What a game bot's player list says about who is alive.
+
+    Returns (alive_ids, found, claimed, total). Alive players are the mentions: the game
+    bot links every living player's name and leaves the dead as plain text, so this needs
+    no text parsing at all. With a session, the mentions are narrowed to players it already
+    knows — somebody who joined the game after it started is not ours to mark alive, and a
+    list naming them fails the count check rather than being half-applied.
+
+    **`alive_ids` is None when the list disagrees with its own header**, which is the guard
+    the whole reset rests on. `found`, `claimed` and `total` come back either way so a
+    refusal can quote all three; `claimed` and `total` are the header's own strings, or "?"
+    when there was no header to read.
+    """
+    mentioned, _ = mentioned_users(roster)
+    alive_ids = [uid for uid, _ in mentioned]
+    if session_data is not None:
+        alive_ids = [uid for uid in alive_ids if session.player(session_data, uid) is not None]
+    counts = _ROSTER_COUNTS.search(roster.text or roster.caption or "")
+    claimed = counts.group("alive") if counts else "?"
+    total = counts.group("total") if counts else "?"
+    if counts is None or int(claimed) != len(alive_ids):
+        return None, len(alive_ids), claimed, total
+    return alive_ids, len(alive_ids), claimed, total
+
+
+async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
+    """Apply a read player list to the session wholesale. Returns what it changed.
+
+    (died, revived, learned, changes) — `learned` being the display names whose role a
+    death notice taught us, and `changes` the transforms those deaths triggered.
+    """
+    died, revived = session.sync_alive(session_data, alive_ids)
+
+    # Dead rows name the role the player was. They carry no user id — the game bot stops
+    # linking a player once they are out — so they are matched by display name, and an
+    # ambiguous or unknown one skips *the role* only. Aliveness came from the mentions
+    # above and is never at risk from this.
+    learned = []
+    for name, role_text in _dead_rows(roster.text or roster.caption or ""):
+        uid = _roster_row_owner(session_data, name)
+        if uid is None:
+            continue
+        entry = session.player(session_data, uid)
+        if entry["roles"]:
+            continue
+        resolved = roles.resolve(role_text)
+        if resolved:
+            session.set_roles(session_data, uid, resolved)
+            learned.append(entry["name"])
+
+    changes = session.apply_transforms(session_data)
+    await _changed(context, chat_id, session_data)
+    return died, revived, learned, changes
+
+
 async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/ad` in reply to the game bot's roster — follow it wholesale.
 
@@ -1162,48 +1229,20 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_AD_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    # Alive players are the mentions: the game bot links every living player's name and
-    # leaves the dead as plain text, so this needs no text parsing at all.
-    alive, _ = mentioned_users(replied)
-    alive_ids = [uid for uid, _ in alive if session.player(session_data, uid) is not None]
-
-    body = replied.text or replied.caption or ""
-    counts = _ROSTER_COUNTS.search(body)
-    if counts is None or int(counts.group("alive")) != len(alive_ids):
-        claimed = counts.group("alive") if counts else "?"
-        total = counts.group("total") if counts else "?"
+    alive_ids, found, claimed, total = _read_roster(replied, session_data)
+    if alive_ids is None:
         await message.reply_text(
             t.STANDIN_AD_MISMATCH.format(
                 claimed=claimed,
                 total=total,
-                found=len(alive_ids),
-                plural="" if len(alive_ids) == 1 else "s",
+                found=found,
+                plural="" if found == 1 else "s",
             ),
             parse_mode=ParseMode.HTML,
         )
         return
 
-    died, revived = session.sync_alive(session_data, alive_ids)
-
-    # Dead rows name the role the player was. They carry no user id — the game bot stops
-    # linking a player once they are out — so they are matched by display name, and an
-    # ambiguous or unknown one skips *the role* only. Aliveness came from the mentions
-    # above and is never at risk from this.
-    learned = []
-    for name, role_text in _dead_rows(body):
-        uid = _roster_row_owner(session_data, name)
-        if uid is None:
-            continue
-        entry = session.player(session_data, uid)
-        if entry["roles"]:
-            continue
-        resolved = roles.resolve(role_text)
-        if resolved:
-            session.set_roles(session_data, uid, resolved)
-            learned.append(entry["name"])
-
-    changes = session.apply_transforms(session_data)
-    await _changed(context, message.chat.id, session_data)
+    died, revived, learned, changes = await _follow_roster(context, message.chat.id, session_data, replied, alive_ids)
 
     if not died and not revived and not learned and not changes:
         await message.reply_text(t.STANDIN_AD_NO_CHANGE, parse_mode=ParseMode.HTML)
