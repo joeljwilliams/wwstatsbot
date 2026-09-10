@@ -66,6 +66,11 @@ def start(chat_data, user_id, players, unresolved, now):
         "unresolved": list(unresolved),
         "state_message_id": None,
         "list_message_id": None,
+        # The roster message, once pinned. Stored rather than assumed from
+        # state_message_id, because it is the record of *us having pinned it*: without it
+        # a session that could not pin (no permission) would still try to unpin at the end
+        # and clear whatever pin the group actually has.
+        "pinned_message_id": None,
         "stop_armed_by": None,
         "stop_armed_at": None,
         # What the Beholder told us. The Beholder is *shown* the real Seer at the start of
@@ -73,6 +78,11 @@ def start(chat_data, user_id, players, unresolved, now):
         # question for everybody else — see set_no_seer/set_seer.
         "no_seer": False,
         "seer_id": None,
+        # A lynch order somebody typed, overriding the rotating one derived from the
+        # roster. None means "use the rotating order", which is the default and what
+        # /rslo goes back to. Session-scoped on purpose: the rotating order is a fact
+        # about *this* roster, so an override of it has no meaning in the next game.
+        "lynch_order": None,
         "last_activity": now,
     }
     chat_data[KEY] = session
@@ -323,6 +333,84 @@ def revealed_roles(session, alive_only=True):
         if entry["roles"]:
             revealed[uid] = tuple(entry["roles"])
     return revealed
+
+
+# --- Lynch order -----------------------------------------------------------
+#
+# Two orders exist and only one is stored. The rotating order is computed from the living
+# roster on demand, so it follows deaths without anybody re-typing it; a typed order is
+# stored verbatim and wins until it is cleared.
+
+
+def set_lynch_order(session, value):
+    """Store a lynch order, or clear it with None. Returns what is now in force.
+
+    Two shapes go in this one field, and which one it is says how to render it:
+
+    * a **list of user ids** — an order somebody named player by player, so names and
+      aliveness are resolved at render time and a rename cannot leave a stale label;
+    * a **string** — free text nobody could resolve to players, printed verbatim.
+
+    One field rather than two because they are alternatives, never both, and because
+    `isinstance` tells them apart with no tag to keep in sync. Both survive JSON: a list of
+    ints comes back as a list of ints.
+    """
+    session["lynch_order"] = value if value else None
+    return session["lynch_order"]
+
+
+def lynch_order(session):
+    """The stored lynch order — ids, text, or None when the rotating one is in force.
+
+    `.get()` rather than `[]`: sessions started before this field existed are still in
+    Redis, and one of them must not take a command down.
+    """
+    return session.get("lynch_order")
+
+
+def lynch_order_players(session, ids):
+    """The living players among `ids`, in the order given, as (user_id, name) pairs.
+
+    Resolved on every render rather than stored, so the order follows a rename, and a
+    player who dies after it was set drops out instead of being an instruction pointing at
+    a corpse. Unknown ids are skipped: the roster can only shrink under us.
+    """
+    found = []
+    for uid in ids:
+        entry = player(session, uid)
+        if entry is not None and entry["alive"]:
+            found.append((uid, entry["name"]))
+    return found
+
+
+def close_lynch_cycle(players):
+    """Repeat the first player at the end, which is what makes an order a lynch order.
+
+    Everybody lynches the player below them, so the repeat closes the cycle and hands every
+    player exactly one vote. A single survivor is left alone: there is nobody below them,
+    and the closed form would tell them to lynch themselves.
+    """
+    if len(players) < 2:
+        return list(players)
+    return list(players) + [players[0]]
+
+
+def rotating_lynch_order(session):
+    """The living roster as (user_id, name) pairs, with the first repeated at the end.
+
+    Everybody lynches the player below them, so repeating the first player closes the cycle
+    and every player receives exactly one vote — which is the whole point, and is why the
+    list is one longer than the roster.
+
+    The *living* roster: a dead player can neither vote nor be voted for, so leaving them
+    in would hand two players an instruction pointing at a corpse.
+
+    Ids as well as names, because the rendered list mentions each player, and a mention
+    needs the id. Names are unescaped here as everywhere in this module; escaping happens
+    once at render time.
+    """
+    players = [(uid, entry["name"]) for uid, entry in players_in_order(session) if entry["alive"]]
+    return close_lynch_cycle(players)
 
 
 def revealed_count(session):

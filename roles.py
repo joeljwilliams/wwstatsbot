@@ -87,7 +87,7 @@ def _tags(*names):
 # accepts is a player mid-game discovering the stand-in is worse.
 ROLES = {
     # --- Village ---
-    "villager": {"name": "Villager", "emoji": "👱", "team": VILLAGE, "tags": _tags(), "aliases": ("vg",)},
+    "villager": {"name": "Villager", "emoji": "👱", "team": VILLAGE, "tags": _tags(), "aliases": ("vg", "lvg")},
     "drunk": {"name": "Drunk", "emoji": "🍻", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "seer": {"name": "Seer", "emoji": "👳", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "cursed": {
@@ -97,7 +97,7 @@ ROLES = {
         "tags": _tags(POTENTIAL_WOLF, ROLE_SWING),
         "aliases": (),
     },
-    "harlot": {"name": "Harlot", "emoji": "💋", "team": VILLAGE, "tags": _tags(VISITOR), "aliases": ()},
+    "harlot": {"name": "Harlot", "emoji": "💋", "team": VILLAGE, "tags": _tags(VISITOR), "aliases": ("slut", "hoe")},
     "beholder": {"name": "Beholder", "emoji": "👁", "team": VILLAGE, "tags": _tags(), "aliases": ("bh",)},
     "gunner": {"name": "Gunner", "emoji": "🔫", "team": VILLAGE, "tags": _tags(KILLER), "aliases": ()},
     # Wolf-team by win condition, but a villager in every mechanical sense until the last
@@ -117,7 +117,7 @@ ROLES = {
         "tags": _tags(VISITOR),
         "aliases": ("ga", "angel"),
     },
-    "detective": {"name": "Detective", "emoji": "🕵", "team": VILLAGE, "tags": _tags(), "aliases": ("det",)},
+    "detective": {"name": "Detective", "emoji": "🕵", "team": VILLAGE, "tags": _tags(), "aliases": ("det", "dete")},
     "apprentice_seer": {
         "name": "Apprentice Seer",
         "emoji": "🙇",
@@ -143,8 +143,16 @@ ROLES = {
     "fool": {"name": "Fool", "emoji": "🃏", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "mason": {"name": "Mason", "emoji": "👷", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "cupid": {"name": "Cupid", "emoji": "🏹", "team": VILLAGE, "tags": _tags(), "aliases": ()},
-    "hunter": {"name": "Hunter", "emoji": "🎯", "team": VILLAGE, "tags": _tags(KILLER), "aliases": ()},
-    "mayor": {"name": "Mayor", "emoji": "🎖", "team": VILLAGE, "tags": _tags(), "aliases": ()},
+    "hunter": {
+        "name": "Hunter",
+        "emoji": "🎯",
+        "team": VILLAGE,
+        "tags": _tags(KILLER),
+        # "town hunter" is one alias, not two: normalise() folds the space away, so it
+        # resolves typed either as one word or as two.
+        "aliases": ("th", "town hunter"),
+    },
+    "mayor": {"name": "Mayor", "emoji": "🎖", "team": VILLAGE, "tags": _tags(), "aliases": ("my",)},
     "prince": {"name": "Prince", "emoji": "👑", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     "clumsy": {
         "name": "Clumsy Guy",
@@ -161,20 +169,20 @@ ROLES = {
         "aliases": ("bs", "smith"),
     },
     "sandman": {"name": "Sandman", "emoji": "💤", "team": VILLAGE, "tags": _tags(), "aliases": ("sm",)},
-    "oracle": {"name": "Oracle", "emoji": "🌀", "team": VILLAGE, "tags": _tags(), "aliases": ()},
+    "oracle": {"name": "Oracle", "emoji": "🌀", "team": VILLAGE, "tags": _tags(), "aliases": ("ora",)},
     # A lowly villager the Seer misreads as a wolf. Village team, no transformation of its
     # own — being bitten by the Alpha is something that can happen to anyone.
     # Spelled with a space because that is how the achievement manager renders it in play
     # ("Wolf Man 👱🌚"); /rolelist's own "WolfMan" is kept as an alias. Both normalise to the
     # same key, so this changes display only.
     "wolfman": {"name": "Wolf Man", "emoji": "👱🌚", "team": VILLAGE, "tags": _tags(), "aliases": ("wm",)},
-    "pacifist": {"name": "Pacifist", "emoji": "☮️", "team": VILLAGE, "tags": _tags(), "aliases": ()},
+    "pacifist": {"name": "Pacifist", "emoji": "☮️", "team": VILLAGE, "tags": _tags(), "aliases": ("peace", "paci")},
     "wise_elder": {
         "name": "Wise Elder",
         "emoji": "📚",
         "team": VILLAGE,
         "tags": _tags(),
-        "aliases": ("we", "elder"),
+        "aliases": ("we", "elder", "wise"),
     },
     "troublemaker": {"name": "Troublemaker", "emoji": "🤯", "team": VILLAGE, "tags": _tags(), "aliases": ("tm",)},
     "chemist": {
@@ -191,7 +199,7 @@ ROLES = {
         "tags": _tags(VISITED),
         "aliases": ("gd", "digger"),
     },
-    "augur": {"name": "Augur", "emoji": "🦅", "team": VILLAGE, "tags": _tags(), "aliases": ()},
+    "augur": {"name": "Augur", "emoji": "🦅", "team": VILLAGE, "tags": _tags(), "aliases": ("au", "aug")},
     "chef": {"name": "Chef", "emoji": "🍚", "team": VILLAGE, "tags": _tags(), "aliases": ()},
     # Visited, never visiting: the villagers come to the bar. Tagging the Barkeep as a
     # visitor inflates "It Was a Busy Night!", which counts roles that visit *you*.

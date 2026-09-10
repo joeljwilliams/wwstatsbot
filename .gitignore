@@ -14,3 +14,8 @@ htmlcov
 # Compiled message catalogs — build output. .po is the source of truth; these are
 # produced by `pybabel compile` in the Docker builder and by the test fixture.
 locales/**/*.mo
+
+# Local Claude Code state — a per-developer permission allowlist, not a repo setting.
+# One of these was swept into a feature commit by `git add -A`; ignored so it cannot be
+# again. Force-add if the group ever wants a shared allowlist checked in.
+.claude/

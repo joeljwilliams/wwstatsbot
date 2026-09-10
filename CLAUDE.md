@@ -284,18 +284,152 @@ insertion-order eviction, so an expired token is a normal case every callback mu
 (`ALLINFO_EXPIRED` / `SCHALL_EXPIRED`). With `REDIS_URL` set these survive restarts — which
 means payloads must stay **JSON-serializable** and tuples come back as lists.
 
+**`/gm on` is what hands a chat's game management to this bot.** Off by default, per chat,
+stored in `chat_data` so it survives restarts and outlives any single game. On, two things
+change together: `_ours_to_answer` accepts a **bare** `/gs` and lynch-order command (not
+just `/gs@wwstatsbot`), and `_pin_state` pins the roster for the length of a game. Off,
+only addressed commands are answered and nothing is ever pinned.
+
+Adminness was tried as the signal for this and is the wrong one: the pin *also* needs the
+Telegram permission, so a group that promoted the bot only to let it pin would have been
+opted into answering bare commands without asking. A switch says which bot runs the games;
+a permission does not. The switch also costs no API call, where the admin check needed a
+`getChatMember` on every bare command.
+
+Two details in `/gm` itself. Turning it **on** requires the address — a bare `/gm` while
+management is off is not ours to act on, which is the whole point — while `/gm off` works
+bare once on, so it is typed like everything else it governs. And switching off mid-game
+unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
+nobody can undo without going to find the message.
+
+**`/gm auto` is a third state, and it needs three things nobody can check.** On, the game
+bot's own messages drive the session: its player list opens the roster, every later one
+follows it, and its closing message closes it — `/gs`, `/ad` and `/gsend` all still work
+and a human still wins. Reaching that at all needs **all three** of Bot-to-Bot
+Communication Mode on for this bot in @BotFather, this bot an **admin** in the group, and
+its Group Privacy Mode off; Telegram says which one is missing by delivering nothing. So
+`/gm auto` answers with whichever of three replies is true, and two of them are "it can't
+work yet" — silence would leave a group with the switch on, nothing happening, and no way
+to find out why. It is a state of its own rather than the meaning of `on` so that a group
+already running games this way does not silently start having its rosters opened for it by
+a deploy.
+
+The game engine cooperates by accident of how it already works: `SendPlayerList` is called
+from its lynch, day and night cycles and only when the list changed, so a full roster
+arrives at the start of a game and after every death with nobody asking. The **end** is
+matched on `Game Length: hh:mm:ss`, which the engine appends exactly once, at game end. The
+win messages are the obvious alternative and are the wrong one — they are GIF captions, and
+they differ in every one of the game's hundred-odd language variants. Everything read here
+is English, like `_ROSTER_COUNTS`, `_DEAD_ROW` and `_DOUSED_LINE` before it; a group playing
+in another language keeps typing `/gs`.
+
+**Which bot is the game bot is learned, never guessed.** A group has several bots in it and
+a roster-shaped message is not proof of anything, so the answer is whichever bot a human ran
+`/gs` or `/ad` against — recorded in `chat_data` the moment they do, from a list we could
+actually read. One `/gs` per chat, ever. A configured username was the alternative and is
+worse: the official bot has many forks and regional instances, and a chat following the
+wrong one would have its live game reset by a stranger.
+
+**The closing message is checked before the roster, and that ordering is load-bearing.** It
+carries a player-list header of its own — `Players Alive: 3 / 12` over every player, the
+*dead ones mentioned too* — so read as a roster it would raise the dead in the last thing
+anybody sees. `_read_roster`'s count guard refuses it as well; the ordering is what stops it
+getting that far.
+
+**`game_bot_message` is a shield as much as a feature, and it is why enabling any of this is
+safe.** Every message every bot in the room posts now arrives, and this module answers
+several of the real manager's command words *bare* once `/gm` is on — so a bot posting `/gs`
+or `/gm off`, for its own reasons or by echoing somebody, would be issuing them to us. One
+handler in group **-1** sees all bot traffic and stops the update, whatever happens to it.
+The stop is unconditional and the failure log reads nothing off the update, because PTB
+dispatches the next handler group when an error handler does not claim one: an exception in
+there — including one raised while reporting an exception — would leak a bot's message into
+exactly the handlers this exists to shield. Nothing else in this bot has ever seen a bot
+speak, and nothing else should start.
+
+Loop prevention is a documented requirement of bot-to-bot communication, not a nicety, since
+two bots answering each other in a group has no natural end. Three things bound it: only the
+learned bot is read, a message id is acted on once (which also makes an *edit* of a message
+already followed a no-op), and opening a session — the one path that costs an API call per
+player — has a sixty-second floor under it. Following a roster deliberately has none: those
+arrive every phase, and the publish debounce already coalesces the edits they cause.
+
+**The roster message is pinned for the length of a game, if the bot can.** `_pin_state`
+attempts it at `/gs` and does not check the permission first: a `getChatMember` answer is
+a snapshot that can be stale by the time it is used, and the API's refusal is the
+authoritative answer anyway — so a group that has not made the bot an admin gets no pin
+and no complaint. Pinned silently, because the notification pings every member and an
+active group starts a game every few minutes.
+
+`_unpin_state` runs from `_finish`, which is the single place all three endings funnel
+through (and from `/gm off`) (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
+unpin **by message id**, never the bare call — that removes the group's most recent pin,
+which by the end of a game may be a rules post somebody else put there — and unpin only
+what `pinned_message_id` records, which is the evidence *we* pinned it. Without that
+record a session that could not pin would still try to unpin at the end and clear whatever
+the group actually has.
+
+**The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
+(plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when
+addressed** — `/lo@wwstatsbot`, never a bare `/lo`, because these are short words another
+bot in the room may own. Being addressed also changes what silence means: unlike the
+incumbent's command words, a chat with no session is *told* so rather than ignored.
+
+`/slo` names players three ways — `@handle`, a tapped mention, or a bare user id — all
+resolved against the roster by the same `_pointed_at` every other command in the module
+uses. A named order is stored as a **list of ids**, so names and aliveness resolve at
+render time: it follows a rename and drops a player who dies after it was set. Anything
+that resolves to nobody is stored as free text instead, *except* a mention that failed to
+match — `_pointed_at` cuts every mention out of the text whether or not it resolved, so a
+mistyped `@handle` would otherwise look exactly like a bare `/slo` and silently reset the
+order. That case is questioned instead.
+
+The rotating order is computed from the **living** roster on demand — the first name
+repeated at the bottom, so everybody lynches the name below them and each player receives
+exactly one vote — so it follows deaths with nobody re-typing it, and a dead player is
+never left in for two players to be pointed at. A typed order is stored verbatim in the
+session and wins until cleared; `/slo` with neither argument nor reply *is* the reset,
+since "set it to nothing" and "go back to rotating" are the same instruction. It is
+session-scoped on purpose (the rotating order is a fact about this roster, so an override
+of it means nothing next game), capped at `_LYNCH_ORDER_MAX` where it is set rather than
+where Telegram would refuse it, and read with `.get()` — sessions predating the field are
+still in Redis. Output mimics the incumbent's exactly: "Lynchorder:" over one mention
+per line and nothing else, "The lynchorder was set/reset by <name>" as a single line with
+no order appended. There is deliberately **no marker** distinguishing a set order from the
+rotating one, because the incumbent has none — decoration meant to be helpful still reads
+as a different tool. The one addition is a note naming a dead player dropped at set time,
+which is a wrong answer avoided rather than decoration.
+
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
 work but are deliberately absent from `PUBLIC_COMMANDS` — don't re-advertise them.
 
-**`/schall` has a second mode, and `/sch` deliberately does not.** A reply-based run caches
-the chat's `text_mention` user ids in `chat_data`, and `/schall <achv>` with *no* reply
-re-checks them for 60 minutes. `/sch` with no reply still means "check my own achievements":
-it is the advertised command, so silently turning it into a group query would surprise
-anyone asking about themselves. The cache is per-chat (one group's roster can never surface
-in another), expires after an hour because a game roster changes every round, and the reply
+**`/schall` has a second mode, and `/sch` deliberately does not.** `/schall <achv>` with
+*no* reply re-checks this chat's remembered player list for 60 minutes. `/sch` with no reply
+still means "check my own achievements": it is the advertised command, so silently turning
+it into a group query would surprise anyone asking about themselves. The list is per-chat
+(one group's roster can never surface in another), expires after an hour because a game
+roster changes every round, and the reply
 always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
+
+**Two things fill that list, and it lives in `handlers/common.py` because of it.** A
+reply-based run records the `text_mention` user ids it saw; a stand-in session records its
+**whole table**, so a group whose games this bot runs never primes it at all — the first
+`/schall` of a round needs no reply, because the session opened itself from the game bot's
+player list already (see `/gm auto`). `handlers.common.remember_players`/`recall_players`
+are the only encoders, and they take `now` from the caller so each command family keeps its
+own `_now` wrapper and no two modules have to agree about the time.
+
+The table rather than the game bot's latest list, and dead players included, for two
+reasons that are easy to get wrong. Achievements do not die with the player, and a list
+that shrank every round would look exactly like a mention having gone missing — the failure
+`/schall` already reports dropped alts to avoid. And the game bot *stops linking a player
+once they are out*, so its later lists carry ids for only the living, where the session
+keeps everybody. The record is refreshed on every list followed rather than only at the
+start, so the age reads "when this line-up was last confirmed": during a live game that is
+seconds, however long ago the game began. The `chat_data` key is still `schall_players`,
+because renaming it would orphan every list already in Redis.
 
 **The /schall toggle belongs to whoever asked.** Only the requester (recorded as
 `requested_by` in the payload) and admins may flip the view; anyone else gets an alert and the

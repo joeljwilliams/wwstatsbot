@@ -60,10 +60,22 @@ UNADVERTISED = [
     # A group-admin switch, gated like the privileged ones and kept out of the menu for
     # the same reason: it does nothing for the person who taps it in a private chat.
     "welcome",
+    # The lynch order. Out of the menu with the rest of the stand-in's words: they only
+    # answer when addressed, and advertising a command that ignores a plain tap would be
+    # worse than not listing it.
+    "lo",
+    "slo",
+    "rslo",
+    # The switch that governs them. Out of the menu with the rest: it does nothing in a
+    # private chat, and it is a group-admin decision rather than a player's.
+    "gm",
 ]
 
+# Aliases for the stand-in's lynch-order commands: the spelt-out forms of lo/slo/rslo.
+LYNCH_ALIASES = {"lynchorder": "lo", "setlynchorder": "slo", "resetlynchorder": "rslo"}
+
 # Aliases that must keep working alongside their primary verb.
-ALIASES = ["sch", "achv", "getachv"]
+ALIASES = ["sch", "achv", "getachv", "lynchorder", "setlynchorder", "resetlynchorder"]
 
 
 def application():
@@ -113,6 +125,8 @@ def test_aliases_share_a_callback_with_their_primary_verb():
     assert registered["sch"] is registered["search"]
     assert registered["achv"] is registered["achievements"]
     assert registered["getachv"] is registered["info"]
+    for alias, primary in LYNCH_ALIASES.items():
+        assert registered[alias] is registered[primary], "/{} is not /{}".format(alias, primary)
 
 
 def test_commands_are_wired_to_the_expected_callbacks():
@@ -138,6 +152,10 @@ def test_commands_are_wired_to_the_expected_callbacks():
         "setnote": admin.set_note_cmd,
         "clearnote": admin.clear_note_cmd,
         "db": admin.db_console_cmd,
+        "lo": gamesession.lynch_order_cmd,
+        "slo": gamesession.set_lynch_order_cmd,
+        "rslo": gamesession.reset_lynch_order_cmd,
+        "gm": gamesession.game_management_cmd,
     }
     for command, callback in expected.items():
         assert registered[command] is callback, "/{} is wired to {}".format(command, registered[command])
@@ -281,6 +299,30 @@ def test_persistence_is_enabled_with_redis(monkeypatch):
     monkeypatch.setattr(redis_persistence.aioredis.Redis, "from_url", staticmethod(lambda url, **kw: None))
 
     assert isinstance(application().persistence, RedisPersistence)
+
+
+def test_the_bot_message_shield_runs_before_every_command():
+    """Another bot's message must reach the game-bot watcher and nothing else in the table.
+
+    That is only true from a handler group *ahead* of the commands: PTB works through the
+    groups in order and the watcher stops the update in the first one. Registered alongside
+    the commands instead, a bare `/gs` or `/gm off` posted by some other bot in the room
+    would be a command issued to us — which is what enabling bot-to-bot communication would
+    otherwise have made possible.
+    """
+    app = application()
+    shield = [
+        group
+        for group, handlers in app.handlers.items()
+        for handler in handlers
+        if getattr(handler, "callback", None) is gamesession.game_bot_message
+    ]
+    commands = [
+        group for group, handlers in app.handlers.items() for handler in handlers if isinstance(handler, CommandHandler)
+    ]
+
+    assert len(shield) == 1, "the game-bot watcher is not registered"
+    assert shield[0] < min(commands)
 
 
 def test_the_handler_count_is_accounted_for():

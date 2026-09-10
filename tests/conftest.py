@@ -341,8 +341,20 @@ class FakeInlineQuery:
 
 
 class FakeBot:
-    def __init__(self, username="wwstatsbot", send_error=None, edit_error=None, chat_admins=()):
+    def __init__(
+        self,
+        username="wwstatsbot",
+        send_error=None,
+        edit_error=None,
+        chat_admins=(),
+        pin_error=None,
+        unpin_error=None,
+        bot_id=424242,
+    ):
         self.username = username
+        # The bot's own id, which is what an "am I an admin here" lookup asks about. Put
+        # this id in chat_admins to make the fake bot an admin of the fake chat.
+        self.id = bot_id
         # Telegram chat administrators, by user id. The stand-in session asks so that an
         # admin who is not playing can still stop a game that outlived its round.
         self.chat_admins = set(chat_admins)
@@ -352,6 +364,12 @@ class FakeBot:
         self.commands = None
         self._send_error = send_error
         self._edit_error = edit_error
+        # Pinning is a permission the bot may simply not have, and Telegram says so by
+        # refusing the call rather than by any state readable in advance.
+        self._pin_error = pin_error
+        self._unpin_error = unpin_error
+        self.pins = []
+        self.unpins = []
         self._next_message_id = 100
 
     async def send_message(self, chat_id, text, **kwargs):
@@ -373,6 +391,16 @@ class FakeBot:
 
     async def set_my_commands(self, commands):
         self.commands = commands
+
+    async def pin_chat_message(self, chat_id, message_id, **kwargs):
+        if self._pin_error is not None:
+            raise self._pin_error
+        self.pins.append({"chat_id": chat_id, "message_id": message_id, **kwargs})
+
+    async def unpin_chat_message(self, chat_id, message_id=None, **kwargs):
+        if self._unpin_error is not None:
+            raise self._unpin_error
+        self.unpins.append({"chat_id": chat_id, "message_id": message_id, **kwargs})
 
     async def get_chat_member(self, chat_id, user_id):
         status = "administrator" if user_id in self.chat_admins else "member"

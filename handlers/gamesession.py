@@ -31,8 +31,8 @@ import time
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
-from telegram.ext import ContextTypes
+from telegram.error import BadRequest, Forbidden
+from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
 import api
@@ -47,6 +47,7 @@ from handlers.common import (
     is_chat_admin,
     mentioned_usernames,
     mentioned_users,
+    remember_players,
     utf16_piece,
     utf16_units,
 )
@@ -98,6 +99,67 @@ def _addressed_to_us(message, username):
     command = message.text[: first.length]
     _, _, addressed = command.partition("@")
     return bool(addressed) and addressed.casefold() == (username or "").casefold()
+
+
+# Whether this chat has handed game management to this bot. Off by default, per chat, and
+# kept in chat_data so RedisPersistence carries it across restarts — a group's standing
+# choice about which bot runs their games must not quietly revert on a deploy.
+_GM_KEY = "game_management"
+
+# The third state, stored as a string in the same key rather than as a second flag: the
+# three are exclusive, and two keys could disagree about whether a chat that is automatic
+# is also managed. Old chat_data holds a plain bool, which still reads correctly as on/off.
+_GM_AUTO = "auto"
+
+# Which bot in this chat runs the games. Learned, never guessed — see _learn_game_bot.
+_GAME_BOT_KEY = "game_bot_id"
+
+
+def is_managing(context):
+    """Whether this chat has switched game management on. Default off. Auto counts."""
+    return bool(context.chat_data.get(_GM_KEY))
+
+
+def is_auto(context):
+    """Whether this chat also asked us to drive the session from the game bot's messages."""
+    return context.chat_data.get(_GM_KEY) == _GM_AUTO
+
+
+def _learn_game_bot(context, roster):
+    """Remember which bot in this chat runs the games, from a list we just read.
+
+    The one thing the automation below cannot work out for itself. A group has several bots
+    in it, and a roster-shaped message is not proof of anything — so the answer is whichever
+    bot a human ran /gs or /ad against, recorded the moment they do. One /gs per chat, ever,
+    and `/gm auto` has something to follow.
+
+    Recorded only from a list we could actually read, because a reply to the wrong message
+    is how somebody would otherwise teach us that a quiz bot runs the games here.
+    """
+    sender = getattr(roster, "from_user", None)
+    if sender is None or not sender.is_bot or sender.id == context.bot.id:
+        return
+    if context.chat_data.get(_GAME_BOT_KEY) == sender.id:
+        return
+    context.chat_data[_GAME_BOT_KEY] = sender.id
+    logger.info("standin_game_bot_learned", chat_id=roster.chat.id, game_bot_id=sender.id)
+
+
+async def _ours_to_answer(update, context):
+    """Whether this game-manager command is ours, addressed or not.
+
+    `/gs@wwstatsbot` always is. A **bare** command is not, by default: it belongs to the
+    real manager, and answering it means two bots racing to run one game — the failure the
+    addressing rule exists to prevent.
+
+    `/gm on` is what changes that, and it is deliberately a switch rather than something
+    inferred. Adminness was tried and is the wrong signal: the roster pin needs admin too,
+    so a group that promoted this bot only to let it pin would have been opted into
+    answering bare commands without ever asking for it.
+
+    No API call either way now — the answer is in chat_data.
+    """
+    return _addressed_to_us(update.message, context.bot.username) or is_managing(context)
 
 
 def _session_for(update, context):
@@ -331,11 +393,70 @@ async def _refresh_state(context, chat_id, session_data):
 # --- /gs -------------------------------------------------------------------
 
 
+def _remember_table(context, session_data):
+    """Hand this chat's table to the shared player list `/schall` reads with no reply.
+
+    The **whole** table, dead included. Achievements do not die with the player, and a
+    list that shrank every round would look exactly like a mention having gone missing —
+    the failure /schall already names dropped alts to avoid. That is also why the session
+    is the source rather than the roster message it came from: the game bot stops linking a
+    player once they are out, so its later lists name only the living, while the session
+    keeps everybody and their ids for the length of the game.
+
+    Re-recorded on every list we follow, not only at the start, so the age /schall prints
+    reads as "when this line-up was last confirmed" — seconds, during a live game, rather
+    than however long ago the game began.
+    """
+    players = [(uid, entry["name"]) for uid, entry in session.players_in_order(session_data)]
+    if not players:
+        return
+    remember_players(context.chat_data, players, session_data["unresolved"], _now())
+
+
+async def _open_session(context, chat_id, starter_id, roster):
+    """Start a session for this chat from a game bot's player list. Returns it, or None.
+
+    None means the list mentioned nobody checkable, which is the one thing that makes a
+    player list unusable: only a text_mention carries a user id, and a roster keyed by
+    anything else could neither follow a rename nor be asked about at the stats API.
+    """
+    players, unresolved = mentioned_users(roster)
+    if not players:
+        return None
+
+    session_data = session.start(context.chat_data, starter_id, players, unresolved, _now())
+    # The roster's mentions carry whole User objects, so this is where every player's
+    # @handle is learned — after which a plain "@someone" in a later command resolves.
+    for handle, uid in mentioned_usernames(roster).items():
+        session.set_username(session_data, uid, handle)
+    await _load_attained(session_data, players)
+    _remember_table(context, session_data)
+    msg, keyboard = render_state(session_data)
+    posted = await context.bot.send_message(
+        chat_id=chat_id,
+        text=msg,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    # The id is what every later edit needs; without it the roster would be re-posted on
+    # each reveal instead of updated.
+    if posted is not None:
+        session_data["state_message_id"] = posted.message_id
+        await _pin_state(context, chat_id, session_data, posted.message_id)
+    # A session nobody ever touches still has to expire, so the idle clock starts here
+    # rather than on the first reveal.
+    _schedule_idle(context, chat_id)
+    logger.info("standin_started", chat_id=chat_id, players=len(players), unresolved=len(unresolved))
+    return session_data
+
+
 async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/gs@wwstatsbot`, in reply to the game bot's player list, starts standing in."""
     message = update.message
-    if not _addressed_to_us(message, context.bot.username):
-        # A bare /gs belongs to the real manager. Not an error, not ours: say nothing.
+    if not await _ours_to_answer(update, context):
+        # A bare /gs belongs to the real manager, unless this bot is an admin here. Not an
+        # error, not ours: say nothing.
         return
 
     user = message.from_user
@@ -353,33 +474,10 @@ async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    players, unresolved = mentioned_users(replied)
-    if not players:
+    if await _open_session(context, message.chat.id, user.id, replied) is None:
         await message.reply_text(t.STANDIN_NO_PLAYERS, parse_mode=ParseMode.HTML)
         return
-
-    session_data = session.start(context.chat_data, user.id, players, unresolved, _now())
-    # The roster's mentions carry whole User objects, so this is where every player's
-    # @handle is learned — after which a plain "@someone" in a later command resolves.
-    for handle, uid in mentioned_usernames(replied).items():
-        session.set_username(session_data, uid, handle)
-    await _load_attained(session_data, players)
-    msg, keyboard = render_state(session_data)
-    posted = await context.bot.send_message(
-        chat_id=message.chat.id,
-        text=msg,
-        reply_markup=keyboard,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    # The id is what every later edit needs; without it the roster would be re-posted on
-    # each reveal instead of updated.
-    if posted is not None:
-        session_data["state_message_id"] = posted.message_id
-    # A session nobody ever touches still has to expire, so the idle clock starts here
-    # rather than on the first reveal.
-    _schedule_idle(context, message.chat.id)
-    logger.info("standin_started", chat_id=message.chat.id, players=len(players), unresolved=len(unresolved))
+    _learn_game_bot(context, replied)
 
 
 async def _load_attained(session_data, players):
@@ -660,15 +758,22 @@ async def love_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Ending ----------------------------------------------------------------
 
 
-async def _may_stop(context, chat_id, session_data, user_id):
-    """Who can end a session: its players, and the group's admins.
+async def _may_manage(context, chat_id, session_data, user_id):
+    """Who can act on somebody else's behalf in a session: its players, and the admins.
 
-    The roster check comes first because it costs nothing — players stopping their own
-    game is the common case, and only the unusual one is worth an API call for.
+    The roster check comes first because it costs nothing — a player acting on their own
+    game is the common case, and only the unusual one is worth an API call for. A group
+    admin is not necessarily playing, and is the person who notices something needs fixing
+    from outside the roster.
     """
     if session.is_member(session_data, user_id):
         return True
     return await is_chat_admin(context, chat_id, user_id) or await is_admin_user(user_id)
+
+
+async def _may_stop(context, chat_id, session_data, user_id):
+    """Who can end a session. See _may_manage — ending it is one of the things it covers."""
+    return await _may_manage(context, chat_id, session_data, user_id)
 
 
 async def _announce_stopped(context, chat_id, user_id, name):
@@ -680,8 +785,63 @@ async def _announce_stopped(context, chat_id, user_id, name):
     )
 
 
+async def _pin_state(context, chat_id, session_data, message_id):
+    """Pin the roster message, when this bot is allowed to.
+
+    Attempted rather than checked first. A getChatMember answer is a snapshot that can be
+    stale by the time it is acted on, and the API's refusal is the authoritative answer
+    anyway — so the permission is discovered by using it. A group that has not made this
+    bot an admin gets no pin and no complaint: the pin is a convenience, and a game that
+    refused to start over it would be worse than one with nothing at the top of the chat.
+
+    Silent, because a pin notification pings every member of the group and an active game
+    group starts a game every few minutes.
+
+    Only when this chat has switched game management on: pinning is something a *manager*
+    does, and a bot standing in for one game at a time has no business rearranging the top
+    of a chat that has not asked it to.
+    """
+    if not is_managing(context):
+        return
+    try:
+        await context.bot.pin_chat_message(chat_id=chat_id, message_id=message_id, disable_notification=True)
+    except (BadRequest, Forbidden) as exc:
+        logger.info("standin_pin_skipped", chat_id=chat_id, error=str(exc))
+        return
+    session_data["pinned_message_id"] = message_id
+    logger.info("standin_pinned", chat_id=chat_id, message_id=message_id)
+
+
+async def _unpin_state(context, chat_id, session_data):
+    """Unpin the roster message, but only the one this session pinned.
+
+    By id, never the bare call: unpin_chat_message with no message removes the *most
+    recent* pin, which by the end of a game may well be somebody else's — a rules post, a
+    tournament bracket — and clearing a group's pin because our game ended would be the
+    kind of thing that gets a bot removed.
+
+    Cleared from the session before the call, so a failure cannot leave a stale id behind
+    for a later end to try again.
+    """
+    message_id = session_data.get("pinned_message_id")
+    if message_id is None:
+        return
+    session_data["pinned_message_id"] = None
+    try:
+        await context.bot.unpin_chat_message(chat_id=chat_id, message_id=message_id)
+    except (BadRequest, Forbidden) as exc:
+        # Somebody unpinned it by hand, or the permission was taken away mid-game. Either
+        # way the pin is not there to remove, which is the outcome wanted.
+        logger.info("standin_unpin_skipped", chat_id=chat_id, error=str(exc))
+
+
 async def _finish(context, chat_id, session_data):
-    """Close the roster message out: ended header, no instructions, no live button."""
+    """Close the roster message out: ended header, no instructions, no live button.
+
+    The pin goes first, and outside the early return below: a pinned roster outliving its
+    game is exactly what somebody scrolling to the top of the chat would be misled by.
+    """
+    await _unpin_state(context, chat_id, session_data)
     message_id = session_data.get("state_message_id")
     if message_id is None:
         return
@@ -1049,6 +1209,63 @@ async def doused_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+def _read_roster(roster, session_data=None):
+    """What a game bot's player list says about who is alive.
+
+    Returns (alive_ids, found, claimed, total). Alive players are the mentions: the game
+    bot links every living player's name and leaves the dead as plain text, so this needs
+    no text parsing at all. With a session, the mentions are narrowed to players it already
+    knows — somebody who joined the game after it started is not ours to mark alive, and a
+    list naming them fails the count check rather than being half-applied.
+
+    **`alive_ids` is None when the list disagrees with its own header**, which is the guard
+    the whole reset rests on. `found`, `claimed` and `total` come back either way so a
+    refusal can quote all three; `claimed` and `total` are the header's own strings, or "?"
+    when there was no header to read.
+    """
+    mentioned, _ = mentioned_users(roster)
+    alive_ids = [uid for uid, _ in mentioned]
+    if session_data is not None:
+        alive_ids = [uid for uid in alive_ids if session.player(session_data, uid) is not None]
+    counts = _ROSTER_COUNTS.search(roster.text or roster.caption or "")
+    claimed = counts.group("alive") if counts else "?"
+    total = counts.group("total") if counts else "?"
+    if counts is None or int(claimed) != len(alive_ids):
+        return None, len(alive_ids), claimed, total
+    return alive_ids, len(alive_ids), claimed, total
+
+
+async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
+    """Apply a read player list to the session wholesale. Returns what it changed.
+
+    (died, revived, learned, changes) — `learned` being the display names whose role a
+    death notice taught us, and `changes` the transforms those deaths triggered.
+    """
+    died, revived = session.sync_alive(session_data, alive_ids)
+
+    # Dead rows name the role the player was. They carry no user id — the game bot stops
+    # linking a player once they are out — so they are matched by display name, and an
+    # ambiguous or unknown one skips *the role* only. Aliveness came from the mentions
+    # above and is never at risk from this.
+    learned = []
+    for name, role_text in _dead_rows(roster.text or roster.caption or ""):
+        uid = _roster_row_owner(session_data, name)
+        if uid is None:
+            continue
+        entry = session.player(session_data, uid)
+        if entry["roles"]:
+            continue
+        resolved = roles.resolve(role_text)
+        if resolved:
+            session.set_roles(session_data, uid, resolved)
+            learned.append(entry["name"])
+
+    changes = session.apply_transforms(session_data)
+    _remember_table(context, session_data)
+    await _changed(context, chat_id, session_data)
+    return died, revived, learned, changes
+
+
 async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/ad` in reply to the game bot's roster — follow it wholesale.
 
@@ -1070,48 +1287,21 @@ async def follow_roster_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_AD_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    # Alive players are the mentions: the game bot links every living player's name and
-    # leaves the dead as plain text, so this needs no text parsing at all.
-    alive, _ = mentioned_users(replied)
-    alive_ids = [uid for uid, _ in alive if session.player(session_data, uid) is not None]
-
-    body = replied.text or replied.caption or ""
-    counts = _ROSTER_COUNTS.search(body)
-    if counts is None or int(counts.group("alive")) != len(alive_ids):
-        claimed = counts.group("alive") if counts else "?"
-        total = counts.group("total") if counts else "?"
+    alive_ids, found, claimed, total = _read_roster(replied, session_data)
+    if alive_ids is None:
         await message.reply_text(
             t.STANDIN_AD_MISMATCH.format(
                 claimed=claimed,
                 total=total,
-                found=len(alive_ids),
-                plural="" if len(alive_ids) == 1 else "s",
+                found=found,
+                plural="" if found == 1 else "s",
             ),
             parse_mode=ParseMode.HTML,
         )
         return
 
-    died, revived = session.sync_alive(session_data, alive_ids)
-
-    # Dead rows name the role the player was. They carry no user id — the game bot stops
-    # linking a player once they are out — so they are matched by display name, and an
-    # ambiguous or unknown one skips *the role* only. Aliveness came from the mentions
-    # above and is never at risk from this.
-    learned = []
-    for name, role_text in _dead_rows(body):
-        uid = _roster_row_owner(session_data, name)
-        if uid is None:
-            continue
-        entry = session.player(session_data, uid)
-        if entry["roles"]:
-            continue
-        resolved = roles.resolve(role_text)
-        if resolved:
-            session.set_roles(session_data, uid, resolved)
-            learned.append(entry["name"])
-
-    changes = session.apply_transforms(session_data)
-    await _changed(context, message.chat.id, session_data)
+    _learn_game_bot(context, replied)
+    died, revived, learned, changes = await _follow_roster(context, message.chat.id, session_data, replied, alive_ids)
 
     if not died and not revived and not learned and not changes:
         await message.reply_text(t.STANDIN_AD_NO_CHANGE, parse_mode=ParseMode.HTML)
@@ -1414,6 +1604,431 @@ async def _idle_end(context):
 
 
 # --- /la -------------------------------------------------------------------
+
+
+# --- /gm -------------------------------------------------------------------
+
+
+async def _auto_confirmation(context, chat_id):
+    """What to say when a chat switches to `/gm auto`, given what can actually happen.
+
+    Three answers, because there are three states and only one of them is "it works". The
+    automation depends on Telegram delivering another bot's messages, which it does only to
+    a group admin, and on knowing which bot to follow — neither of which this command can
+    arrange. Silence would be the worst reply of the three: a group would sit there with the
+    switch on, nothing happening, and no way to find out why.
+    """
+    if not await is_chat_admin(context, chat_id, context.bot.id):
+        return t.STANDIN_GM_AUTO_NEEDS_ADMIN
+    if context.chat_data.get(_GAME_BOT_KEY) is None:
+        return t.STANDIN_GM_AUTO_UNLEARNED.format(username=html.escape(context.bot.username or ""))
+    return t.STANDIN_GM_AUTO
+
+
+async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/gm [on|off|auto]` — hand this chat's game management to this bot, or take it back.
+
+    Answered when addressed, and also bare once management is on, so `/gm off` can be typed
+    the same way as everything else it governs. Turning it *on* needs the address, which is
+    what stops a bare `/gm` in somebody else's room being ours to act on.
+
+    `auto` is `on` plus running the session off the game bot's own messages — a third state
+    rather than the meaning of `on`, so that a group already running games this way does not
+    silently start having its rosters opened for it by a deploy.
+
+    The group's own admins decide, not this bot's: it is a statement about their room.
+    """
+    message = update.message
+    if not await _ours_to_answer(update, context):
+        return
+
+    user = message.from_user
+    args = context.args
+    logger.info("command", command="gm", user_id=user.id, user=unidecode(user.first_name), args=args)
+
+    if message.chat.type not in ("group", "supergroup"):
+        await message.reply_text(t.STANDIN_GM_GROUP_ONLY, parse_mode=ParseMode.HTML)
+        return
+
+    wanted = args[0].lower() if args else ""
+    if wanted not in ("on", "off", _GM_AUTO):
+        if is_auto(context):
+            state = t.STANDIN_GM_STATE_AUTO
+        elif is_managing(context):
+            state = t.STANDIN_GM_STATE_ON
+        else:
+            state = t.STANDIN_GM_STATE_OFF
+        await message.reply_text(t.STANDIN_GM_STATE.format(state=state), parse_mode=ParseMode.HTML)
+        return
+
+    # Asked only once a real change is on the table, so reading the state costs nobody an
+    # API call. Bot admins are included for the same reason /gsend includes them.
+    if not await is_chat_admin(context, message.chat.id, user.id) and not await is_admin_user(user.id):
+        await message.reply_text(t.STANDIN_GM_ADMINS_ONLY, parse_mode=ParseMode.HTML)
+        return
+
+    context.chat_data[_GM_KEY] = _GM_AUTO if wanted == _GM_AUTO else wanted == "on"
+    logger.info("standin_management", chat_id=message.chat.id, user_id=user.id, mode=wanted)
+    if wanted == _GM_AUTO:
+        await message.reply_text(await _auto_confirmation(context, message.chat.id), parse_mode=ParseMode.HTML)
+        return
+    if wanted == "on":
+        await message.reply_text(t.STANDIN_GM_ON, parse_mode=ParseMode.HTML)
+        return
+    # Switching off mid-game leaves a pinned roster behind, which would be the one thing
+    # nobody could undo without finding the message. Take it down with the permission.
+    session_data = session.get(context.chat_data)
+    if session_data is not None:
+        await _unpin_state(context, message.chat.id, session_data)
+    await message.reply_text(
+        t.STANDIN_GM_OFF.format(username=html.escape(context.bot.username or "")), parse_mode=ParseMode.HTML
+    )
+
+
+# --- Driving the session from the game bot itself --------------------------
+#
+# Bot API 10.0 (May 2026) added bot-to-bot communication, and with it the manual half of
+# this module became avoidable: /gs to open a roster, /ad to follow it and /gsend to close
+# it were all somebody retyping what the game bot had just posted in the same chat.
+#
+# Telegram delivers another bot's *unaddressed* group messages only when all three of these
+# hold, and tells us which one is missing by staying silent:
+#
+#   * Bot-to-Bot Communication Mode is on for this bot in @BotFather,
+#   * this bot is an **admin** in the group,
+#   * this bot's Group Privacy Mode is off.
+#
+# So nothing here can be assumed to arrive. A chat with /gm auto on and no delivery has to
+# look like a chat with /gm off — silent — rather than broken, which is why all of this is
+# additive: the three commands still work, and a human doing it by hand still wins.
+#
+# Loop prevention is a documented requirement of the feature, not a nicety, since two bots
+# answering each other in a group has no natural end. Three things bound it: only the one
+# learned game bot is ever read, a message id is acted on once, and the only path that
+# costs API calls — opening a session, one stats lookup per player — has a floor under it.
+
+# The game bot's closing message is the only one in the whole engine that carries this:
+# "Game Length: 00:14:22", appended once, at game end. Matched instead of the win messages
+# because those are GIF captions that differ in every one of the game's hundred-odd
+# language variants, while this one is a single string in a single place.
+_GAME_OVER = re.compile(r"Game\s+Length:\s*\d+:\d\d:\d\d")
+
+# A game bot posts a player list every phase it changed in, so the expensive path is worth
+# a floor and the cheap ones are not: following a roster is local work plus an edit the
+# publish debounce already coalesces, while opening a session is one stats API call per
+# player. Sixty seconds is longer than a game takes to start twice.
+_AUTO_OPEN_FLOOR_SECONDS = 60
+_AUTO_OPEN_KEY = "game_bot_opened_at"
+_AUTO_SEEN_KEY = "game_bot_seen_message_id"
+
+
+class _SenderIsBot(filters.MessageFilter):
+    """Messages another bot posted. PTB has no filter for this, because until Bot API 10.0
+    there was no such update to filter: a bot never saw another bot speak."""
+
+    __slots__ = ()
+
+    def filter(self, message):
+        return bool(message.from_user is not None and message.from_user.is_bot)
+
+
+FROM_A_BOT = _SenderIsBot(name="wwstatsbot.FROM_A_BOT")
+
+
+async def game_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Everything another bot says in a group arrives here, and goes no further.
+
+    Registered ahead of every command handler and always stopping the update, which is what
+    makes enabling bot-to-bot communication safe rather than a new way to be driven. The
+    command words this module answers belong to the *real* manager and several are answered
+    bare once /gm is on, so a bot in the room posting `/gs` or `/gm off` — for its own
+    reasons, or by echoing somebody — would otherwise be issuing them to us. Nothing else in
+    this bot has ever seen a bot's message and nothing else should start.
+
+    The stop is unconditional, and the work is wrapped, because PTB hands an update to the
+    *next* handler group when an error handler does not claim it: an exception in here would
+    otherwise leak the message into exactly the handlers this exists to shield.
+    """
+    try:
+        await _drive_session(update, context)
+    except Exception:
+        # Nothing but the stop may follow this, so the log line reads nothing off the
+        # update: raising while reporting a failure would skip the stop and leak the
+        # message into the very handlers this shields.
+        logger.exception("game_bot_message_failed")
+    raise ApplicationHandlerStop
+
+
+async def _drive_session(update, context):
+    """Open, follow or close this chat's session from what the game bot just said."""
+    message = update.message
+    if message is None or message.chat.type not in ("group", "supergroup"):
+        return
+    # Cheapest first, and both are answered out of chat_data: a chat that has not asked for
+    # this must cost nothing to skip, because with the switch off this handler still sees
+    # every message every bot in the room posts.
+    if not is_auto(context):
+        return
+    sender = message.from_user
+    if sender is None or sender.id == context.bot.id:
+        return
+    if sender.id != context.chat_data.get(_GAME_BOT_KEY):
+        # Another bot in the room, or one nobody has pointed us at yet. A roster-shaped
+        # message is not proof of anything — see _learn_game_bot.
+        return
+    if context.chat_data.get(_AUTO_SEEN_KEY) == message.message_id:
+        return
+    context.chat_data[_AUTO_SEEN_KEY] = message.message_id
+
+    session_data = session.get(context.chat_data)
+    body = message.text or message.caption or ""
+
+    # The ending is checked first because the closing message carries a player list of its
+    # own — a "Players Alive: 3 / 12" header over every player, the dead ones mentioned too
+    # — and reading that as a roster would raise the dead in the last thing anybody sees.
+    # The count guard in _read_roster refuses it as well; this is the reason it never gets
+    # that far.
+    if _GAME_OVER.search(body):
+        if session_data is not None:
+            session.end(context.chat_data)
+            await _finish(context, message.chat.id, session_data)
+            logger.info("standin_auto_ended", chat_id=message.chat.id)
+        return
+
+    alive_ids, found, claimed, _ = _read_roster(message, session_data)
+    if alive_ids is None:
+        # Everything else the game bot says, which is most of what it says. Logged rather
+        # than answered: an automatic path that complained about every message it could not
+        # read would be a bot talking over a game.
+        if claimed != "?":
+            logger.info("standin_auto_roster_ignored", chat_id=message.chat.id, claimed=claimed, found=found)
+        return
+
+    if session_data is None:
+        if _now() - (context.chat_data.get(_AUTO_OPEN_KEY) or 0) < _AUTO_OPEN_FLOOR_SECONDS:
+            logger.info("standin_auto_open_throttled", chat_id=message.chat.id)
+            return
+        context.chat_data[_AUTO_OPEN_KEY] = _now()
+        # started_by is this bot: nobody started this one, and the roster message it posts
+        # is the only announcement it needs.
+        await _open_session(context, message.chat.id, context.bot.id, message)
+        return
+
+    _, _, _, changes = await _follow_roster(context, message.chat.id, session_data, message, alive_ids)
+    logger.info("standin_auto_followed", chat_id=message.chat.id, alive=len(alive_ids))
+    # Deaths need no announcement — the roster message shows them a few seconds later. A
+    # transform does: it is the one thing in a follow that nobody in the chat can see for
+    # themselves, and it was only ever visible as part of /ad's reply.
+    if changes:
+        await context.bot.send_message(
+            chat_id=message.chat.id,
+            text=_transform_lines(session_data, changes).strip(),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+
+
+# --- Lynch order -----------------------------------------------------------
+#
+# All three commands answer **only when addressed** — /lo@wwstatsbot, never a bare /lo.
+# These are short words another bot in the room may well own, and the cost of guessing
+# wrong is answering somebody else's command in a running game. Being addressed also
+# changes what silence means: a chat with no session is *told* so, rather than ignored,
+# because somebody who named this bot outright is owed an answer.
+
+# A typed order is stored in the session and re-rendered on every /lo, so its length is
+# capped here rather than discovered when Telegram refuses a 4096-character reply. Room
+# for a long roster with notes against each name, and nothing like a pasted essay.
+_LYNCH_ORDER_MAX = 1000
+
+
+def _lynch_written(context, message, session_data):
+    """Record a lynch-order change as activity.
+
+    Not _changed(): that also schedules a publish, and the lynch order appears in neither
+    live message, so there would be nothing to publish. The idle timer does matter — a
+    group setting the order is plainly still playing, and the session must not expire
+    underneath them.
+    """
+    session.touch(session_data, _now())
+    _schedule_idle(context, message.chat.id)
+
+
+def _named_somebody(message):
+    """Whether the message tried to point at a player, however unsuccessfully.
+
+    Only the *attempt* matters: it is what separates "you meant somebody I cannot find"
+    from "you gave me nothing", which are answered very differently.
+    """
+    for ent in message.entities or ():
+        if ent.type in (MessageEntity.TEXT_MENTION, MessageEntity.MENTION):
+            return True
+    return False
+
+
+def _sender_mention(message):
+    """Whoever issued the command, as a mention. The incumbent names them; so do we."""
+    return _mention(message.from_user.id, message.from_user.first_name)
+
+
+def _render_lynch_order(session_data):
+    """The lynch order as it stands: (message_html, found_anything).
+
+    A typed order is printed verbatim — whatever somebody wrote is the answer, and this is
+    the one place in the module that renders text it did not compose, hence the escape. The
+    rotating order is computed from the living roster instead, so it follows deaths with
+    nobody re-typing anything.
+    """
+    stored = session.lynch_order(session_data)
+    if isinstance(stored, list):
+        # An order named player by player. Names and aliveness are resolved now, so it
+        # follows renames and drops anybody who has died since it was set.
+        players = session.close_lynch_cycle(session.lynch_order_players(session_data, stored))
+        if not players:
+            return t.STANDIN_LYNCH_NOBODY, False
+        msg = t.STANDIN_LYNCH_HEADER
+        msg += "".join(t.STANDIN_LYNCH_ROW.format(name=_mention(uid, name)) for uid, name in players)
+        return msg, True
+    if stored:
+        # Free text nobody could resolve to players: printed verbatim, and the one place
+        # this module renders text it did not compose.
+        return t.STANDIN_LYNCH_HEADER + t.STANDIN_LYNCH_ROW.format(name=html.escape(stored)), True
+
+    players = session.rotating_lynch_order(session_data)
+    if not players:
+        return t.STANDIN_LYNCH_NOBODY, False
+    msg = t.STANDIN_LYNCH_HEADER
+    msg += "".join(t.STANDIN_LYNCH_ROW.format(name=_mention(uid, name)) for uid, name in players)
+    return msg, True
+
+
+async def _lynch_session(update, context, command):
+    """The session these commands act on, or None once a refusal has been sent.
+
+    Shared by all three because the gate is identical: addressed to us, and a session to
+    talk about. Unlike _session_for it answers rather than going quiet, for the reason
+    above the module section.
+    """
+    message = update.message
+    if not await _ours_to_answer(update, context):
+        # A bare /lo is somebody else's command, or nobody's — unless this bot is an admin
+        # here. Not ours to answer.
+        return None
+
+    user = message.from_user
+    logger.info("command", command=command, user_id=user.id, user=unidecode(user.first_name))
+
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        await message.reply_text(
+            t.STANDIN_LYNCH_NO_SESSION.format(username=html.escape(context.bot.username or "")),
+            parse_mode=ParseMode.HTML,
+        )
+        return None
+    return session_data
+
+
+async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/lo@bot` — show the lynch order in force, typed or rotating."""
+    session_data = await _lynch_session(update, context, "lo")
+    if session_data is None:
+        return
+
+    msg, _ = _render_lynch_order(session_data)
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/slo@bot <order>`, or in reply to a message carrying one.
+
+    With neither, it is a reset: "set it to nothing" and "go back to the rotating order"
+    are the same instruction, and refusing a bare /slo would only make somebody type /rslo
+    to say what they already said.
+    """
+    session_data = await _lynch_session(update, context, "slo")
+    if session_data is None:
+        return
+
+    message = update.message
+    if not await _may_manage(context, message.chat.id, session_data, message.from_user.id):
+        await message.reply_text(t.STANDIN_LYNCH_NOT_YOURS, parse_mode=ParseMode.HTML)
+        return
+
+    # Players first. @handle, a tapped mention and a bare id are all resolved against the
+    # roster by _pointed_at, exactly as every other command in this module resolves who it
+    # was pointed at — so a lynch order can be named player by player and rendered as
+    # mentions, rather than being text that happens to contain names.
+    ids, remainder = _pointed_at(message, session_data)
+    if ids:
+        living = session.lynch_order_players(session_data, ids)
+        if not living:
+            await message.reply_text(t.STANDIN_LYNCH_ALL_DEAD, parse_mode=ParseMode.HTML)
+            return
+        session.set_lynch_order(session_data, [uid for uid, _ in living])
+        _lynch_written(context, message, session_data)
+        reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message))
+        # A dead player named at set time is dropped, and saying so is the one addition
+        # kept: an order silently one name short of what somebody typed is a wrong answer,
+        # not decoration. It appears only when it applies.
+        dropped = [uid for uid in ids if uid not in {luid for luid, _ in living}]
+        if dropped:
+            reply += t.STANDIN_LYNCH_SKIPPED_DEAD.format(
+                names=", ".join(_mention_player(session_data, uid) for uid in dropped)
+            )
+        await message.reply_text(reply, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        return
+
+    # A mention that resolved to nobody must not be read as "no arguments" — _pointed_at
+    # cuts every mention out of the text whether or not it matched, so a mistyped @handle
+    # would otherwise arrive here looking exactly like a bare /slo and *reset* the order.
+    if _named_somebody(message) and not remainder:
+        await message.reply_text(t.STANDIN_LYNCH_UNKNOWN, parse_mode=ParseMode.HTML)
+        return
+
+    # Otherwise it is free text. Arguments win over a reply: naming an order outright is
+    # the more specific instruction, and a reply is what somebody uses when the order is
+    # already written down somewhere. The replied-to message may be a caption, hence both.
+    replied = message.reply_to_message
+    wanted = remainder
+    if not wanted and replied is not None:
+        wanted = ((replied.text or replied.caption) or "").strip()
+
+    if not wanted:
+        session.set_lynch_order(session_data, None)
+        _lynch_written(context, message, session_data)
+        await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
+        return
+
+    if len(wanted) > _LYNCH_ORDER_MAX:
+        await message.reply_text(
+            t.STANDIN_LYNCH_TOO_LONG.format(count=len(wanted), limit=_LYNCH_ORDER_MAX),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    session.set_lynch_order(session_data, wanted)
+    _lynch_written(context, message, session_data)
+    await message.reply_text(
+        t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/rslo@bot` — drop a typed order and go back to the rotating one."""
+    session_data = await _lynch_session(update, context, "rslo")
+    if session_data is None:
+        return
+
+    message = update.message
+    if not await _may_manage(context, message.chat.id, session_data, message.from_user.id):
+        await message.reply_text(t.STANDIN_LYNCH_NOT_YOURS, parse_mode=ParseMode.HTML)
+        return
+
+    session.set_lynch_order(session_data, None)
+    _lynch_written(context, message, session_data)
+    await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
 
 
 async def list_achievements_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

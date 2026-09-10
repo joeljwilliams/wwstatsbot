@@ -134,7 +134,13 @@ def build_application():
     app.add_handler(CommandHandler("ad", gamesession.follow_roster_cmd))
     app.add_handler(CommandHandler("steal", gamesession.steal_cmd))
     app.add_handler(CommandHandler("alt", gamesession.alt_cmd))
+    app.add_handler(CommandHandler("gm", gamesession.game_management_cmd))
     app.add_handler(CommandHandler("la", gamesession.list_achievements_cmd))
+    # Lynch order. Short words another bot in the room may own, so all three answer only
+    # when addressed — see the module section in handlers/gamesession.py.
+    app.add_handler(CommandHandler(["lo", "lynchorder"], gamesession.lynch_order_cmd))
+    app.add_handler(CommandHandler(["slo", "setlynchorder"], gamesession.set_lynch_order_cmd))
+    app.add_handler(CommandHandler(["rslo", "resetlynchorder"], gamesession.reset_lynch_order_cmd))
     app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
     app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))
     # Join announcements. A service message, not a command, so it arrives as an ordinary
@@ -146,6 +152,15 @@ def build_application():
     # traffic and the handler's own text match decides — it stays silent on every other
     # forward.
     app.add_handler(MessageHandler(filters.FORWARDED & (filters.TEXT | filters.CAPTION), gamesession.doused_forward))
+    # Everything another bot says in a group, and the only handler that will ever see it.
+    # Group -1 so it runs *before* the command words above and stops the update there: with
+    # bot-to-bot communication enabled, a bare /gs or /gm off from some other bot in the room
+    # would otherwise be a command issued to us. See the module section in
+    # handlers/gamesession.py for what it does with the game bot's own messages.
+    app.add_handler(
+        MessageHandler(gamesession.FROM_A_BOT & (filters.TEXT | filters.CAPTION), gamesession.game_bot_message),
+        group=-1,
+    )
     app.add_handler(InlineQueryHandler(inline.inline_query))
     app.add_error_handler(errors.error_handler)
 
