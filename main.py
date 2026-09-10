@@ -14,13 +14,15 @@ import asyncio
 import signal
 
 import structlog
-from telegram import BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     InlineQueryHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -81,6 +83,27 @@ async def _post_shutdown(application: Application):
     await db.close_pool()
 
 
+async def _drop_edited_messages(update: Update, context):
+    """Stop an edited message before anything tries to read `update.message`.
+
+    Nothing in this bot reacts to an edit, but PTB has no way to know that: both
+    CommandHandler and MessageHandler decide with `update.effective_message`, which an edit
+    populates while leaving `update.message` as None — and every handler here begins by
+    reading `update.message`. So editing a message into a command, or fixing a typo in a
+    forwarded doused list, dispatched normally and then crashed on the first attribute the
+    handler touched. That was live in production: an AttributeError out of doused_forward,
+    caught by the error handler, reported to the log group, and the update dropped.
+
+    One gate rather than a filter on twenty-eight registrations, so the twenty-ninth cannot
+    forget it. Matched on the edit fields by name rather than on "update.message is None",
+    which looks equivalent and is not: a callback query has no `message` either, and its
+    `effective_message` is the message the button sits on — so that reading would silently
+    swallow every button this bot has.
+    """
+    if update.edited_message is not None or update.edited_channel_post is not None:
+        raise ApplicationHandlerStop
+
+
 def build_application():
     """Construct the Application with every handler registered.
 
@@ -100,6 +123,10 @@ def build_application():
     else:
         logger.info("persistence_disabled")
     app = builder.build()
+
+    # Edits reach no handler at all. Registered first, and ahead of every group, because
+    # this is a precondition all of them share rather than any one handler's business.
+    app.add_handler(TypeHandler(Update, _drop_edited_messages), group=-2)
 
     app.add_handler(CommandHandler("start", misc.startme))
     app.add_handler(CommandHandler("stats", stats.display_stats))
