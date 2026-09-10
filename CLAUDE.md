@@ -405,13 +405,31 @@ multi-player `display_search_all` when it replies to a bot message that mentions
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
 work but are deliberately absent from `PUBLIC_COMMANDS` — don't re-advertise them.
 
-**`/schall` has a second mode, and `/sch` deliberately does not.** A reply-based run caches
-the chat's `text_mention` user ids in `chat_data`, and `/schall <achv>` with *no* reply
-re-checks them for 60 minutes. `/sch` with no reply still means "check my own achievements":
-it is the advertised command, so silently turning it into a group query would surprise
-anyone asking about themselves. The cache is per-chat (one group's roster can never surface
-in another), expires after an hour because a game roster changes every round, and the reply
+**`/schall` has a second mode, and `/sch` deliberately does not.** `/schall <achv>` with
+*no* reply re-checks this chat's remembered player list for 60 minutes. `/sch` with no reply
+still means "check my own achievements": it is the advertised command, so silently turning
+it into a group query would surprise anyone asking about themselves. The list is per-chat
+(one group's roster can never surface in another), expires after an hour because a game
+roster changes every round, and the reply
 always carries a 🕐 with the list's age — a remembered result must never pass for a fresh one.
+
+**Two things fill that list, and it lives in `handlers/common.py` because of it.** A
+reply-based run records the `text_mention` user ids it saw; a stand-in session records its
+**whole table**, so a group whose games this bot runs never primes it at all — the first
+`/schall` of a round needs no reply, because the session opened itself from the game bot's
+player list already (see `/gm auto`). `handlers.common.remember_players`/`recall_players`
+are the only encoders, and they take `now` from the caller so each command family keeps its
+own `_now` wrapper and no two modules have to agree about the time.
+
+The table rather than the game bot's latest list, and dead players included, for two
+reasons that are easy to get wrong. Achievements do not die with the player, and a list
+that shrank every round would look exactly like a mention having gone missing — the failure
+`/schall` already reports dropped alts to avoid. And the game bot *stops linking a player
+once they are out*, so its later lists carry ids for only the living, where the session
+keeps everybody. The record is refreshed on every list followed rather than only at the
+start, so the age reads "when this line-up was last confirmed": during a live game that is
+seconds, however long ago the game began. The `chat_data` key is still `schall_players`,
+because renaming it would orphan every list already in Redis.
 
 **The /schall toggle belongs to whoever asked.** Only the requester (recorded as
 `requested_by` in the payload) and admins may flip the view; anyone else gets an alert and the
