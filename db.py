@@ -6,6 +6,7 @@ the achievements table. The achievement list is small and read on hot paths
 refreshed after every edit; callers read it synchronously via get_achievements().
 """
 
+import json
 import re
 
 import asyncpg
@@ -134,6 +135,35 @@ CREATE TABLE IF NOT EXISTS player_alts (
     name       TEXT NOT NULL DEFAULT '',
     marked_by  BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- What the stats API last said about a player, one row per endpoint. Written on every
+-- successful lookup and read back when tgwerewolf.com cannot be reached, so a command
+-- answers from our own record instead of failing (see playerdata.py).
+--
+-- One table with a `kind` discriminator rather than five tables, because nothing here
+-- ever queries *into* a payload: it is fetched whole, by player and endpoint, and handed
+-- straight back to the same builder that would have received the API's answer. Five
+-- tables would be five schemas to keep in step with an API we do not control.
+--
+-- JSONB rather than TEXT so a payload stays inspectable from /db -- "what did we last see
+-- for this player" is a question that gets asked when somebody disputes a number. asyncpg
+-- has no codec for it by default, so both sides encode with json.dumps/json.loads
+-- explicitly (see save_player_snapshot) rather than relying on one being installed.
+--
+-- `name` is the display name at the time of the lookup and is only for reading rows back:
+-- it is recorded solely by the callers that hold an unescaped one, so it may well be empty
+-- (see playerdata.py). `updated_at` is the freshness a fallback reports to the user, which
+-- is why it is a column and not derived from anything.
+CREATE TABLE IF NOT EXISTS player_snapshots (
+    user_id    BIGINT NOT NULL,
+    -- stats | kills | killedby | deaths | achievements -- playerdata.KINDS.
+    kind       TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    payload    JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, kind)
 );
 """
 
@@ -394,6 +424,89 @@ async def list_alts():
     """Every marked account, newest first, for /alts."""
     async with _pool.acquire() as conn:
         return await conn.fetch("SELECT user_id, name FROM player_alts ORDER BY created_at DESC")
+
+
+# --- Player snapshots -------------------------------------------------------
+#
+# The stats API's last answer for each player, kept so a lookup can be served when
+# tgwerewolf.com cannot be reached and so a new achievement can be noticed by comparing
+# one lookup against the one before it. playerdata.py owns *when* these are called; this
+# is only the SQL.
+
+
+def has_pool():
+    """Whether a database is actually available.
+
+    The snapshot path is the one place that has to ask. Everything else in this module is
+    reached from a handler that could not have started without a pool, but recording a
+    lookup is a side effect of answering a command -- it must never be the reason one
+    fails, and it is also called from the test suite, which has no Postgres at all.
+    """
+    return _pool is not None
+
+
+async def save_player_snapshot(user_id, kind, payload, name=None):
+    """Record one endpoint's answer for one player; return the payload it replaced.
+
+    Returns None when this player/kind had no row -- which the caller must treat as "no
+    comparison is possible", not as "everything in this payload is new". That distinction
+    is the difference between noticing one achievement and announcing a hundred.
+
+    The read and the write are one transaction with the row locked, because two lookups
+    of the same player can overlap (a /schall in one group while /stats runs in another)
+    and both would otherwise read the same `previous` and report the same achievement
+    twice. FOR UPDATE makes the second wait and then see what the first wrote. It locks
+    nothing when the row does not exist yet, which is correct for the same reason: both
+    callers get None, both treat this as a baseline, and neither announces.
+
+    `name` is only recorded when the caller has one, and never overwrites a stored name
+    with an empty string -- callers that hold an already-escaped name deliberately pass
+    nothing rather than poison the record with markup (see playerdata.py).
+    """
+    encoded = json.dumps(payload)
+    async with _pool.acquire() as conn, conn.transaction():
+        previous = await conn.fetchval(
+            "SELECT payload FROM player_snapshots WHERE user_id = $1 AND kind = $2 FOR UPDATE",
+            user_id,
+            kind,
+        )
+        await conn.execute(
+            """
+            INSERT INTO player_snapshots AS s (user_id, kind, name, payload)
+            VALUES ($1, $2, $3, $4::jsonb)
+            ON CONFLICT (user_id, kind) DO UPDATE
+                SET payload = EXCLUDED.payload,
+                    name = COALESCE(NULLIF(EXCLUDED.name, ''), s.name),
+                    updated_at = now()
+            """,
+            user_id,
+            kind,
+            name or "",
+            encoded,
+        )
+    return None if previous is None else json.loads(previous)
+
+
+async def load_player_snapshot(user_id, kind):
+    """The last recorded answer as (payload, age_seconds), or None if there is none.
+
+    The age is computed by Postgres rather than in Python: `updated_at` is a server
+    timestamp, so subtracting a local clock from it would report whatever the two machines
+    disagree by -- and this number is shown to a user as "how stale is what you are
+    reading".
+    """
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT payload, EXTRACT(EPOCH FROM now() - updated_at) AS age
+            FROM player_snapshots WHERE user_id = $1 AND kind = $2
+            """,
+            user_id,
+            kind,
+        )
+    if row is None:
+        return None
+    return json.loads(row["payload"]), float(row["age"])
 
 
 # --- Search -----------------------------------------------------------------

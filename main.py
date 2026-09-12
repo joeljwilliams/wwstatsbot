@@ -27,6 +27,7 @@ from telegram.ext import (
 import api
 import db
 import health
+import playerdata
 import settings
 import templates as t
 import webhook
@@ -71,12 +72,17 @@ async def _post_init(application: Application):
     await db.seed_rules()
     await db.load_rules_cache()
     await db.load_alts_cache()
+    # New achievements are noticed inside a lookup, under builders that have no `context`
+    # and no business sending anything, so the bot they are announced with is handed over
+    # here rather than threaded down. Nothing is posted until LOG_GROUP_ID is also set.
+    playerdata.set_announcer(application.bot)
     await application.bot.set_my_commands(PUBLIC_COMMANDS)
     health.set_ready(True)
 
 
 async def _post_shutdown(application: Application):
     health.set_ready(False)
+    playerdata.set_announcer(None)
     await api.close()
     await db.close_pool()
 
