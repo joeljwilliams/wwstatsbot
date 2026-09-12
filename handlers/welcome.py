@@ -24,6 +24,7 @@ from unidecode import unidecode
 
 import api
 import builders
+import playerdata
 import templates as t
 from handlers.common import is_admin_user, is_chat_admin
 
@@ -92,11 +93,16 @@ async def _player_line(user):
     An unreachable stats API must not produce "has not played any games yet" — that is a
     statement about the player, and getting it wrong is worse than staying quiet.
     """
-    stats = await api.get_stats(user.id)
+    # The one call site that has the player's *raw* name to hand, along with search.py and
+    # the session roster — so it is one of the three that teach the record who an id is.
+    # A lookup served from the record is not marked here, unlike every other command: this
+    # line is a greeting rather than an answer to a question about the numbers, and the
+    # alternative to slightly stale games-played was saying nothing about this player at all.
+    stats = (await playerdata.get_stats(user.id, user.first_name)).data
     name = html.escape(user.first_name)
     if not stats:
         return t.WELCOME_NO_GAMES.format(user_id=user.id, name=name)
-    achievements = await api.get_achievement_count(user.id)
+    achievements = (await playerdata.get_achievement_count(user.id, user.first_name)).data
     return t.WELCOME_PLAYER.format(
         name=name,
         role=builders.role_label(stats["mostCommonRole"]),

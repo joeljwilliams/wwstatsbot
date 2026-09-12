@@ -5,7 +5,7 @@ inactive) and each bucket is chunked at 30 entries per Telegram message, with th
 MISSING total line repeated on every chunk so a message never loses its context.
 """
 
-from conftest import ACHIEVEMENTS
+from conftest import ACHIEVEMENTS, ACHIEVEMENTS_JSON
 
 import db
 import wwstats
@@ -44,10 +44,10 @@ def test_section_of_nothing_produces_nothing():
     assert wwstats._section([], "MAIN", "HEADER") == []
 
 
-async def test_check_buckets_achievements_and_counts_them(monkeypatch, stats_api):
+def test_check_buckets_achievements_and_counts_them(monkeypatch):
     """ACHIEVEMENTS_JSON grants 'Welcome to Hell' and 'Busy Night' of the 6 fixtures."""
     monkeypatch.setattr(db, "get_achievements", lambda: ACHIEVEMENTS)
-    msgs = await wwstats.check(7, stats_api_client(stats_api))
+    msgs = wwstats.check(ACHIEVEMENTS_JSON)
 
     attained = msgs[0]
     assert "*ATTAINED (2/6):*" in attained
@@ -66,17 +66,10 @@ async def test_check_buckets_achievements_and_counts_them(monkeypatch, stats_api
     assert "Explorer" in body
 
 
-async def test_check_puts_each_achievement_in_exactly_one_bucket(monkeypatch, stats_api):
+def test_check_puts_each_achievement_in_exactly_one_bucket(monkeypatch):
     """An inactive achievement must not also be listed as attainable."""
     monkeypatch.setattr(db, "get_achievements", lambda: ACHIEVEMENTS)
-    msgs = await wwstats.check(7, stats_api_client(stats_api))
+    msgs = wwstats.check(ACHIEVEMENTS_JSON)
     body = "".join(msgs[1:])
     assert body.count("`- Explorer`") == 1
     assert body.count("`- Here's Johnny!`") == 1
-
-
-def stats_api_client(api):
-    """wwstats.check takes the httpx client as an argument rather than importing it."""
-    import httpx
-
-    return httpx.AsyncClient(transport=httpx.MockTransport(api.handler))

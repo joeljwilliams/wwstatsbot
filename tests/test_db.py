@@ -67,11 +67,15 @@ async def pool():
     async with db._pool.acquire() as conn:
         # achievement_rules holds a foreign key onto achievements, so it has to be named
         # here too: dropping achievements alone fails while a dependent table exists.
-        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts")
+        await conn.execute(
+            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_snapshots"
+        )
     await db.ensure_schema()
     yield db._pool
     async with db._pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts")
+        await conn.execute(
+            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_snapshots"
+        )
     await db.close_pool()
 
 
@@ -615,3 +619,76 @@ async def test_the_cache_is_rebuilt_from_the_table(pool):
 
     await db.load_alts_cache()
     assert db.is_alt_account(7)
+
+
+# --- Player snapshots ------------------------------------------------------------
+#
+# The record of what the stats API last said. The behaviour that matters is what a save
+# *returns*: the payload it replaced, which is the only basis on which a new achievement is
+# ever noticed. playerdata.py has the logic; these pin the SQL under it.
+
+
+async def test_a_first_save_reports_no_previous_payload(pool):
+    """None means "never looked", and playerdata treats it as a baseline rather than news.
+    A save that returned the row it just wrote would announce a player's whole collection."""
+    assert await db.save_player_snapshot(7, "achievements", [{"name": "Busy Night"}]) is None
+
+
+async def test_a_save_returns_what_it_replaced(pool):
+    await db.save_player_snapshot(7, "achievements", [{"name": "Busy Night"}])
+    previous = await db.save_player_snapshot(7, "achievements", [{"name": "Busy Night"}, {"name": "Explorer"}])
+    assert previous == [{"name": "Busy Night"}]
+
+
+async def test_a_snapshot_reads_back_with_its_age(pool):
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 100})
+    payload, age = await db.load_player_snapshot(7, "stats")
+    assert payload == {"gamesPlayed": 100}
+    assert 0 <= age < 60, "just written"
+
+
+async def test_an_unrecorded_player_reads_back_as_nothing(pool):
+    assert await db.load_player_snapshot(7, "stats") is None
+
+
+async def test_each_endpoint_keeps_its_own_row(pool):
+    """One table, keyed (user_id, kind) — a stats write must not clobber the achievements."""
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 100})
+    await db.save_player_snapshot(7, "achievements", [{"name": "Busy Night"}])
+
+    assert (await db.load_player_snapshot(7, "stats"))[0] == {"gamesPlayed": 100}
+    assert (await db.load_player_snapshot(7, "achievements"))[0] == [{"name": "Busy Night"}]
+
+
+async def test_a_nameless_save_keeps_the_name_already_recorded(pool):
+    """Most lookups carry no name: theirs has been html-escaped by the time it reaches the
+    fetcher, and storing markup would have it escaped again wherever the row is read back.
+    Those saves must leave a name learned from one of the three callers that has a raw one."""
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 1}, name="Alice")
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 2})
+
+    name = await db._scalar("SELECT name FROM player_snapshots WHERE user_id = 7 AND kind = 'stats'")
+    assert name == "Alice"
+
+
+async def test_a_named_save_refreshes_the_name(pool):
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 1}, name="Alice")
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 2}, name="Alicia")
+
+    name = await db._scalar("SELECT name FROM player_snapshots WHERE user_id = 7 AND kind = 'stats'")
+    assert name == "Alicia"
+
+
+async def test_a_payload_is_stored_as_jsonb(pool):
+    """TEXT would read back as a quoted blob from the /db console, which is where "what did
+    we last see for this player" actually gets asked."""
+    await db.save_player_snapshot(7, "stats", {"gamesPlayed": 100})
+    games = await db._scalar("SELECT payload->>'gamesPlayed' FROM player_snapshots WHERE user_id = 7")
+    assert games == "100"
+
+
+async def test_an_empty_list_is_a_recorded_value_not_an_absent_row(pool):
+    """A player with no achievements at all still has a baseline, so their first one is news."""
+    await db.save_player_snapshot(7, "achievements", [])
+    assert await db.load_player_snapshot(7, "achievements") == ([], pytest.approx(0, abs=60))
+    assert await db.save_player_snapshot(7, "achievements", [{"name": "Busy Night"}]) == []

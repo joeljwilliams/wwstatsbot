@@ -135,6 +135,38 @@ SCHALL_CACHE_STALE = N_(
     "run the game and I'll keep the roster myself."
 )
 
+# --- HTML: reading from the record instead of the API (playerdata.py) -------
+#
+# Every stats lookup is recorded, and when tgwerewolf.com cannot be reached the record
+# answers instead. Saying so is not optional: the numbers below a stats card look exactly
+# the same either way, and a stale answer passing for a live one is the failure this bot
+# already spends the 🕐 on /schall's remembered list to avoid.
+
+# Appended to a message assembled from recorded data. Reports the oldest part of it, since
+# that is how fresh the message as a whole actually is.
+STALE_NOTICE = N_("\n<i>🕐 The stats site is unreachable — this is what I last saw, {age}.</i>")
+
+# The age itself, in whatever unit reads at a glance. Separate constants rather than one
+# string with a unit field, because a plural and a unit are the same word in some languages
+# and a translator needs the whole phrase.
+AGE_MOMENTS = N_("moments ago")
+AGE_MINUTES = N_("{count}m ago")
+AGE_HOURS = N_("{count}h ago")
+AGE_DAYS = N_("{count}d ago")
+
+# --- HTML: new achievements, posted to the log group (playerdata.py) -------
+#
+# Not addressed to a player: this goes to LOG_GROUP_ID, the operators' room, and is the
+# only way anyone learns that a lookup revealed something new — the stats API has no
+# notification of any kind, so a diff against the previous lookup is the whole mechanism.
+LOG_ACHIEVEMENT_HEADER = N_(
+    "\N{TROPHY} <a href='tg://user?id={user_id}'>{name}</a> unlocked {count} new achievement{plural}:\n"
+)
+LOG_ACHIEVEMENT_ROW = N_("• <b>{name}</b>\n")
+# A player nobody has looked up in months can have earned a great many at once. Bounded, and
+# the remainder counted rather than silently dropped.
+LOG_ACHIEVEMENT_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more.</i>\n")
+
 # --- HTML: /info achievement card pager (handlers/achievements.py) ---------
 
 # Group hand-off: one public message with a button, so several people can each

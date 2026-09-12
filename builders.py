@@ -16,9 +16,9 @@ is a change to what users see.
 
 import html
 
-import api
 import db
 import notes
+import playerdata
 import roles
 import templates as t
 
@@ -43,37 +43,52 @@ def role_label(api_role):
     return html.escape(api_role or "")
 
 
+# Every fetch below goes through playerdata rather than api directly, which is what records
+# it and what lets a lookup be answered from the record when tgwerewolf.com is down. The
+# price is that a fetcher hands back a Reading (.data and .age) instead of a bare payload,
+# and the age has to be carried to the end of the message: `stale_notice` renders nothing
+# for a live answer, so the golden output of a working lookup is unchanged.
+#
+# The player's name is deliberately NOT passed down to be recorded. By the time it reaches
+# here it has already been html.escape()-ed by the caller, and storing markup would have it
+# escaped a second time wherever the record is read back. The callers that hold a raw name
+# (handlers/search.py, handlers/welcome.py, handlers/gamesession.py) pass one.
+
+
 async def build_kills_msg(user_id, name):
-    kills = await api.get_kills(user_id)
+    kills = await playerdata.get_kills(user_id)
     msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
-    for k in kills:
+    for k in kills.data:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
-    return msg
+    return msg + playerdata.stale_notice(kills.age)
 
 
 async def build_killed_by_msg(user_id, name):
-    killedby = await api.get_killed_by(user_id)
+    killedby = await playerdata.get_killed_by(user_id)
     msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
-    for k in killedby:
+    for k in killedby.data:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
-    return msg
+    return msg + playerdata.stale_notice(killedby.age)
 
 
 async def build_deaths_msg(user_id, name):
-    deaths = await api.get_deaths(user_id)
-    stats = await api.get_stats(user_id)
+    deaths = await playerdata.get_deaths(user_id)
+    stats = await playerdata.get_stats(user_id)
     msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
-    for d in deaths:
+    for d in deaths.data:
         # The total per kill method is derived from the percentage in the JSON,
         # so the value is approximate rather than exact.
-        total = round((stats["gamesPlayed"] - stats["survived"]["total"]) * float(d["percent"]) / 100)
+        total = round((stats.data["gamesPlayed"] - stats.data["survived"]["total"]) * float(d["percent"]) / 100)
         msg += t.DEATH_ROW.format(percent=d["percent"], method=d["method"], total=total)
-    return msg
+    # Two endpoints, one message: the notice reports the older of them, because that is how
+    # fresh the whole thing is.
+    return msg + playerdata.stale_notice(deaths.age, stats.age)
 
 
 async def build_stats_msg(user_id, name, by_id=False):
-    stats = await api.get_stats(user_id)
-    achievements = await api.get_achievement_count(user_id)
+    reading = await playerdata.get_stats(user_id)
+    count = await playerdata.get_achievement_count(user_id)
+    stats, achievements = reading.data, count.data
 
     if not stats:
         template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
@@ -94,7 +109,7 @@ async def build_stats_msg(user_id, name, by_id=False):
         msg += t.STATS_MOST_KILLED_BY.format(
             times=stats["mostKilledBy"]["times"], name=html.escape(stats["mostKilledBy"]["name"])
         )
-    return msg
+    return msg + playerdata.stale_notice(reading.age, count.age)
 
 
 # At or below this length a query means an initialism and nothing else -- it never

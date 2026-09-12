@@ -35,9 +35,9 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
-import api
 import db
 import feasibility
+import playerdata
 import roles
 import rulelist
 import session
@@ -493,13 +493,19 @@ async def _load_attained(session_data, players):
     get a list — an achievement wrongly offered is a moment's confusion, one wrongly hidden
     is the thing this feature exists to prevent.
     """
-    results = await asyncio.gather(*[api.get_achievements(uid) for uid, _ in players], return_exceptions=True)
+    # Through playerdata, so the batch doubles as the thing that records a roster's worth of
+    # players at once — and so the stats site being down degrades to a stale list rather than
+    # to "we don't know" for everybody. Names are passed raw: the roster holds them unescaped
+    # (escaping happens at render), which is exactly what the record wants.
+    results = await asyncio.gather(
+        *[playerdata.get_achievements(uid, uname) for uid, uname in players], return_exceptions=True
+    )
     failed = 0
     for (uid, _), result in zip(players, results, strict=True):
         if isinstance(result, Exception):
             failed += 1
             continue
-        session.set_attained(session_data, uid, [a["name"] for a in result])
+        session.set_attained(session_data, uid, [a["name"] for a in result.data])
     if failed:
         logger.warning("standin_attained_lookup_failed", players=failed)
 

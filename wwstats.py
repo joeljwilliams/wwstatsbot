@@ -15,14 +15,19 @@ def _section(items, main, section_header):
     return [main + section_header + "".join(chunk) for chunk in chunks(lines, 30)]
 
 
-async def check(userid, client):
+def check(stats):
+    """The /achievements report for one player, from their attained-achievement list.
+
+    Takes the API's answer rather than fetching it. This module used to build its own URL
+    against tgwerewolf.com and do its own GET, which made it the one lookup in the bot that
+    api.py did not own — and therefore the one that no shared behaviour could ever reach.
+    Handing it the list instead puts /achievements behind the same fetcher as everything
+    else, and leaves this module doing only what it is named for: bucketing and chunking.
+    """
     achvs = db.get_achievements()
     achv_names = {a["name"] for a in achvs}
     total = len(achvs)
 
-    url = "https://tgwerewolf.com/stats/PlayerAchievements/?pid={}&json=true".format(userid)
-    r = await client.get(url)
-    stats = r.json()
     attained_count = len(stats)
     attained_names = [each["name"] for each in stats]
     not_via_playing = [z for z in achvs if z["name"] not in attained_names and z.get("not_via_playing")]
