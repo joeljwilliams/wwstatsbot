@@ -157,8 +157,6 @@ _ROUTES = {
     "/Stats/PlayerKilledBy/": KILLED_BY_JSON,
     "/Stats/PlayerDeaths/": DEATHS_JSON,
     "/Stats/PlayerAchievements/": ACHIEVEMENTS_JSON,
-    # wwstats.check() builds its own absolute URL against a different path shape.
-    "/stats/PlayerAchievements/": ACHIEVEMENTS_JSON,
 }
 
 

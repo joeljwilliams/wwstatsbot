@@ -37,7 +37,7 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("command", command="achievements", user_id=user_id, user=unidecode(name))
 
-    msgs = await wwstats.check(user_id, api.client)
+    msgs = wwstats.check(await api.get_achievements(user_id))
 
     try:
         for msg in msgs:
