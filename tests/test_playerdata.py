@@ -207,16 +207,6 @@ async def test_a_second_lookup_does_not_re_announce(stats_api, store, log_group)
     assert len(announcements(log_group)) == 1
 
 
-async def test_an_unnamed_player_is_announced_by_id(stats_api, store, log_group):
-    """Most lookups carry no name (theirs is already escaped); the id still identifies them."""
-    store.seed(7, playerdata.ACHIEVEMENTS, [])
-    stats_api.set_achievements(7, ["Busy Night"])
-
-    await playerdata.get_achievements(7)
-
-    assert "7" in announcements(log_group)[0]["text"]
-
-
 async def test_a_long_run_of_new_achievements_is_capped_and_counted(stats_api, store, log_group):
     store.seed(7, playerdata.ACHIEVEMENTS, [])
     earned = ["Achievement {}".format(i) for i in range(playerdata._ANNOUNCE_MAX + 3)]
@@ -449,30 +439,30 @@ async def test_the_schall_roster_teaches_the_record_who_a_player_is(achievements
 
 
 async def test_the_profile_endpoint_names_a_player(stats_api, store):
-    assert await playerdata.player_name(7) == "Alice"
+    assert (await playerdata.player_profile(7)).name == "Alice"
 
 
 async def test_an_unknown_id_has_no_name_rather_than_an_error(stats_api, store):
     """The site answers a mistyped id with an HTML error page, which is the ordinary outcome
     of `/stats <number>`. It must degrade to "we can't name them", never to a failed command."""
-    assert await playerdata.player_name(4242) is None
+    assert (await playerdata.player_profile(4242)).name is None
 
 
 async def test_an_unreachable_site_has_no_name_rather_than_an_error(stats_api, store):
     stats_api.fail_pids.add(7)
-    assert await playerdata.player_name(7) is None
+    assert (await playerdata.player_profile(7)).name is None
 
 
 async def test_a_name_lookup_is_recorded_like_any_other(stats_api, store):
-    await playerdata.player_name(7)
+    await playerdata.player_profile(7)
     assert store.rows[(7, playerdata.PLAYER)][0]["name"] == "Alice"
 
 
 async def test_a_recorded_name_outlives_the_site(stats_api, store):
     """The record carries the profile too, so a name learned once survives an outage."""
-    await playerdata.player_name(7)
+    await playerdata.player_profile(7)
     stats_api.fail_pids.add(7)
-    assert await playerdata.player_name(7) == "Alice"
+    assert (await playerdata.player_profile(7)).name == "Alice"
 
 
 async def test_a_profile_lookup_announces_nothing(stats_api, store, log_group):
@@ -533,3 +523,82 @@ async def test_a_no_such_player_answer_is_not_recorded(stats_api, store, monkeyp
     monkeypatch.setattr(api, "get_stats", nobody)
     assert (await playerdata.get_stats(7)).data == ""
     assert store.rows == {}
+
+
+# --- Linking by username ----------------------------------------------------
+#
+# `tg://user?id=` resolves only in a client that has already met that user. A log group
+# reads about players its members have not met, and a /stats <id> card is by definition
+# about somebody the asker could not mention — so both were text nobody could tap.
+# `https://t.me/<username>` has no such condition.
+
+
+async def test_an_announcement_links_by_username(stats_api, store, log_group):
+    store.seed(7, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(7, ["Busy Night"])
+
+    await playerdata.get_achievements(7)
+
+    text = announcements(log_group)[0]["text"]
+    assert "https://t.me/alice" in text
+    assert "tg://user" not in text
+
+
+async def test_an_announcement_falls_back_to_the_id_mention_without_a_username(stats_api, store, log_group):
+    """Kept rather than dropped: it does resolve for a player somebody in the room has seen."""
+    stats_api.usernames.pop(7)
+    store.seed(7, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(7, ["Busy Night"])
+
+    await playerdata.get_achievements(7)
+
+    text = announcements(log_group)[0]["text"]
+    assert "tg://user?id=7" in text
+    assert "t.me" not in text
+
+
+async def test_an_unknown_player_is_announced_with_no_username(stats_api, store, log_group):
+    store.seed(4242, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(4242, ["Busy Night"])
+
+    await playerdata.get_achievements(4242)
+
+    assert "t.me" not in announcements(log_group)[0]["text"]
+
+
+async def test_a_username_is_read_off_the_profile(stats_api, store):
+    assert (await playerdata.player_profile(7)).username == "alice"
+
+
+async def test_a_missing_username_is_none_not_an_error(stats_api, store):
+    stats_api.usernames.pop(7)
+    profile = await playerdata.player_profile(7)
+    assert profile.name == "Alice"
+    assert profile.username is None
+
+
+async def test_a_leading_at_is_stripped(stats_api, store):
+    stats_api.usernames[7] = "@alice"
+    assert (await playerdata.player_profile(7)).username == "alice"
+
+
+async def test_a_username_that_is_not_one_is_refused(stats_api, store):
+    """It goes straight into an href, and it arrives from a database this bot does not own
+    and that has never revalidated it. A quote would close the attribute and put whatever
+    followed into the markup of a message this bot sends."""
+    for bad in ["al'ice", 'ali"ce', "ali ce", "ab", "x" * 33, "ali-ce", "<script>", 12345, None]:
+        stats_api.usernames[7] = bad
+        assert (await playerdata.player_profile(7)).username is None, bad
+
+
+async def test_a_refused_username_leaves_the_name_intact(stats_api, store, log_group):
+    """A bad username costs the link, not the announcement."""
+    stats_api.usernames[7] = "not a username"
+    store.seed(7, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(7, ["Busy Night"])
+
+    await playerdata.get_achievements(7)
+
+    text = announcements(log_group)[0]["text"]
+    assert "Alice" in text
+    assert "t.me" not in text

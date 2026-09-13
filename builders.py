@@ -86,26 +86,35 @@ async def build_deaths_msg(user_id, name):
 
 
 async def build_stats_msg(user_id, name, by_id=False):
+    username = None
     if by_id:
         # `name` arrived as the digits somebody typed, because a bare id is all /stats <id>
         # has to go on — none of the five stat endpoints carries the player's own name. The
-        # profile endpoint does, so the card can be titled with a person rather than a
-        # number. Unknown ids keep the digits: player_name answers None rather than raising
-        # (see playerdata), which is the ordinary outcome of a typo.
-        found = await playerdata.player_name(user_id)
-        if found:
-            name = html.escape(found)
+        # profile endpoint does, and carries the username that is the only way to *link* the
+        # result: a tg://user mention resolves only in a client that has already met that
+        # user, which is precisely what looking somebody up by id means you have not.
+        #
+        # Unknown ids keep the digits and stay unlinked: player_profile answers empty rather
+        # than raising (see playerdata), which is the ordinary outcome of a typo.
+        profile = await playerdata.player_profile(user_id)
+        username = profile.username
+        if profile.name:
+            name = html.escape(profile.name)
 
     reading = await playerdata.get_stats(user_id)
     count = await playerdata.get_achievement_count(user_id)
     stats, achievements = reading.data, count.data
 
     if not stats:
-        template = t.NO_GAMES_BY_ID if by_id else t.NO_GAMES
-        return template.format(user_id=user_id, name=name)
+        template = t.NO_GAMES
+        if by_id:
+            template = t.NO_GAMES_BY_USERNAME if username else t.NO_GAMES_BY_ID
+        return template.format(user_id=user_id, name=name, username=username)
 
-    name_template = t.STATS_NAME_BY_ID if by_id else t.STATS_NAME
-    msg = name_template.format(user_id=user_id, name=name, role=role_label(stats["mostCommonRole"]))
+    name_template = t.STATS_NAME
+    if by_id:
+        name_template = t.STATS_NAME_BY_USERNAME if username else t.STATS_NAME_BY_ID
+    msg = name_template.format(user_id=user_id, name=name, username=username, role=role_label(stats["mostCommonRole"]))
     msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
     msg += t.STATS_WON.format(total=stats["won"]["total"], percent=stats["won"]["percent"])
     msg += t.STATS_LOST.format(total=stats["lost"]["total"], percent=stats["lost"]["percent"])

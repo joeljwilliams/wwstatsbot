@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1204 tests; the 67 Postgres ones skip by default
+uv run pytest                     # 1212 tests; the 67 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -468,9 +468,20 @@ typed and a log announcement had nothing to call a player by. `api.get_player()`
 `{id, telegramId, name, username, language}`. For an id the game has never seen the site
 dereferences a null and serves an **HTML error page**, so `json()` raises rather than
 returning the empty string the other endpoints answer with — and a mistyped number is the
-ordinary case. `playerdata.player_name()` therefore never raises: it answers None, and both
-callers fall back to the id. Recorded as its own `player` kind, so a name learned once
-survives the site being down.
+ordinary case. `playerdata.player_profile()` therefore never raises: it answers an empty
+`Profile`, and both callers fall back to the id. Recorded as its own `player` kind, so a
+name learned once survives the site being down.
+
+**The username is the only link either of those two places can use.** `tg://user?id=`
+resolves only in a client that has already met that user — a log group reads about players
+its members have not met, and a `/stats <id>` card is by definition about somebody the asker
+could not have mentioned. So both link `https://t.me/<username>` when there is one
+(`STATS_NAME_BY_USERNAME`, `NO_GAMES_BY_USERNAME`, `LOG_ACHIEVEMENT_HEADER_LINKED`) and fall
+back to the id mention or to plain text when there is not — a player who never set a
+username is ordinary, not a degraded case. The username is **validated against Telegram's
+own rule** before it is used, because it goes straight into an `href` and arrives from a
+database this bot does not own and that has never revalidated it; anything not matching is
+treated as no username at all.
 
 **The first lookup of a player is a baseline, not news.** `db.save_player_snapshot` returns
 the payload it replaced, and `None` there means "never looked" — announcing a diff against
@@ -491,9 +502,11 @@ looked" would read the same to anything that reads the row back.
 
 **The log announcement names a player by asking the site, not by what the caller held.**
 Most lookups reach a fetcher with no name at all (see below), which left the great majority
-of announcements reading as a bare user id. `_display_name` spends one extra request on
-`player_name()` — and only on an announcement, which happens when somebody actually earns
+of announcements reading as a bare user id. `_who` spends one extra request on
+`player_profile()` — and only on an announcement, which happens when somebody actually earns
 something rather than on every lookup — falling back to the caller's name and then the id.
+It returns the template *and* its fields rather than a finished line, because the header also
+carries `{count}`/`{plural}` and `str.format` cannot fill some fields and leave others.
 It cannot recurse: the profile lookup is kind `player`, and only kind `achievements` ever
 announces.
 

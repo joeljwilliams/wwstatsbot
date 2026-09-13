@@ -212,11 +212,20 @@ async def test_stats_msg(stats_api):
 
 async def test_stats_msg_by_id_titles_the_card_with_the_sites_name(stats_api):
     """The digits somebody typed are all /stats <id> has to go on, and none of the stat
-    endpoints carries the player's own name — the profile endpoint does, so the card names a
-    person. Still unlinked: Telegram cannot render a mention for an id it has never seen."""
+    endpoints carries the player's own name. The profile endpoint carries both the name and
+    the username that is the only usable link: a tg://user mention resolves only in a client
+    that has already met the user, which looking somebody up by id means you have not."""
+    msg = await builders.build_stats_msg(7, "7", by_id=True)
+    assert msg.startswith("<a href='https://t.me/alice'>Alice the Villager 👱</a>\n")
+    assert "tg://user" not in msg
+
+
+async def test_stats_msg_by_id_is_unlinked_for_a_player_with_no_username(stats_api):
+    """Having a name and no username is ordinary, not a degraded case."""
+    stats_api.usernames.pop(7)
     msg = await builders.build_stats_msg(7, "7", by_id=True)
     assert msg.startswith("Alice the Villager 👱\n")
-    assert "tg://user" not in msg
+    assert "href" not in msg.split("\n")[0]
 
 
 async def test_stats_msg_by_id_keeps_the_digits_for_an_unknown_id(stats_api):
@@ -262,7 +271,9 @@ async def test_stats_msg_no_games(stats_api):
     # Named even with no games to their name: the profile endpoint knows them whether or not
     # they have ever played, so "7 has not played any games" only survives for an id the game
     # has never seen at all.
-    assert await builders.build_stats_msg(7, "7", by_id=True) == "Alice has not played any games."
+    assert await builders.build_stats_msg(7, "7", by_id=True) == (
+        "<a href='https://t.me/alice'>Alice</a> has not played any games."
+    )
     assert await builders.build_stats_msg(4242, "4242", by_id=True) == "4242 has not played any games."
 
 

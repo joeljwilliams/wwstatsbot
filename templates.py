@@ -38,6 +38,15 @@ COUNT_ROW = N_("<code>{count:<5}</code> <b>{label}</b>\n")
 DEATH_ROW = N_("<code>{percent}%</code>   <b>{method}</b>   <code>(approx. {total})</code>\n")
 
 STATS_NAME = N_("<a href='tg://user?id={user_id}'>{name} the {role}</a>\n")
+# /stats <id>. Three variants rather than a conditional inside one string, the same split
+# STATS_NAME already uses.
+#
+# A tg://user mention is not available here and never was: it resolves only in a client that
+# has already met that user, and the whole point of looking somebody up by id is that you
+# have not. A t.me link has no such condition, so a player who has set a username is tappable
+# from a card about a stranger — which is what the plain variant could never be. It stays for
+# the players who have no username.
+STATS_NAME_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name} the {role}</a>\n")
 STATS_NAME_BY_ID = N_("{name} the {role}\n")
 STATS_ACHIEVEMENTS = N_("<code>{count:<5}</code> Achievements Unlocked!\n")
 STATS_WON = N_("<code>{total:<5}</code> Games Won <code>({percent}%)</code>\n")
@@ -47,6 +56,9 @@ STATS_TOTAL = N_("<code>{total:<5}</code> Total Games\n")
 STATS_MOST_KILLED = N_("<code>{times:<5}</code> times I've gleefully killed {name}\n")
 STATS_MOST_KILLED_BY = N_("<code>{times:<5}</code> times I've been slaughtered by {name}\n\n")
 NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not played any games.")
+# The same card in its empty state, so it links the same way. Somebody with no games is
+# exactly who you would want to tap through to.
+NO_GAMES_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name}</a> has not played any games.")
 NO_GAMES_BY_ID = N_("{name} has not played any games.")
 
 # --- HTML: achievement info card (builders.py) -----------------------------
@@ -159,6 +171,13 @@ AGE_DAYS = N_("{count}d ago")
 # Not addressed to a player: this goes to LOG_GROUP_ID, the operators' room, and is the
 # only way anyone learns that a lookup revealed something new — the stats API has no
 # notification of any kind, so a diff against the previous lookup is the whole mechanism.
+#
+# Linked by **username** wherever there is one. The log group reads about players its members
+# have not necessarily met, and a tg://user mention resolves for nobody in that position — so
+# it is the fallback, kept because it does work for a player somebody in the room has seen.
+LOG_ACHIEVEMENT_HEADER_LINKED = N_(
+    "\N{TROPHY} <a href='https://t.me/{username}'>{name}</a> unlocked {count} new achievement{plural}:\n"
+)
 LOG_ACHIEVEMENT_HEADER = N_(
     "\N{TROPHY} <a href='tg://user?id={user_id}'>{name}</a> unlocked {count} new achievement{plural}:\n"
 )

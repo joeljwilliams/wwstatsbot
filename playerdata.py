@@ -8,9 +8,10 @@ the same mechanism seen from different sides:
   player per endpoint. Nobody has to remember to record anything, because recording is
   what a lookup *is*.
 * **A name for a bare id.** None of the five stat endpoints carries the player's *own*
-  name, only the names of players they killed or were killed by. `player_name()` asks the
-  profile endpoint, which is the only source — and the only one that raises for an id the
-  game has never seen.
+  name, only the names of players they killed or were killed by. `player_profile()` asks
+  the profile endpoint, which is the only source of a name *and* of the username that is the
+  only link either caller can use — and the only endpoint that raises for an id the game has
+  never seen.
 * **New achievements.** A lookup compares what came back against the row it replaced, and
   anything that was not there before is announced to the log group. The API has no "since"
   parameter and no notification of any kind, so a diff against our last answer is the only
@@ -35,6 +36,7 @@ worse bot than the one that had no record at all.
 
 import collections
 import html
+import re
 
 import structlog
 from telegram.constants import ParseMode
@@ -49,6 +51,10 @@ logger = structlog.get_logger(__name__)
 # What a fetcher hands back. `age` is None for a live answer and a float of seconds for one
 # read out of the record — callers test `age is not None` to decide whether to say so.
 Reading = collections.namedtuple("Reading", "data age")
+
+# What the stats site knows a player as. Either field may be None on its own: a player who
+# has never set a username has a name and no link, which is ordinary rather than a failure.
+Profile = collections.namedtuple("Profile", "name username")
 
 # The `kind` column's vocabulary, and the fetcher behind each one. Strings rather than an
 # enum because they are stored in the database, where a row has to stay readable from /db
@@ -131,8 +137,8 @@ async def get_achievement_count(user_id, name=None):
     return Reading(len(reading.data), reading.age)
 
 
-async def player_name(user_id):
-    """The player's name as the stats site knows it, or None. **Never raises.**
+async def player_profile(user_id):
+    """What the stats site knows a player as: `Profile(name, username)`. **Never raises.**
 
     The one way to put a name to a bare user id, and the reason it is worth an extra request:
     the five stat endpoints carry the names of *other* players (who you killed, who killed
@@ -140,18 +146,44 @@ async def player_name(user_id):
     digits that were typed, and a log-group announcement had nothing to call a player whose
     lookup arrived without one.
 
+    The username matters as much as the name, because it is the only **link** either of those
+    two places can use. `tg://user?id=` resolves only in a client that has already met that
+    user, which a log group reading about strangers generally has not, and a `/stats <id>`
+    card could not be linked at all for the same reason — so both were plain text about
+    somebody nobody could tap through to. `https://t.me/<username>` resolves for anyone.
+
     Failure is an answer here rather than an error. An id the game has never seen — a typo in
     `/stats <number>`, most of the time — comes back as an HTML error page (see api.get_player),
     and "we could not name them" has to degrade to showing the id rather than to a failed
-    command.
+    command. Either field can be missing on its own: plenty of players have never set a
+    username, so a name with no link is an ordinary outcome rather than a degraded one.
     """
     try:
         profile = await get_player(user_id)
     except Exception as exc:
-        logger.info("player_name_unknown", user_id=user_id, error=str(exc))
+        logger.info("player_profile_unknown", user_id=user_id, error=str(exc))
+        return Profile(None, None)
+    data = profile.data if isinstance(profile.data, dict) else {}
+    return Profile(data.get("name") or None, _tidy_username(data.get("username")))
+
+
+# Telegram's own rule for a username: letters, digits and underscores, 5-32 characters. A
+# leading @ is tolerated because the field is free text in somebody else's database, not
+# because the API has ever been seen to send one.
+#
+# Checked rather than trusted because the value goes straight into an href. It arrives from
+# the game's database, which got it from Telegram years ago and has never revalidated it —
+# and a "username" containing a quote would close the attribute and put whatever followed
+# into the markup of a message this bot sends. Anything not matching is treated as no
+# username at all, which is already an ordinary case.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
+
+
+def _tidy_username(value):
+    if not isinstance(value, str):
         return None
-    name = (profile.data or {}).get("name") if isinstance(profile.data, dict) else None
-    return name or None
+    value = value.strip().lstrip("@")
+    return value if _USERNAME_RE.match(value) else None
 
 
 async def _read(kind, user_id, name):
@@ -255,12 +287,8 @@ async def _announce(user_id, name, earned):
     """Post newly earned achievements to the log group, if there is one to post to."""
     if _bot is None or not settings.LOG_GROUP_ID:
         return
-    msg = t.LOG_ACHIEVEMENT_HEADER.format(
-        user_id=user_id,
-        name=await _display_name(user_id, name),
-        count=len(earned),
-        plural="" if len(earned) == 1 else "s",
-    )
+    template, who = await _who(user_id, name)
+    msg = template.format(count=len(earned), plural="" if len(earned) == 1 else "s", **who)
     for achv_name in earned[:_ANNOUNCE_MAX]:
         msg += t.LOG_ACHIEVEMENT_ROW.format(name=html.escape(achv_name))
     if len(earned) > _ANNOUNCE_MAX:
@@ -275,21 +303,35 @@ async def _announce(user_id, name, earned):
         logger.info("achievements_announced", user_id=user_id, count=len(earned))
 
 
-async def _display_name(user_id, name):
-    """What to call this player in the log group: the stats site's name for them.
+async def _who(user_id, name):
+    """How to name this player in the log group: (header template, its name fields).
 
-    Asked of the site rather than taken from `name`, because `name` is whatever the caller
-    happened to hold — and most lookups hold nothing (theirs is already escaped by the time
-    it reaches a fetcher, so it is deliberately not passed down). That left the great
+    The template and its fields travel together rather than the line being built here,
+    because the header also carries {count} and {plural}, and str.format cannot fill some
+    fields and leave others — a half-formatted template raises on the fields it was not
+    given.
+
+    Who the player is, is asked of the site rather than taken from `name`: `name` is whatever
+    the caller happened to hold, and most lookups hold nothing (theirs is already escaped by
+    the time it reaches a fetcher, so it is deliberately not passed down). That left the great
     majority of announcements naming a player by bare user id.
 
     One extra request, and only on an announcement: those happen when somebody actually earns
     something, not on every lookup. A caller's own name is the fallback ahead of the id, so a
     roster or join lookup still reads as a name when the site cannot be asked.
 
+    **The link is `https://t.me/<username>` when there is a username, and only then.** A log
+    group reads about players none of its members has necessarily met, and `tg://user?id=`
+    resolves for nobody in that position — so the id-based mention is the fallback rather
+    than the rule, kept because it does work for a player somebody in the room has seen.
+
     Escaped here, at the one place it is rendered, like every other name in this bot.
     """
-    return html.escape(await player_name(user_id) or name or str(user_id))
+    profile = await player_profile(user_id)
+    shown = html.escape(profile.name or name or str(user_id))
+    if profile.username:
+        return t.LOG_ACHIEVEMENT_HEADER_LINKED, {"username": profile.username, "name": shown}
+    return t.LOG_ACHIEVEMENT_HEADER, {"user_id": user_id, "name": shown}
 
 
 # --- Reporting an age -------------------------------------------------------

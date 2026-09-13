@@ -181,6 +181,9 @@ class StatsAPI:
         # body that decodes — so the fake serves HTML too, and json() raises exactly as it
         # does in production. Callers must treat that as "no name", not as a failure.
         self.names = {7: PLAYER_JSON["name"]}
+        # Kept apart from `names` because the two are independent: plenty of real players
+        # have a name and no username at all, and that is what leaves a card unlinked.
+        self.usernames = {7: PLAYER_JSON["username"]}
 
     def set_achievements(self, pid, names):
         self.by_pid[("/Stats/PlayerAchievements/", str(pid))] = [{"name": n} for n in names]
@@ -192,7 +195,15 @@ class StatsAPI:
             raise httpx.ConnectError("simulated network failure")
         if wanted not in self.names:
             return httpx.Response(200, html="<html><title>Object reference not set</title></html>")
-        return httpx.Response(200, json=dict(PLAYER_JSON, telegramId=wanted, name=self.names[wanted]))
+        return httpx.Response(
+            200,
+            json=dict(
+                PLAYER_JSON,
+                telegramId=wanted,
+                name=self.names[wanted],
+                username=self.usernames.get(wanted),
+            ),
+        )
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
