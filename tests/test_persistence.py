@@ -7,13 +7,18 @@ Two behaviours are load-bearing and easy to break:
   JSON object. Without `_clean`, a round-trip through Redis raises on startup.
 * **Availability over durability.** A Redis outage must be logged and swallowed, never
   crash a handler; persistence silently degrades to in-memory until Redis returns.
-* **Silence when nothing changed.** PTB calls update_bot_data every `update_interval`
+* **Silence when nothing changed, and no socket left open.** PTB calls update_bot_data
+  every `update_interval`
   whether or not anything changed. Writing regardless is a Redis round-trip a minute for
   the life of the process, which is outbound traffic, which is the only thing Railway
   looks at to decide a service is idle — so the bot could never be put to sleep. An
-  unchanged blob must not reach Redis. See tests/test_idle_quiet.py for the other half.
+  unchanged blob must not reach Redis. Skipping the write is only half of it: Redis ships
+  `tcp-keepalive 300` and `timeout 0`, so an idle connection is probed every 300 seconds
+  and answered, which kept both ends awake over a socket neither was using. The connection
+  has to go too. See tests/test_idle_quiet.py for the Postgres half.
 """
 
+import asyncio
 import json
 
 import fakeredis
@@ -238,3 +243,62 @@ async def test_a_failed_write_is_retried_rather_than_assumed(fake_redis):
     await persistence.update_bot_data({"a": 1})  # same data, still never stored
 
     assert json.loads(json.loads(fake_redis.get(KEY))["bot_data"]) == {"a": 1}
+
+
+async def test_an_idle_connection_is_dropped_rather_than_left_open(fake_redis):
+    """Skipping the write is not enough — an idle socket is not a silent one.
+
+    Redis probes an idle client every `tcp-keepalive` seconds (300 by default) and never
+    hangs up first (`timeout 0`), and the bot answers every probe. Railway's sleep
+    threshold is those same 5 minutes, so a connection nobody was using kept both
+    containers awake indefinitely. Postgres was already sleeping precisely because the
+    asyncpg pool lets its connections go.
+    """
+    persistence = RedisPersistence(url="redis://x", key=KEY, idle_disconnect=0.01)
+
+    disconnected = []
+    original = persistence._redis.connection_pool.disconnect
+
+    async def recording(*args, **kwargs):
+        disconnected.append(True)
+        return await original(*args, **kwargs)
+
+    persistence._redis.connection_pool.disconnect = recording
+
+    await persistence.update_bot_data({"a": 1})
+    assert disconnected == [], "the connection is dropped only once it has gone idle"
+
+    await asyncio.sleep(0.05)
+    assert disconnected == [True]
+
+
+async def test_a_further_write_defers_the_disconnect(fake_redis):
+    """A busy bot must not reconnect between every write."""
+    persistence = RedisPersistence(url="redis://x", key=KEY, idle_disconnect=0.05)
+
+    disconnected = []
+    original = persistence._redis.connection_pool.disconnect
+
+    async def recording(*args, **kwargs):
+        disconnected.append(True)
+        return await original(*args, **kwargs)
+
+    persistence._redis.connection_pool.disconnect = recording
+
+    for i in range(4):  # writes closer together than the idle window
+        await persistence.update_bot_data({"a": i})
+        await asyncio.sleep(0.02)
+    assert disconnected == []
+
+    await asyncio.sleep(0.1)
+    assert disconnected == [True]
+
+
+async def test_the_data_is_still_there_after_a_disconnect(fake_redis):
+    """Closing the pool is not destructive — redis-py reconnects on the next command."""
+    persistence = RedisPersistence(url="redis://x", key=KEY, idle_disconnect=0.01)
+    await persistence.update_bot_data({"a": 1})
+    await asyncio.sleep(0.05)
+
+    await persistence.update_bot_data({"a": 2})  # must reconnect, not raise
+    assert json.loads(json.loads(fake_redis.get(KEY))["bot_data"]) == {"a": 2}
