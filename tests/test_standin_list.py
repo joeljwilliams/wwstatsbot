@@ -21,6 +21,7 @@ import pytest
 from conftest import FakeUpdate, FakeUser, message
 from test_standin_session import player_message, reveal, start_session
 
+import api
 import db
 import feasibility
 import rulelist
@@ -513,7 +514,7 @@ async def test_the_session_fetches_every_players_collection_once(context, monkey
         calls.append(user_id)
         return [{"name": "Welcome to Hell"}]
 
-    monkeypatch.setattr(gamesession.api, "get_achievements", fake_get)
+    monkeypatch.setattr(api, "get_achievements", fake_get)
     session_data = await start_session(context)
 
     assert sorted(calls) == [1, 2, 3, 4]
@@ -532,7 +533,7 @@ async def test_a_failed_lookup_leaves_that_player_unknown_rather_than_empty(cont
             raise RuntimeError("stats API down")
         return [{"name": "Welcome to Hell"}]
 
-    monkeypatch.setattr(gamesession.api, "get_achievements", flaky)
+    monkeypatch.setattr(api, "get_achievements", flaky)
     session_data = await start_session(context)
 
     assert session_data["players"]["1"]["attained"] == ["Welcome to Hell"]
