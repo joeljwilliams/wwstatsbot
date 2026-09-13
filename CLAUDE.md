@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1212 tests; the 67 Postgres ones skip by default
+uv run pytest                     # 1221 tests; the 67 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -281,6 +281,21 @@ initialism expression inside `search_tsv`. It is a mirror rather than a query fo
 the index cannot fix: the `'english'` config drops stopwords, so `TO` (Tanner Overkill) is
 not in `search_tsv` at all. `test_the_python_initialism_matches_the_indexed_one` compares the
 two against the whole catalogue — that pairing is the only thing stopping them drifting.
+
+**Edits reach no handler, and that is a gate rather than a filter.** Every handler here
+begins by reading `update.message`, but PTB decides what to dispatch with
+`update.effective_message` — which an edit populates while leaving `update.message` as None.
+So editing a message into a command dispatched normally and then crashed on the first
+attribute the handler touched. It shipped that way and was found in production, as an
+`AttributeError` out of `doused_forward`; that handler was merely the one hit, and all
+twenty-eight command words had the same crash behind them. `_drop_edited_messages` in
+`main.py` stops them in group `-2`, ahead of everything, because it is a precondition every
+handler shares rather than any one handler's business.
+
+It matches the **edit fields by name**, not `update.message is None`. Those look equivalent
+and are not: a callback query has no `message` either, and its `effective_message` is the
+message the button sits on — so the shorter reading silently swallows every button in the
+bot. `tests/test_edited_messages.py` pins that, and it is the reason the test file exists.
 
 **Callback state is token-keyed in `bot_data`.** `callback_data` is capped at 64 bytes, so
 `/info` and `/sch` stash payloads in `context.bot_data[...]` under a `secrets.token_urlsafe(8)`

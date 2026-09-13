@@ -48,7 +48,7 @@ import subprocess
 #
 # Not derived from git tags: the container has no .git and Railway does not inject tag
 # metadata, so a tag-derived version would read "unknown" exactly where it matters most.
-VERSION = "2.36.2"
+VERSION = "2.36.3"
 
 UNKNOWN = "unknown"
 
