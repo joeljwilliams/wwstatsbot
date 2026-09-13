@@ -293,6 +293,15 @@ the same idea one layer down, where the network is). And `db.init_pool()` left
 threshold, so the pool fell quiet exactly when the window would otherwise have closed and
 the five minutes never started counting; it is 60s now, with `min_size=0`.
 
+Skipping the write turned out to be only half of it, and the other half is not in this
+process's control. Redis ships `tcp-keepalive 300` and `timeout 0`, so it probes an idle
+client every 300 seconds and never hangs up first — and the bot's TCP stack answers every
+probe. Railway's threshold is those same five minutes, so the two ends kept each other
+awake over a connection neither was using. **An idle socket is not a silent one**, which is
+why `RedisPersistence` now drops its connection after a minute unused, the same way the
+asyncpg pool does. Postgres was already sleeping while Redis was not, and that contrast is
+what identified it.
+
 `tests/test_idle_quiet.py` and the write-policy tests in `tests/test_persistence.py` are
 what stop this regressing. Note also that sleeping only makes sense in **webhook** mode: a
 long-polling bot calls `getUpdates` for ever, and a slept one would have nothing inbound to

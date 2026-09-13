@@ -17,10 +17,12 @@ swallowed rather than crashing the bot; persistence silently degrades until Redi
 back. The initial read is synchronous (no event loop exists yet at construction);
 all later writes use the async client.
 
-A write that would change nothing is skipped — see ``_save``. That is what lets an idle
-bot fall silent, which is what lets Railway put it to sleep.
+A write that would change nothing is skipped, and the connection is dropped once it has
+gone unused — see ``_save`` and ``_disconnect_when_idle``. Together those are what let an
+idle bot fall silent, which is what lets Railway put it to sleep.
 """
 
+import asyncio
 import json
 
 import redis
@@ -51,10 +53,13 @@ class RedisPersistence(DictPersistence):
             after every change. Trades durability for fewer writes.
     """
 
-    def __init__(self, url, key="ptb:persistence", on_flush=False, **kwargs):
+    def __init__(self, url, key="ptb:persistence", on_flush=False, idle_disconnect=60.0, **kwargs):
         self._key = key
         self._on_flush = on_flush
         self._redis = aioredis.Redis.from_url(url)
+        self._idle_disconnect = idle_disconnect
+        self._disconnect_handle = None
+        self._disconnect_task = None
 
         data = self._load_sync(url, key)
 
@@ -137,6 +142,43 @@ class RedisPersistence(DictPersistence):
             logger.exception("redis_persistence_save_failed", key=self._key)
             return
         self._last_saved = blob
+        self._disconnect_when_idle()
+
+    def _disconnect_when_idle(self):
+        """Drop the connection once it has gone unused for a while.
+
+        Skipping unchanged writes is not enough on its own, because an idle *socket* is
+        not a silent one. Redis ships `tcp-keepalive 300` and `timeout 0`, so it probes an
+        idle client every 300 seconds and never hangs up first — and the bot's TCP stack
+        answers every probe. Railway's threshold is those same 5 minutes, so the two ends
+        kept each other awake for ever over a connection neither was using: the bot never
+        slept, and neither did Redis.
+
+        This is the same fix as `max_inactive_connection_lifetime` on the asyncpg pool, and
+        it is why Postgres was already sleeping while Redis was not. Closing the pool does
+        not break it — redis-py opens a new connection on the next command — so the cost of
+        being wrong here is one reconnect, not an error.
+
+        The timer is local and fires no traffic of its own.
+        """
+        if not self._idle_disconnect:
+            return
+        if self._disconnect_handle is not None:
+            self._disconnect_handle.cancel()
+        self._disconnect_handle = asyncio.get_running_loop().call_later(self._idle_disconnect, self._start_disconnect)
+
+    def _start_disconnect(self):
+        # call_later cannot await, so the close runs as a task. The reference is kept
+        # because asyncio only holds a weak one and would be free to collect it mid-close.
+        self._disconnect_task = asyncio.ensure_future(self._disconnect())
+
+    async def _disconnect(self):
+        self._disconnect_handle = None
+        try:
+            await self._redis.connection_pool.disconnect()
+        except Exception:
+            # Nothing here is worth failing over: the next command reconnects anyway.
+            logger.exception("redis_persistence_disconnect_failed", key=self._key)
 
     # Each update_* stores into DictPersistence's in-memory dict (via super), then
     # mirrors to Redis unless deferring to flush().
@@ -168,6 +210,9 @@ class RedisPersistence(DictPersistence):
 
     async def flush(self):
         """Final write on shutdown, then close the connection."""
+        if self._disconnect_handle is not None:
+            self._disconnect_handle.cancel()
+            self._disconnect_handle = None
         await self._save()
         try:
             await self._redis.aclose()
