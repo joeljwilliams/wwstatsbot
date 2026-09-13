@@ -79,12 +79,18 @@ uv run pytest                     # 1221 tests; the 67 Postgres ones skip by def
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
+# Railway infrastructure (see .railway/README.md). `uv run` matters: the CLI shells out
+# to whatever python is on PATH, which is not the venv holding railway-sdk.
+railway status                    # which environment is linked — check before every apply
+uv run railway config plan        # read-only diff against the linked environment
+uv run railway config apply       # plan again, then apply after confirming
+
 # Data-layer tests need a real Postgres. CI uses postgres:18 (matching Railway) because
 # what's pinned is server-side text-search behaviour, which is version-sensitive.
 docker run -d --rm --name pgtest -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:18
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres uv run pytest
 
-# Container (this is the Railway deploy path — railway.json builds this Dockerfile)
+# Container (this is the Railway deploy path — .railway/railway.py selects this Dockerfile)
 docker build -t wwstatsbot . && docker run -e BOT_TOKEN=... -e DATABASE_URL=... wwstatsbot
 
 # Health probes (HEALTH_PORT, default 8080)
@@ -159,9 +165,42 @@ must answer `/healthz` on it, so the health server takes the POST and hands the 
 - Switching back to polling needs only the variable removed: PTB always calls
   `deleteWebhook` before `getUpdates`, so no stale registration can strand it.
 
-Deployed on Railway (`railway.json`, Dockerfile builder, healthcheck `/healthz`);
-`k8s-deployment.example.yaml` is a reference manifest. Redis/Postgres are wired in
-through env vars, not through committed manifests.
+Deployed on Railway from `.railway/railway.py` (Dockerfile builder, healthcheck
+`/healthz`); `k8s-deployment.example.yaml` is a reference manifest. Redis/Postgres are
+wired in through env vars, not through committed manifests — see *Infrastructure* below.
+
+### Infrastructure
+
+`.railway/railway.py` is Railway [Infrastructure as Code][iac] and describes the whole
+project — the bot, Postgres, Redis and both volumes, across **both** environments,
+switched on `ctx.is_environment("production")`. It replaced `railway.json`, which was
+Config as Code: per-service, deprecated, and read for the last time on 2026-12-01. Plan
+and apply are manual (`uv run railway config plan` / `apply`); a PR touching `.railway/`
+also gets a plan for both environments in its job summary, from a `RAILWAY_TOKEN` held as
+a GitHub *environment* secret per environment. `.railway/README.md` is the full
+working guide — the three things most likely to bite are:
+
+- **The Dockerfile builder lives there now, and only there.** Railway's own setting for
+  this service is `RAILPACK`; the image was only ever built from the `Dockerfile` because
+  `railway.json` overrode it at deploy time. `build.builder` in `railway.py` is what
+  replaces the override — delete it and production quietly builds with Railpack, which
+  knows nothing about `/opt/venv`, the non-root user, or `handlers/`.
+- **Omission is deletion, for resources and for fields.** A service the file does not name
+  is planned for destruction; a field it does not set is planned to null. The Railway
+  dashboard has correspondingly stopped being a place to change things — an edit made
+  there survives only until the next apply.
+- **A field set to Railway's own default normalises back to null**, so it never converges
+  and every later `plan` re-proposes it. `sleepApplication: False` and the `ON_FAILURE`/10
+  restart policy `railway.json` spelled out are both this, and both are now simply omitted.
+  A clean `plan` straight after an `apply` is what catches it.
+- **Serverless is set but inert.** `sleepApplication` is on for the bot in both
+  environments and for the data layer in development only. Nothing sleeps yet: Railway
+  sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence
+  loop writes `bot_data` to Redis every 60 seconds whether or not it changed, while
+  `db.init_pool()` holds a connection open (`min_size=1`). Making the bot quiet enough to
+  sleep is a runtime change and belongs in its own PR.
+
+[iac]: https://docs.railway.com/infrastructure-as-code
 
 ## Architecture
 
