@@ -12,6 +12,8 @@ worth pinning is the wiring around them, because two properties fail silently:
   from its cause.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -49,6 +51,29 @@ async def test_every_request_asks_for_json(stats_api):
 async def test_every_request_carries_the_player_id(stats_api):
     await api.get_stats(PID)
     assert stats_api.requests[0].url.params.get("pid") == str(PID)
+
+
+async def test_the_profile_endpoint_takes_its_id_in_the_path(stats_api):
+    """The one fetcher that cannot go through _get: /Stats/Player/<id>, not ?pid=<id>.
+    Getting that wrong returns the *site's* landing page, which decodes to nothing useful."""
+    await api.get_player(7)
+    request = stats_api.requests[0]
+    assert request.url.path == "/Stats/Player/7"
+    assert request.url.params.get("pid") is None
+    assert request.url.params.get("json") == "true"
+
+
+async def test_the_profile_endpoint_carries_the_players_own_name(stats_api):
+    """The reason it exists at all — no other endpoint has it."""
+    assert (await api.get_player(7))["name"] == "Alice"
+
+
+async def test_the_profile_endpoint_raises_for_an_id_the_game_never_saw(stats_api):
+    """It dereferences the player without checking, so an unknown id gets an HTML error page
+    rather than the empty string every other endpoint answers with. Callers must treat that
+    as "no name known" — see playerdata.player_name."""
+    with pytest.raises(json.JSONDecodeError):
+        await api.get_player(PID)
 
 
 async def test_achievement_count_returns_a_count_not_the_list(stats_api):

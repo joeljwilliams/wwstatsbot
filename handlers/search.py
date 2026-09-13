@@ -18,9 +18,9 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import api
 import builders
 import db
+import playerdata
 import templates as t
 from handlers.common import (
     PLAYERS_TTL,
@@ -59,7 +59,10 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = t.SEARCH_USAGE
     else:
         matches = await builders.build_info_results(search)
-        attained_names = {a["name"] for a in await api.get_achievements(user_id)} if matches else set()
+        # No name recorded with the lookup: `name` here has already been escaped by
+        # resolve_target, and the record keeps names raw (see playerdata).
+        attained = await playerdata.get_achievements(user_id) if matches else playerdata.Reading([], None)
+        attained_names = {a["name"] for a in attained.data}
         # Drop inactive achievements the user hasn't obtained: they can no longer
         # be earned, so listing them as "not yet" would be misleading. (Inactive
         # ones the user already has are kept, so their collection stays complete.)
@@ -73,6 +76,9 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m["name"]))
             if len(matches) > _SEARCH_MAX_RESULTS:
                 msg += t.SEARCH_TRUNCATED.format(extra=len(matches) - _SEARCH_MAX_RESULTS)
+            # The ticks and boxes are a claim about this player, so a list built from the
+            # record has to say that it is one.
+            msg += playerdata.stale_notice(attained.age)
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
@@ -90,10 +96,15 @@ def _is_bot_player_reply(message):
     return bool(users)
 
 
-async def _user_has_achievement(user_id, achv_name):
-    """True if the player holds the named achievement per the stats API."""
-    attained = {a["name"] for a in await api.get_achievements(user_id)}
-    return achv_name in attained
+async def _user_has_achievement(user_id, name, achv_name):
+    """(holds it, age) for one player: whether they have the achievement, and how fresh that is.
+
+    The age travels with the answer rather than being dropped here, because a /schall list
+    is assembled from up to sixteen separate lookups and any subset of them can have come
+    from the record while the rest were live.
+    """
+    attained = await playerdata.get_achievements(user_id, name)
+    return achv_name in {a["name"] for a in attained.data}, attained.age
 
 
 # The two player lists are kept in bot_data so the toggle button can re-render
@@ -156,6 +167,9 @@ def _render_schall(payload, token, show_have):
     # Payloads stored before this field existed have no key, hence .get().
     if payload.get("alts"):
         msg += t.SCHALL_IGNORED_ALTS.format(names=", ".join(html.escape(n) for n in payload["alts"]))
+    # Already-rendered text, not an age: some of these players may have been answered from
+    # the record rather than the live API (see playerdata). Same .get() reason as above.
+    msg += payload.get("stale") or ""
 
     label = t.SCHALL_TOGGLE_TO_MISSING if show_have else t.SCHALL_TOGGLE_TO_HAVE
     view = _SCHALL_MISSING if show_have else _SCHALL_HAVE
@@ -247,17 +261,20 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # (network/API) shouldn't sink the whole command, so those users are reported
     # as uncheckable alongside any @username mentions.
     results = await asyncio.gather(
-        *[_user_has_achievement(uid, achv["name"]) for uid, _ in users],
+        *[_user_has_achievement(uid, uname, achv["name"]) for uid, uname in users],
         return_exceptions=True,
     )
-    have, missing = [], []
+    have, missing, ages = [], [], []
     # strict=True can never trigger — gather returns exactly one result per awaitable —
     # but it keeps the pairing honest if either side is ever built separately.
     for (uid, uname), result in zip(users, results, strict=True):
         if isinstance(result, Exception):
             logger.warning("schall_lookup_failed", user_id=uid, error=str(result))
             unresolved.append(uname)
-        elif result:
+            continue
+        holds, age = result
+        ages.append(age)
+        if holds:
             have.append((uid, uname))
         else:
             missing.append((uid, uname))
@@ -280,6 +297,10 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # None on a fresh run. Frozen at run time on purpose — the toggle re-renders the
         # same result, so a growing age (eventually exceeding the TTL) would misdescribe it.
         "from_cache_age": None if cached_age is None else describe_age(cached_age),
+        # Rendered rather than kept as numbers, for the same reason as the line above it: a
+        # toggle re-renders this payload later, and an age that kept growing would
+        # misdescribe a result that was frozen when it was run.
+        "stale": playerdata.stale_notice(*ages),
     }
     token = _store_schall_result(context, payload)
     msg, keyboard = _render_schall(payload, token, show_have=False)

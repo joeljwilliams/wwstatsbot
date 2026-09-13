@@ -25,6 +25,7 @@ of required-field noise for no extra coverage.
 
 import json
 import os
+import re
 from types import SimpleNamespace
 
 # --- 1. Stub config BEFORE importing the app ------------------------------------
@@ -150,6 +151,12 @@ KILLS_JSON = [{"name": "Bob", "times": 7}, {"name": "Al & Sons", "times": 3}]
 KILLED_BY_JSON = [{"name": "Carol", "times": 5}]
 DEATHS_JSON = [{"method": "Lynched", "percent": "40"}, {"method": "Eaten", "percent": "20"}]
 ACHIEVEMENTS_JSON = [{"name": "Welcome to Hell"}, {"name": "Busy Night"}]
+# The profile endpoint, and the only one carrying the player's *own* name. Keyed by id in
+# the path rather than by a pid parameter, which is why StatsAPI routes it separately.
+PLAYER_JSON = {"id": 1, "telegramId": 7, "name": "Alice", "username": "alice", "language": "English"}
+
+# /Stats/Player/<id> — matched by shape because the id is in the path, not a parameter.
+_PLAYER_PATH = re.compile(r"^/Stats/Player/-?\d+/?$")
 
 _ROUTES = {
     "/Stats/PlayerStats/": STATS_JSON,
@@ -157,8 +164,6 @@ _ROUTES = {
     "/Stats/PlayerKilledBy/": KILLED_BY_JSON,
     "/Stats/PlayerDeaths/": DEATHS_JSON,
     "/Stats/PlayerAchievements/": ACHIEVEMENTS_JSON,
-    # wwstats.check() builds its own absolute URL against a different path shape.
-    "/stats/PlayerAchievements/": ACHIEVEMENTS_JSON,
 }
 
 
@@ -171,9 +176,34 @@ class StatsAPI:
         # Per-user overrides keyed by (path, pid) for multi-player tests like /schall.
         self.by_pid = {}
         self.fail_pids = set()
+        # Names the profile endpoint knows, by id. Anything absent is an id the game has
+        # never seen, which the real site answers with an HTML error page rather than a
+        # body that decodes — so the fake serves HTML too, and json() raises exactly as it
+        # does in production. Callers must treat that as "no name", not as a failure.
+        self.names = {7: PLAYER_JSON["name"]}
+        # Kept apart from `names` because the two are independent: plenty of real players
+        # have a name and no username at all, and that is what leaves a card unlinked.
+        self.usernames = {7: PLAYER_JSON["username"]}
 
     def set_achievements(self, pid, names):
         self.by_pid[("/Stats/PlayerAchievements/", str(pid))] = [{"name": n} for n in names]
+
+    def _player(self, path):
+        """Serve /Stats/Player/<id>?json=true, which takes its id in the path."""
+        wanted = int(path.rsplit("/", 1)[-1])
+        if wanted in self.fail_pids or str(wanted) in self.fail_pids:
+            raise httpx.ConnectError("simulated network failure")
+        if wanted not in self.names:
+            return httpx.Response(200, html="<html><title>Object reference not set</title></html>")
+        return httpx.Response(
+            200,
+            json=dict(
+                PLAYER_JSON,
+                telegramId=wanted,
+                name=self.names[wanted],
+                username=self.usernames.get(wanted),
+            ),
+        )
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -181,6 +211,8 @@ class StatsAPI:
         if pid in self.fail_pids:
             raise httpx.ConnectError("simulated network failure")
         path = request.url.path
+        if _PLAYER_PATH.match(path):
+            return self._player(path)
         if (path, pid) in self.by_pid:
             return httpx.Response(200, json=self.by_pid[(path, pid)])
         if path in self.routes:
