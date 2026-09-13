@@ -188,6 +188,10 @@ working guide — the three things most likely to bite are:
   is planned for destruction; a field it does not set is planned to null. The Railway
   dashboard has correspondingly stopped being a place to change things — an edit made
   there survives only until the next apply.
+- **A field set to Railway's own default normalises back to null**, so it never converges
+  and every later `plan` re-proposes it. `sleepApplication: False` and the `ON_FAILURE`/10
+  restart policy `railway.json` spelled out are both this, and both are now simply omitted.
+  A clean `plan` straight after an `apply` is what catches it.
 - **Serverless is set but inert.** `sleepApplication` is on for the bot in both
   environments and for the data layer in development only. Nothing sleeps yet: Railway
   sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence

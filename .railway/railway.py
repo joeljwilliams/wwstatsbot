@@ -31,6 +31,18 @@ UPSTREAM = "https://github.com/joeljwilliams/wwstatsbot"
 _VOLUME_ALERTS = {"usage": {"80": {}, "95": {}, "100": {}}}
 
 
+def _sleep(enabled):
+    """sleepApplication, but only when it is on.
+
+    Railway normalises a field written with its own default value back to null, so
+    `"sleepApplication": False` does not read back as False — it reads back as nothing,
+    and the next `plan` proposes the same change again. Applying it never converges and
+    every future plan carries a line nobody should act on, which is how people learn to
+    skim plans. Off is expressed by saying nothing.
+    """
+    return {"sleepApplication": True} if enabled else {}
+
+
 @define_railway
 def main(ctx=None):
     prod = ctx.is_environment("production")
@@ -83,7 +95,7 @@ def main(ctx=None):
         networking={"privateNetworkEndpoint": "postgres", "tcpProxies": {"5432": {}}},
         deploy={
             "multiRegionConfig": {REGION: {"numReplicas": 1}},
-            "sleepApplication": sleep_databases,
+            **_sleep(sleep_databases),
         },
     )
 
@@ -100,7 +112,7 @@ def main(ctx=None):
                 "&& exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD "
                 '--save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH"'
             ),
-            "sleepApplication": sleep_databases,
+            **_sleep(sleep_databases),
         },
     )
 
@@ -132,10 +144,11 @@ def main(ctx=None):
         replicas={REGION: 1},
         deploy={
             "limitOverride": {"containers": {"cpu": 1, "memoryBytes": 1_000_000_000}},
-            # Carried from railway.json. A bot that dies on a bad Telegram response should
-            # come back; one whose config is wrong should stop rather than restart forever.
-            "restartPolicyType": "ON_FAILURE",
-            "restartPolicyMaxRetries": 10,
+            # No restartPolicy here, deliberately. railway.json set ON_FAILURE with 10
+            # retries, which is word for word Railway's own default — so it normalises
+            # back to null on apply and plan re-proposes it forever, the same trap as
+            # sleepApplication above. Dropping it changes nothing about how the bot
+            # restarts; state it again only to ask for something other than the default.
             "sleepApplication": True,
         },
         # Values stay on Railway. preserve() means "keep whatever is already set" —

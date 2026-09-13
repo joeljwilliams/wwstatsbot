@@ -48,6 +48,18 @@ way in, and it *replaces* the field rather than merging, which is why the
 `multiRegionConfig` that `region=` would have produced is spelled out by hand next to
 `sleepApplication`.
 
+**Never write a field's value if it equals Railway's default.** Railway normalises such
+a field back to null on apply, so it does not read back as what you set — it reads back as
+nothing, and the next `plan` proposes the identical change again. Applying never
+converges, and a plan that always carries a line nobody should act on is how people learn
+to skim plans. Two were found this way: `sleepApplication: False` (off is the default —
+`_sleep()` omits it instead) and `restartPolicyType: "ON_FAILURE"` with 10 retries, which
+is word for word [Railway's default][restart] and was only in `railway.json` because
+someone wrote it out. **A clean `plan` right after an `apply` is the check for this** — run
+it against both environments before calling a change done.
+
+[restart]: https://docs.railway.com/deployments/restart-policy
+
 **`github()` defaults the branch to `main`.** Not to "leave it alone" — a source block
 that says nothing about the branch points that environment at production's. Both branches
 are therefore named explicitly.
