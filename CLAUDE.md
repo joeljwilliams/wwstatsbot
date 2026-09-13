@@ -193,12 +193,10 @@ working guide — the three things most likely to bite are:
   and every later `plan` re-proposes it. `sleepApplication: False` and the `ON_FAILURE`/10
   restart policy `railway.json` spelled out are both this, and both are now simply omitted.
   A clean `plan` straight after an `apply` is what catches it.
-- **Serverless is set but inert.** `sleepApplication` is on for the bot in both
-  environments and for the data layer in development only. Nothing sleeps yet: Railway
-  sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence
-  loop writes `bot_data` to Redis every 60 seconds whether or not it changed, while
-  `db.init_pool()` holds a connection open (`min_size=1`). Making the bot quiet enough to
-  sleep is a runtime change and belongs in its own PR.
+- **Serverless works only while the bot stays quiet.** `sleepApplication` is on for the
+  bot in both environments and for the data layer in development only. Railway sleeps a
+  container after ~5 minutes with no *outbound* traffic, so anything sent on a timer keeps
+  it awake for ever — see *An idle bot must say nothing* below.
 
 [iac]: https://docs.railway.com/infrastructure-as-code
 
@@ -278,6 +276,41 @@ release with generated notes. Consequences worth knowing:
   which commit they point at.
 
 ### Things that will bite you
+
+**An idle bot must say nothing, or it never sleeps.** Railway's Serverless mode watches
+*outbound* traffic and stops a container after ~5 minutes without any; the bot is asked to
+sleep in both environments. So anything this process sends on a timer — a heartbeat, a
+metrics push, a keepalive, a poll — keeps it awake for the life of the deploy, and there is
+no symptom: an idle bot that chatters looks exactly like an idle bot that does not.
+
+Two things did, and neither was visible until the container was expected to sleep and
+didn't. PTB's persistence loop calls `update_bot_data` every `update_interval` (60s)
+whether or not anything changed, and `RedisPersistence` turned each one into a Redis write
+— so `_save()` now compares the serialized blob against the last one it successfully wrote
+and skips an identical write (`DictPersistence` already drops an unchanged update; this is
+the same idea one layer down, where the network is). And `db.init_pool()` left
+`max_inactive_connection_lifetime` at asyncpg's default of 300s, which *is* the sleep
+threshold, so the pool fell quiet exactly when the window would otherwise have closed and
+the five minutes never started counting; it is 60s now, with `min_size=0`.
+
+Skipping the write turned out to be only half of it, and the other half is not in this
+process's control. Redis ships `tcp-keepalive 300` and `timeout 0`, so it probes an idle
+client every 300 seconds and never hangs up first — and the bot's TCP stack answers every
+probe. Railway's threshold is those same five minutes, so the two ends kept each other
+awake over a connection neither was using. **An idle socket is not a silent one**, which is
+why `RedisPersistence` now drops its connection after a minute unused, the same way the
+asyncpg pool does. Postgres was already sleeping while Redis was not, and that contrast is
+what identified it.
+
+`tests/test_idle_quiet.py` and the write-policy tests in `tests/test_persistence.py` are
+what stop this regressing. Note also that sleeping only makes sense in **webhook** mode: a
+long-polling bot calls `getUpdates` for ever, and a slept one would have nothing inbound to
+wake it.
+
+**`_last_saved` advances only on a write that landed.** A failed Redis write leaves it
+alone deliberately, so the next attempt retries rather than treating the blip as success —
+otherwise a change that never reached Redis would be "unchanged" ever after, and skipped
+for the life of the process.
 
 **The achievement cache is the read path.** `db.get_achievements()` is *synchronous* and
 returns a module-level list loaded at startup. Any write to the `achievements` table must

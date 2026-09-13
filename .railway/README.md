@@ -84,12 +84,15 @@ service is `RAILPACK`; the image was only ever built from the `Dockerfile` becau
 replaces the override, and production builds wrong without it — Railpack knows nothing
 about the uv-built venv at `/opt/venv`, the non-root user, or the `handlers/` package.
 
-**Serverless is set but inert.** `sleepApplication` is on for the bot in both
-environments, and for Postgres and Redis in development only. Nothing sleeps yet: Railway
-sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence loop
-writes `bot_data` to Redis every 60 seconds whether or not it changed, while
-`db.init_pool()` holds an asyncpg connection open (`min_size=1`). Making the bot quiet
-enough to sleep is a runtime change, not an infrastructure one, and belongs in its own PR.
+**Serverless only works because the bot is quiet, and staying quiet is a code
+property.** `sleepApplication` is on for the bot in both environments, and for Postgres and
+Redis in development only. Railway sleeps a container after ~5 minutes with no *outbound*
+traffic, so anything the bot says on a timer keeps it awake for ever. Two things did until
+2.36.4 — PTB's persistence loop writing `bot_data` to Redis every 60 seconds whether or not
+it changed, and the asyncpg pool holding a connection open — and both are now pinned by
+tests (`tests/test_persistence.py`, `tests/test_idle_quiet.py`). Adding a heartbeat, a
+metrics push or a keepalive would silently undo this: the bot would look perfectly healthy
+and simply never sleep.
 
 Production's data layer is deliberately excluded from that. A slept database answers the
 first connection with a 502, and `db.init_pool()` builds the pool once at startup with no
