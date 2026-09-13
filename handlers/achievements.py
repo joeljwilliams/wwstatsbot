@@ -21,9 +21,9 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import api
 import builders
 import db
+import playerdata
 import templates as t
 import wwstats
 from handlers.common import mention_map
@@ -37,7 +37,10 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("command", command="achievements", user_id=user_id, user=unidecode(name))
 
-    msgs = await wwstats.check(user_id, api.client)
+    # Through playerdata like every other lookup, so a /achievements is recorded and can
+    # reveal a new achievement. `name` is already escaped by the time it gets here, so none
+    # is passed down — the record keeps names raw.
+    msgs = wwstats.check((await playerdata.get_achievements(user_id)).data)
 
     try:
         for msg in msgs:

@@ -63,6 +63,23 @@ async def get_achievement_count(user_id):
     return len(await get_achievements(user_id))
 
 
+async def get_player(user_id):
+    """The player's profile: {id, telegramId, name, username, language}.
+
+    The one fetcher that cannot go through _get: `/Stats/Player/{id}` takes the id in the
+    **path**, where every other endpoint takes it as a `pid` query parameter. Same route the
+    human-facing page uses (see player_url) — `json=true` is what switches it to JSON.
+
+    It is also the only endpoint that **raises for an id the game has never seen**. The site
+    dereferences the player without checking for one, so an unknown id gets an HTML error
+    page rather than the empty string the other endpoints answer with — and json() raises on
+    it. That is the ordinary outcome of a mistyped `/stats <number>`, so callers must treat
+    a failure as "no name known" rather than as a problem.
+    """
+    r = await client.get("{}/Player/{}".format(BASE, user_id), params={"json": "true"})
+    return r.json()
+
+
 def player_url(user_id):
     """The human-facing stats page for a player, for linking out of a message.
 

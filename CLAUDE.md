@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 175 tests; the 28 Postgres ones skip by default
+uv run pytest                     # 1221 tests; the 67 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -171,12 +171,17 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
   fetchers, message builders, command/callback/inline handlers, `PUBLIC_COMMANDS`,
   and `main()` wiring handlers onto the `Application`. New user-facing behaviour lands
   here.
-- **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `admins`),
-  idempotent seeding, full-text search, and an **in-memory achievement cache**.
+- **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `admins`,
+  `player_snapshots`), idempotent seeding, full-text search, and an **in-memory achievement
+  cache**.
+- **`playerdata.py`** — the only caller of `api.py`'s fetchers. Records every lookup,
+  notices new achievements by diffing against the previous one, and answers from the record
+  when the stats site is down.
 - **`templates.py`** — every user-visible string, as `str.format` templates grouped by
   parse mode. Handler code must not contain new prose; add a template.
 - **`wwstats.py`** — the `/achievements` Markdown report (attained / missing /
-  not-via-playing / inactive), chunked 30 items per message.
+  not-via-playing / inactive), chunked 30 items per message. Takes the attained list; it
+  does not fetch.
 - **`achvlist.py`** — the original hardcoded `ACHV` list, now only a **seed source** for
   the database. Editing it will not change a deployed bot's data (seeding is
   `ON CONFLICT DO NOTHING`); edit rows via `/setnote` or `/db` instead.
@@ -452,6 +457,91 @@ message is left alone. Before that, whoever tapped last decided what everyone sa
 requester check comes first so the common tap costs no `admins` lookup, and payloads stored
 before the field existed stay open to everyone — with `REDIS_URL` set they survive a restart,
 and locking the requester out of a live message would be the worse failure.
+
+**Every stats lookup goes through `playerdata.py`, and nothing else may call `api.get_*`.**
+Three behaviours hang off that single door, and a handler fetching for itself would opt out
+of all three while looking perfectly correct — so
+`test_nothing_outside_playerdata_calls_a_fetcher_directly` checks the rule rather than
+trusting it. Each lookup is written to `player_snapshots` (one row per player per endpoint,
+JSONB), each achievements lookup is diffed against the row it replaced, and a failed fetch
+is answered from that row instead of raising.
+
+The fetchers therefore return a **`Reading(data, age)`**, never a bare payload. `age` is
+None for a live answer and seconds for one out of the record, and callers must carry it to
+the end of the message: `playerdata.stale_notice(*ages)` renders "" when everything was
+live, so a working lookup is byte-identical to before, and a footer naming the age when it
+was not. A message built from two endpoints (`/stats`, `/deaths`) reports the *older* of
+them. This is the same rule `/schall`'s 🕐 already enforces on its remembered player list —
+a record must never pass for a live answer — and it is the reason the return shape changed
+everywhere rather than the age being dropped at the fetch.
+
+**Only the profile endpoint knows a player's own name, and it raises for strangers.** The
+five stat endpoints carry the names of *other* players — who you killed, who killed you —
+and never the subject's, so `/stats <id>` had nothing to title a card with but the digits
+typed and a log announcement had nothing to call a player by. `api.get_player()` reads
+`/Stats/Player/{id}?json=true` (id in the **path**, not a `pid` parameter) for
+`{id, telegramId, name, username, language}`. For an id the game has never seen the site
+dereferences a null and serves an **HTML error page**, so `json()` raises rather than
+returning the empty string the other endpoints answer with — and a mistyped number is the
+ordinary case. `playerdata.player_profile()` therefore never raises: it answers an empty
+`Profile`, and both callers fall back to the id. Recorded as its own `player` kind, so a
+name learned once survives the site being down.
+
+**The username is the only link either of those two places can use.** `tg://user?id=`
+resolves only in a client that has already met that user — a log group reads about players
+its members have not met, and a `/stats <id>` card is by definition about somebody the asker
+could not have mentioned. So both link `https://t.me/<username>` when there is one
+(`STATS_NAME_BY_USERNAME`, `NO_GAMES_BY_USERNAME`, `LOG_ACHIEVEMENT_HEADER_LINKED`) and fall
+back to the id mention or to plain text when there is not — a player who never set a
+username is ordinary, not a degraded case. The username is **validated against Telegram's
+own rule** before it is used, because it goes straight into an `href` and arrives from a
+database this bot does not own and that has never revalidated it; anything not matching is
+treated as no username at all.
+
+**The first lookup of a player is a baseline, not news.** `db.save_player_snapshot` returns
+the payload it replaced, and `None` there means "never looked" — announcing a diff against
+nothing would post a veteran's entire collection to the log group the first time anybody ran
+`/stats` on them. The read and the write are one transaction with the row `FOR UPDATE`,
+because two lookups of the same player overlap routinely (a `/schall` in one group while
+`/stats` runs in another) and both would otherwise diff against the same previous row and
+announce the same achievement twice.
+
+**An empty achievements list is refused when a full one is recorded.** Achievements are
+never revoked, so `[]` over a stored collection is the API answering badly — a 200 whose
+body decoded, which is exactly the failure the try/except cannot see. Recording it would
+erase the record *and* then report the whole collection as new the moment the site
+recovered. An empty list for a player who has no row is recorded normally, which is what
+makes a genuinely-first achievement announceable. A `None` payload (the API's answer for
+somebody who has never played) is not recorded at all: a stored JSON null and "we have never
+looked" would read the same to anything that reads the row back.
+
+**The log announcement names a player by asking the site, not by what the caller held.**
+Most lookups reach a fetcher with no name at all (see below), which left the great majority
+of announcements reading as a bare user id. `_who` spends one extra request on
+`player_profile()` — and only on an announcement, which happens when somebody actually earns
+something rather than on every lookup — falling back to the caller's name and then the id.
+It returns the template *and* its fields rather than a finished line, because the header also
+carries `{count}`/`{plural}` and `str.format` cannot fill some fields and leave others.
+It cannot recurse: the profile lookup is kind `player`, and only kind `achievements` ever
+announces.
+
+**A name is only recorded by the three callers that hold an unescaped one** — `/schall`'s
+roster, the join announcement, and the session's batch. Everything reached through
+`builders.py` has already been `html.escape()`-ed by its caller, so it passes no name rather
+than storing markup that the announcement would escape a second time. `save_player_snapshot`
+never blanks a stored name with an empty one, so a row learns a name once and keeps it; the
+announcement falls back to the bare user id when none was ever learned.
+
+**The fetchers are resolved by name with `getattr(api, ...)` at call time.** Holding the
+function objects in `_FETCHERS` binds them at import, which is the same failure api.py's own
+docstring records for `api.client`: the test suite's patches would be invisible, and the
+suite would pass while patching something nothing calls.
+
+**The announcement needs a bot, and gets one from `main._post_init`.** Detection happens
+inside a lookup, under builders that have no `context` and no business sending anything, so
+`playerdata.set_announcer(application.bot)` hands one over at startup. Nothing is posted
+unless `LOG_GROUP_ID` is also set, and a refused send is logged and swallowed — the log
+group is where problems are reported, so failing to reach it can only be logged.
 
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
