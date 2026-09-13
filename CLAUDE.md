@@ -176,7 +176,8 @@ project — the bot, Postgres, Redis and both volumes, across **both** environme
 switched on `ctx.is_environment("production")`. It replaced `railway.json`, which was
 Config as Code: per-service, deprecated, and read for the last time on 2026-12-01. Plan
 and apply are manual (`uv run railway config plan` / `apply`); a PR touching `.railway/`
-also gets the production plan in its job summary. `.railway/README.md` is the full
+also gets a plan for both environments in its job summary, from a `RAILWAY_TOKEN` held as
+a GitHub *environment* secret per environment. `.railway/README.md` is the full
 working guide — the three things most likely to bite are:
 
 - **The Dockerfile builder lives there now, and only there.** Railway's own setting for

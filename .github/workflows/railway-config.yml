@@ -1,12 +1,10 @@
-# Plans .railway/railway.py against production on every pull request that touches it, and
-# puts the diff in the job summary.
+# Plans .railway/railway.py against both Railway environments on every pull request that
+# touches it, and puts each diff in the job summary.
 #
 # Plan only, deliberately. The docs' example workflow also applies on merge, and that is
 # the wrong shape here: a merge to `main` triggers a Railway deploy *and* this workflow at
 # once, so an apply carrying a build or start-command change races the deploy that needs
-# it. `railway config apply` is run by hand instead — see .railway/README.md — which is
-# also the only way to reach the development environment, since a project token is scoped
-# to exactly one environment and this workflow holds production's.
+# it. `railway config apply` is run by hand — see .railway/README.md.
 #
 # railwayapp/config, the action the docs recommend, is not used: it evaluates the
 # TypeScript authoring file and runs `npm ci` to resolve it. This repo authors in Python,
@@ -34,20 +32,35 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    # Fork PRs never receive repository secrets, so the job would fail rather than skip.
+    # Fork PRs never receive secrets, so the job would fail rather than skip.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    name: plan (${{ matrix.name }})
+    strategy:
+      # One environment failing should not hide the other's diff.
+      fail-fast: false
+      matrix:
+        include:
+          - name: development
+            environment: Werewolf Stats Bot / development
+          - name: production
+            environment: Werewolf Stats Bot / production
+    # RAILWAY_TOKEN is a GitHub *environment* secret, one per Railway environment, so this
+    # line is what makes it visible at all — a job without it reads secrets.RAILWAY_TOKEN
+    # as empty and skips while looking perfectly healthy. A Railway project token is scoped
+    # to exactly one environment too, so the token found here is also what decides which
+    # environment gets planned; nothing below names one.
+    environment: ${{ matrix.environment }}
     steps:
       - uses: actions/checkout@v7
 
-      # Inert until someone creates the secret, which is deliberate: a missing token
-      # should read as "not wired up yet", not as a red check on a PR. Create a project
-      # token scoped to `production` (Railway -> project -> Settings -> Tokens) and store
-      # it as the RAILWAY_TOKEN repository secret.
+      # Still guarded, so an environment that has no token yet reads as "not wired up"
+      # rather than as a red check on a PR that has nothing to do with Railway.
       - id: token
         run: echo "present=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
 
       - if: steps.token.outputs.present != 'true'
-        run: echo "::notice::RAILWAY_TOKEN is not set — skipping the Railway config plan."
+        run: |
+          echo "::notice::No RAILWAY_TOKEN on '${{ matrix.environment }}' — skipping its plan."
 
       - if: steps.token.outputs.present == 'true'
         uses: astral-sh/setup-uv@v9.0.0
@@ -69,7 +82,7 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           {
-            echo '## Railway config plan — production'
+            echo '## Railway config plan — ${{ matrix.name }}'
             echo
             echo '```'
             uv run railway config plan 2>&1 | tee /dev/stderr

@@ -27,9 +27,16 @@ renders whichever environment the CLI is pointed at, so `railway status` is the 
 standing between a development apply and a production one. Switch with
 `railway environment production` / `railway environment development`.
 
-Pull requests that touch this directory get the production plan in the job summary
-(`.github/workflows/railway-config.yml`). Applying is manual — see the comment at the top
-of that file for why.
+Pull requests that touch this directory get a plan for **both** environments in the job
+summary (`.github/workflows/railway-config.yml`). Applying is manual — see the comment at
+the top of that file for why.
+
+That workflow reads `RAILWAY_TOKEN` as a GitHub **environment** secret, one per Railway
+environment, which is why each matrix leg declares `environment:`. A job that does not
+declare one reads `secrets.RAILWAY_TOKEN` as empty and skips while looking perfectly
+healthy — a green check that planned nothing. A Railway project token is scoped to one
+environment as well, so the token a leg finds is also what decides which environment it
+plans; nothing in the workflow names one.
 
 ## Things that will bite you
 
