@@ -62,12 +62,11 @@ def main(ctx=None):
     # db.init_pool() builds the asyncpg pool once at startup with no retry — so a cold data
     # layer there is a crash loop rather than one slow reply.
     #
-    # None of this does anything yet, and that is expected rather than broken. PTB's
-    # persistence loop calls update_bot_data on a fixed 60-second interval whether or not
-    # anything changed, which RedisPersistence turns into a Redis write, and the asyncpg
-    # pool holds min_size=1 open besides — so the container never sees five idle minutes.
-    # The flag is set now because it is infrastructure; making the bot quiet enough to
-    # sleep is a runtime change and belongs in its own PR.
+    # This was inert until 2.36.4, which is when the bot learned to stop talking: PTB's
+    # persistence loop wrote bot_data to Redis every 60 seconds whether or not anything had
+    # changed, and the asyncpg pool held a connection open besides, so the container never
+    # saw five idle minutes. Both are fixed in redis_persistence.py and db.py, and both are
+    # pinned by tests — an idle bot that chatters looks exactly like one that does not.
     sleep_databases = not prod
 
     postgres_volume = volume(

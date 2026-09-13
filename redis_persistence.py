@@ -16,6 +16,9 @@ Failure handling favours availability: a Redis outage at load or save is logged 
 swallowed rather than crashing the bot; persistence silently degrades until Redis is
 back. The initial read is synchronous (no event loop exists yet at construction);
 all later writes use the async client.
+
+A write that would change nothing is skipped — see ``_save``. That is what lets an idle
+bot fall silent, which is what lets Railway put it to sleep.
 """
 
 import json
@@ -64,6 +67,16 @@ class RedisPersistence(DictPersistence):
             **kwargs,
         )
 
+        # What Redis is believed to hold, so _save can skip a write that would change
+        # nothing. Seeded from the load rather than left empty, so a bot that boots and is
+        # never spoken to settles into silence instead of rewriting the blob it just read.
+        #
+        # "Settles into" rather than "starts": PTB's get_bot_data() turns a None bot_data
+        # into {} the first time it is read, which is a change to the blob and so costs one
+        # write per process. That is a write at startup, not a write a minute, and it is
+        # the startup ones that cost nothing — the container is awake anyway.
+        self._last_saved = self._blob()
+
     @staticmethod
     def _load_sync(url, key):
         """One-time blocking read at startup via a short-lived sync client.
@@ -85,19 +98,45 @@ class RedisPersistence(DictPersistence):
             except Exception:
                 pass
 
+    def _blob(self):
+        """The exact bytes that represent the current state in Redis."""
+        return json.dumps(
+            {
+                "bot_data": self.bot_data_json,
+                "chat_data": self.chat_data_json,
+                "user_data": self.user_data_json,
+                "callback_data": self.callback_data_json,
+                "conversations": self.conversations_json,
+            }
+        )
+
     async def _save(self):
-        blob = {
-            "bot_data": self.bot_data_json,
-            "chat_data": self.chat_data_json,
-            "user_data": self.user_data_json,
-            "callback_data": self.callback_data_json,
-            "conversations": self.conversations_json,
-        }
+        """Write the state blob, unless Redis already holds exactly these bytes.
+
+        PTB's persistence loop calls update_bot_data and update_callback_data every
+        `update_interval` seconds (60 by default) whether or not anything changed, and both
+        land here. Writing regardless meant a Redis round-trip a minute for the life of the
+        process — and a round-trip is outbound traffic, which is the only thing Railway
+        looks at to decide a service is idle. A bot nobody was talking to could therefore
+        never be put to sleep, so the serverless flag on the service did nothing.
+
+        DictPersistence already drops an update that changes nothing; this is that same
+        idea one layer down, where the network is. The comparison is on the serialized blob
+        rather than the dicts, which makes it exact rather than approximate: the write is
+        skipped only when the bytes are the ones already there.
+        """
+        blob = self._blob()
+        if blob == self._last_saved:
+            return
         try:
-            await self._redis.set(self._key, json.dumps(blob))
+            await self._redis.set(self._key, blob)
         except Exception:
-            # Never let a Redis blip break a handler; state stays in memory.
+            # Never let a Redis blip break a handler; state stays in memory. _last_saved is
+            # deliberately not advanced, so the next attempt retries this write instead of
+            # assuming it landed.
             logger.exception("redis_persistence_save_failed", key=self._key)
+            return
+        self._last_saved = blob
 
     # Each update_* stores into DictPersistence's in-memory dict (via super), then
     # mirrors to Redis unless deferring to flush().
