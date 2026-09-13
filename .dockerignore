@@ -34,3 +34,8 @@ LICENSE
 k8s-deployment.example.yaml
 Dockerfile
 .dockerignore
+
+# Railway Infrastructure as Code. Railway reads .railway/ from the repository, never from
+# the image, and the builder stage installs with --no-dev so railway-sdk is not in the
+# venv either. Ignored so a config-only change cannot bust the build cache.
+.railway/

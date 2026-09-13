@@ -354,6 +354,15 @@ job-queue = [
 ]
 
 [[package]]
+name = "railway-sdk"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/4d/33c48920bbe606b6bb4b1d9f19940d87f15490f540fab5217aa9de8032b8/railway_sdk-0.2.0.tar.gz", hash = "sha256:74348575a0a61425c35aa5757d069130e7c153a6e75fa642efdd44dcc843e473", size = 7760, upload-time = "2026-08-27T08:45:43.631Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/26/15f490cf61a4ca4d7e2e646a4f5fe4213058115f85294a85c1351e01c88f/railway_sdk-0.2.0-py3-none-any.whl", hash = "sha256:a0fc16a272ee9a34b54e5302f80db933020c524a210cb1e2b76534c68dd17f01", size = 6599, upload-time = "2026-08-27T08:45:42.054Z" },
+]
+
+[[package]]
 name = "redis"
 version = "8.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -474,6 +483,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "railway-sdk" },
     { name = "ruff" },
 ]
 
@@ -495,5 +505,6 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "railway-sdk", specifier = ">=0.2.0" },
     { name = "ruff", specifier = ">=0.14" },
 ]

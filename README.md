@@ -39,7 +39,8 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 ## Deployment
 
-Deployed on [Railway](https://railway.com) from the `Dockerfile` (see `railway.json`);
+Deployed on [Railway](https://railway.com) from the `Dockerfile` (see
+`.railway/railway.py`, and `.railway/README.md` for how to plan and apply it);
 `k8s-deployment.example.yaml` is a reference manifest for a Kubernetes deploy. All
 configuration is supplied as environment variables — see the header comment in the
 `Dockerfile` for the full list. `/healthz` and `/readyz` are exposed on `HEALTH_PORT`

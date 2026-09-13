@@ -24,6 +24,9 @@ dev = [
     "fakeredis>=2.37",
     "ruff>=0.14",
     "babel>=2.18.0",
+    # Not a bot dependency and not test tooling: the Railway CLI imports this to
+    # evaluate .railway/railway.py. Nothing in the image or the suite touches it.
+    "railway-sdk>=0.2.0",
 ]
 
 # The bot is an app, not an installable package: it's a flat set of modules run as
