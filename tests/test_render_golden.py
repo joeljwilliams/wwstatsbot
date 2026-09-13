@@ -210,10 +210,19 @@ async def test_stats_msg(stats_api):
     )
 
 
-async def test_stats_msg_by_id_omits_the_user_link(stats_api):
+async def test_stats_msg_by_id_titles_the_card_with_the_sites_name(stats_api):
+    """The digits somebody typed are all /stats <id> has to go on, and none of the stat
+    endpoints carries the player's own name — the profile endpoint does, so the card names a
+    person. Still unlinked: Telegram cannot render a mention for an id it has never seen."""
     msg = await builders.build_stats_msg(7, "7", by_id=True)
-    assert msg.startswith("7 the Villager 👱\n")
+    assert msg.startswith("Alice the Villager 👱\n")
     assert "tg://user" not in msg
+
+
+async def test_stats_msg_by_id_keeps_the_digits_for_an_unknown_id(stats_api):
+    """A mistyped number is the ordinary case, and the site answers it with an error page."""
+    msg = await builders.build_stats_msg(4242, "4242", by_id=True)
+    assert msg.startswith("4242 the Villager 👱\n")
 
 
 async def test_stats_msg_carries_the_role_emoji(stats_api):
@@ -250,7 +259,11 @@ async def test_stats_msg_no_games(stats_api):
         "<a href='tg://user?id=7'>Alice</a> has not played any games."
     )
     stats_api.routes["/Stats/PlayerStats/"] = {}
-    assert await builders.build_stats_msg(7, "7", by_id=True) == "7 has not played any games."
+    # Named even with no games to their name: the profile endpoint knows them whether or not
+    # they have ever played, so "7 has not played any games" only survives for an id the game
+    # has never seen at all.
+    assert await builders.build_stats_msg(7, "7", by_id=True) == "Alice has not played any games."
+    assert await builders.build_stats_msg(4242, "4242", by_id=True) == "4242 has not played any games."
 
 
 async def test_stats_msg_omits_most_killed_lines_when_null(stats_api):

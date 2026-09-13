@@ -113,6 +113,7 @@ async def test_every_endpoint_gets_its_own_row(stats_api, store):
     await playerdata.get_killed_by(7)
     await playerdata.get_deaths(7)
     await playerdata.get_achievements(7)
+    await playerdata.get_player(7)
 
     assert {kind for _, kind in store.rows} == set(playerdata.KINDS)
 
@@ -438,3 +439,97 @@ async def test_the_schall_roster_teaches_the_record_who_a_player_is(achievements
     )
 
     assert store.rows[(1, playerdata.ACHIEVEMENTS)][1] == "Al & Sons", "stored raw, escaped at render"
+
+
+# --- Putting a name to an id ------------------------------------------------
+#
+# None of the five stat endpoints carries the player's *own* name — they carry the names of
+# other players (who you killed, who killed you). The profile endpoint is the only source,
+# and it is the only one that raises for an id the game has never seen.
+
+
+async def test_the_profile_endpoint_names_a_player(stats_api, store):
+    assert await playerdata.player_name(7) == "Alice"
+
+
+async def test_an_unknown_id_has_no_name_rather_than_an_error(stats_api, store):
+    """The site answers a mistyped id with an HTML error page, which is the ordinary outcome
+    of `/stats <number>`. It must degrade to "we can't name them", never to a failed command."""
+    assert await playerdata.player_name(4242) is None
+
+
+async def test_an_unreachable_site_has_no_name_rather_than_an_error(stats_api, store):
+    stats_api.fail_pids.add(7)
+    assert await playerdata.player_name(7) is None
+
+
+async def test_a_name_lookup_is_recorded_like_any_other(stats_api, store):
+    await playerdata.player_name(7)
+    assert store.rows[(7, playerdata.PLAYER)][0]["name"] == "Alice"
+
+
+async def test_a_recorded_name_outlives_the_site(stats_api, store):
+    """The record carries the profile too, so a name learned once survives an outage."""
+    await playerdata.player_name(7)
+    stats_api.fail_pids.add(7)
+    assert await playerdata.player_name(7) == "Alice"
+
+
+async def test_a_profile_lookup_announces_nothing(stats_api, store, log_group):
+    """It runs from inside _announce, so anything it triggered would recurse."""
+    store.seed(7, playerdata.PLAYER, {"name": "Old"})
+    await playerdata.get_player(7)
+    assert announcements(log_group) == []
+
+
+async def test_an_announcement_names_the_player_from_the_site(stats_api, store, log_group):
+    """The point of the extra request: most lookups reach a fetcher with no name at all, so
+    before this the great majority of announcements read as a bare user id."""
+    store.seed(7, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(7, ["Busy Night"])
+
+    await playerdata.get_achievements(7)
+
+    assert "Alice" in announcements(log_group)[0]["text"]
+
+
+async def test_an_announcement_falls_back_to_the_callers_name(stats_api, store, log_group):
+    """A roster or join lookup still reads as a name when the site cannot be asked."""
+    store.seed(4242, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(4242, ["Busy Night"])
+
+    await playerdata.get_achievements(4242, "Bob")
+
+    assert "Bob" in announcements(log_group)[0]["text"]
+
+
+async def test_an_announcement_falls_back_to_the_id(stats_api, store, log_group):
+    store.seed(4242, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(4242, ["Busy Night"])
+
+    await playerdata.get_achievements(4242)
+
+    assert "4242" in announcements(log_group)[0]["text"]
+
+
+async def test_a_site_name_is_escaped_in_the_announcement(stats_api, store, log_group):
+    """Names come from the game's own database and contain anything at all."""
+    stats_api.names[7] = "Al & <b>Sons</b>"
+    store.seed(7, playerdata.ACHIEVEMENTS, [])
+    stats_api.set_achievements(7, ["Busy Night"])
+
+    await playerdata.get_achievements(7)
+
+    text = announcements(log_group)[0]["text"]
+    assert "Al &amp; &lt;b&gt;Sons&lt;/b&gt;" in text
+
+
+async def test_a_no_such_player_answer_is_not_recorded(stats_api, store, monkeypatch):
+    """The stat endpoints answer an unknown id with an empty *string*, not a null."""
+
+    async def nobody(user_id):
+        return ""
+
+    monkeypatch.setattr(api, "get_stats", nobody)
+    assert (await playerdata.get_stats(7)).data == ""
+    assert store.rows == {}

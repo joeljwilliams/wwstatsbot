@@ -49,7 +49,11 @@ async def test_a_numeric_argument_looks_up_that_id_without_a_link(stats_api):
 
 async def test_the_numeric_argument_is_the_id_actually_queried(stats_api):
     await run(message("/stats 4242"), args=["4242"])
-    assert all(r.url.params.get("pid") == "4242" for r in stats_api.requests)
+    # The profile endpoint takes its id in the path rather than as a pid parameter, so it is
+    # checked by URL; every other request must name 4242 and nothing else.
+    assert all(r.url.params.get("pid") == "4242" or r.url.path == "/Stats/Player/4242" for r in stats_api.requests), [
+        str(r.url) for r in stats_api.requests
+    ]
 
 
 async def test_a_non_numeric_argument_falls_back_to_the_sender(stats_api):

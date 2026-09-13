@@ -7,6 +7,10 @@ the same mechanism seen from different sides:
 * **A record.** Each successful lookup is written to `player_snapshots`, one row per
   player per endpoint. Nobody has to remember to record anything, because recording is
   what a lookup *is*.
+* **A name for a bare id.** None of the five stat endpoints carries the player's *own*
+  name, only the names of players they killed or were killed by. `player_name()` asks the
+  profile endpoint, which is the only source — and the only one that raises for an id the
+  game has never seen.
 * **New achievements.** A lookup compares what came back against the row it replaced, and
   anything that was not there before is announced to the log group. The API has no "since"
   parameter and no notification of any kind, so a diff against our last answer is the only
@@ -54,6 +58,10 @@ KILLS = "kills"
 KILLED_BY = "killedby"
 DEATHS = "deaths"
 ACHIEVEMENTS = "achievements"
+# The player's own profile — the only endpoint that carries their *name*, which none of the
+# five stat endpoints do. Recorded like the rest, so a name learned once outlives the site
+# being down.
+PLAYER = "player"
 
 # The name of the api.py function behind each kind, resolved with getattr at call time
 # rather than held here as the function object. api.py's own docstring records why: binding
@@ -66,6 +74,7 @@ _FETCHERS = {
     KILLED_BY: "get_killed_by",
     DEATHS: "get_deaths",
     ACHIEVEMENTS: "get_achievements",
+    PLAYER: "get_player",
 }
 
 KINDS = tuple(_FETCHERS)
@@ -112,10 +121,37 @@ async def get_achievements(user_id, name=None):
     return await _read(ACHIEVEMENTS, user_id, name)
 
 
+async def get_player(user_id, name=None):
+    return await _read(PLAYER, user_id, name)
+
+
 async def get_achievement_count(user_id, name=None):
     """The total only, keeping the age so a stale count can still be labelled as one."""
     reading = await get_achievements(user_id, name)
     return Reading(len(reading.data), reading.age)
+
+
+async def player_name(user_id):
+    """The player's name as the stats site knows it, or None. **Never raises.**
+
+    The one way to put a name to a bare user id, and the reason it is worth an extra request:
+    the five stat endpoints carry the names of *other* players (who you killed, who killed
+    you) and never your own. So `/stats <id>` had nothing to title the card with but the
+    digits that were typed, and a log-group announcement had nothing to call a player whose
+    lookup arrived without one.
+
+    Failure is an answer here rather than an error. An id the game has never seen — a typo in
+    `/stats <number>`, most of the time — comes back as an HTML error page (see api.get_player),
+    and "we could not name them" has to degrade to showing the id rather than to a failed
+    command.
+    """
+    try:
+        profile = await get_player(user_id)
+    except Exception as exc:
+        logger.info("player_name_unknown", user_id=user_id, error=str(exc))
+        return None
+    name = (profile.data or {}).get("name") if isinstance(profile.data, dict) else None
+    return name or None
 
 
 async def _read(kind, user_id, name):
@@ -168,10 +204,12 @@ async def _record(user_id, kind, payload, name):
     """
     if not db.has_pool():
         return
-    if payload is None:
-        # What the API sends for a player who has never played. There is nothing to
-        # remember, and storing a JSON null would make "we have no record of this player"
-        # and "we recorded that there is nothing" the same row to every reader of it.
+    if payload is None or payload == "":
+        # The two ways the site says "no such player": a JSON null, and the empty *string*
+        # the stat endpoints actually answer with (`return Json("")` upstream, confirmed
+        # against the live API). Neither is worth a row — and storing one would make "we
+        # have no record of this player" and "we recorded that there is nothing" read the
+        # same to everything that reads the row back.
         return
     if kind == ACHIEVEMENTS and not payload and await _has_achievements(user_id):
         # A player's achievements cannot go from "some" to "none": they are never revoked.
@@ -219,9 +257,7 @@ async def _announce(user_id, name, earned):
         return
     msg = t.LOG_ACHIEVEMENT_HEADER.format(
         user_id=user_id,
-        # Only some lookups carry a name (see _read), so the id stands in when none was
-        # recorded. Escaped here, at the one place it is rendered, like every other name.
-        name=_display_name(name, user_id),
+        name=await _display_name(user_id, name),
         count=len(earned),
         plural="" if len(earned) == 1 else "s",
     )
@@ -239,8 +275,21 @@ async def _announce(user_id, name, earned):
         logger.info("achievements_announced", user_id=user_id, count=len(earned))
 
 
-def _display_name(name, user_id):
-    return html.escape(name) if name else str(user_id)
+async def _display_name(user_id, name):
+    """What to call this player in the log group: the stats site's name for them.
+
+    Asked of the site rather than taken from `name`, because `name` is whatever the caller
+    happened to hold — and most lookups hold nothing (theirs is already escaped by the time
+    it reaches a fetcher, so it is deliberately not passed down). That left the great
+    majority of announcements naming a player by bare user id.
+
+    One extra request, and only on an announcement: those happen when somebody actually earns
+    something, not on every lookup. A caller's own name is the fallback ahead of the id, so a
+    roster or join lookup still reads as a name when the site cannot be asked.
+
+    Escaped here, at the one place it is rendered, like every other name in this bot.
+    """
+    return html.escape(await player_name(user_id) or name or str(user_id))
 
 
 # --- Reporting an age -------------------------------------------------------

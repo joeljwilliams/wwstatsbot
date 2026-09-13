@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1189 tests; the 67 Postgres ones skip by default
+uv run pytest                     # 1204 tests; the 67 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -460,6 +460,18 @@ them. This is the same rule `/schall`'s 🕐 already enforces on its remembered 
 a record must never pass for a live answer — and it is the reason the return shape changed
 everywhere rather than the age being dropped at the fetch.
 
+**Only the profile endpoint knows a player's own name, and it raises for strangers.** The
+five stat endpoints carry the names of *other* players — who you killed, who killed you —
+and never the subject's, so `/stats <id>` had nothing to title a card with but the digits
+typed and a log announcement had nothing to call a player by. `api.get_player()` reads
+`/Stats/Player/{id}?json=true` (id in the **path**, not a `pid` parameter) for
+`{id, telegramId, name, username, language}`. For an id the game has never seen the site
+dereferences a null and serves an **HTML error page**, so `json()` raises rather than
+returning the empty string the other endpoints answer with — and a mistyped number is the
+ordinary case. `playerdata.player_name()` therefore never raises: it answers None, and both
+callers fall back to the id. Recorded as its own `player` kind, so a name learned once
+survives the site being down.
+
 **The first lookup of a player is a baseline, not news.** `db.save_player_snapshot` returns
 the payload it replaced, and `None` there means "never looked" — announcing a diff against
 nothing would post a veteran's entire collection to the log group the first time anybody ran
@@ -476,6 +488,14 @@ recovered. An empty list for a player who has no row is recorded normally, which
 makes a genuinely-first achievement announceable. A `None` payload (the API's answer for
 somebody who has never played) is not recorded at all: a stored JSON null and "we have never
 looked" would read the same to anything that reads the row back.
+
+**The log announcement names a player by asking the site, not by what the caller held.**
+Most lookups reach a fetcher with no name at all (see below), which left the great majority
+of announcements reading as a bare user id. `_display_name` spends one extra request on
+`player_name()` — and only on an announcement, which happens when somebody actually earns
+something rather than on every lookup — falling back to the caller's name and then the id.
+It cannot recurse: the profile lookup is kind `player`, and only kind `achievements` ever
+announces.
 
 **A name is only recorded by the three callers that hold an unescaped one** — `/schall`'s
 roster, the join announcement, and the session's batch. Everything reached through

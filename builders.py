@@ -86,6 +86,16 @@ async def build_deaths_msg(user_id, name):
 
 
 async def build_stats_msg(user_id, name, by_id=False):
+    if by_id:
+        # `name` arrived as the digits somebody typed, because a bare id is all /stats <id>
+        # has to go on — none of the five stat endpoints carries the player's own name. The
+        # profile endpoint does, so the card can be titled with a person rather than a
+        # number. Unknown ids keep the digits: player_name answers None rather than raising
+        # (see playerdata), which is the ordinary outcome of a typo.
+        found = await playerdata.player_name(user_id)
+        if found:
+            name = html.escape(found)
+
     reading = await playerdata.get_stats(user_id)
     count = await playerdata.get_achievement_count(user_id)
     stats, achievements = reading.data, count.data

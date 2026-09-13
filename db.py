@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS player_alts (
 -- is why it is a column and not derived from anything.
 CREATE TABLE IF NOT EXISTS player_snapshots (
     user_id    BIGINT NOT NULL,
-    -- stats | kills | killedby | deaths | achievements -- playerdata.KINDS.
+    -- stats | kills | killedby | deaths | achievements | player -- playerdata.KINDS.
     kind       TEXT NOT NULL,
     name       TEXT NOT NULL DEFAULT '',
     payload    JSONB NOT NULL,
