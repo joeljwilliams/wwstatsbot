@@ -168,10 +168,39 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
 """
 
 
+# Railway sleeps a container after ~5 minutes with no *outbound* traffic, and an open
+# Postgres connection is the pool's own clock running against that: asyncpg reaps an idle
+# connection only after max_inactive_connection_lifetime, and the default is 300 seconds —
+# the sleep threshold itself. So the pool fell quiet at roughly the moment the window would
+# otherwise have closed, and the five minutes never started counting. 60s is well inside it.
+#
+# The cost is a fresh connect on the first query after a minute of quiet: tens of
+# milliseconds over the private network, and only the first of a burst pays it, since a
+# connection is only reaped once it has been idle that long.
+#
+# min_size=0 is the same intent rather than a second mechanism — idle means holding
+# nothing. A pre-connected holder does get an idle timer (asyncpg schedules it in
+# connect(), not only on release), so min_size=1 was not pinning a connection open
+# forever; it just opened one at boot for the reaper to close later.
+_POOL_MIN_SIZE = 0
+_POOL_MAX_SIZE = 5
+_POOL_IDLE_SECONDS = 60.0
+
+
 async def init_pool(dsn):
     global _pool
-    _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
-    logger.info("postgres_pool_created", min_size=1, max_size=5)
+    _pool = await asyncpg.create_pool(
+        dsn,
+        min_size=_POOL_MIN_SIZE,
+        max_size=_POOL_MAX_SIZE,
+        max_inactive_connection_lifetime=_POOL_IDLE_SECONDS,
+    )
+    logger.info(
+        "postgres_pool_created",
+        min_size=_POOL_MIN_SIZE,
+        max_size=_POOL_MAX_SIZE,
+        idle_seconds=_POOL_IDLE_SECONDS,
+    )
 
 
 async def close_pool():
