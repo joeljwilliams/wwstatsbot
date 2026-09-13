@@ -65,6 +65,17 @@ service is `RAILPACK`; the image was only ever built from the `Dockerfile` becau
 replaces the override, and production builds wrong without it — Railpack knows nothing
 about the uv-built venv at `/opt/venv`, the non-root user, or the `handlers/` package.
 
+**Serverless is set but inert.** `sleepApplication` is on for the bot in both
+environments, and for Postgres and Redis in development only. Nothing sleeps yet: Railway
+sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence loop
+writes `bot_data` to Redis every 60 seconds whether or not it changed, while
+`db.init_pool()` holds an asyncpg connection open (`min_size=1`). Making the bot quiet
+enough to sleep is a runtime change, not an infrastructure one, and belongs in its own PR.
+
+Production's data layer is deliberately excluded from that. A slept database answers the
+first connection with a 502, and `db.init_pool()` builds the pool once at startup with no
+retry — so a cold Postgres in production is a crash loop rather than one slow reply.
+
 **Secrets are never written here.** Every variable renders as `preserve()`, meaning "keep
 whatever Railway already has". `railway config pull --include-variables` would inline the
 real values into this file; don't. `railway config plan --show-values` prints them to the

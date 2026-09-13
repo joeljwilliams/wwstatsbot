@@ -188,6 +188,12 @@ working guide — the three things most likely to bite are:
   is planned for destruction; a field it does not set is planned to null. The Railway
   dashboard has correspondingly stopped being a place to change things — an edit made
   there survives only until the next apply.
+- **Serverless is set but inert.** `sleepApplication` is on for the bot in both
+  environments and for the data layer in development only. Nothing sleeps yet: Railway
+  sleeps a container after ~5 minutes with no *outbound* traffic, and PTB's persistence
+  loop writes `bot_data` to Redis every 60 seconds whether or not it changed, while
+  `db.init_pool()` holds a connection open (`min_size=1`). Making the bot quiet enough to
+  sleep is a runtime change and belongs in its own PR.
 
 [iac]: https://docs.railway.com/infrastructure-as-code
 

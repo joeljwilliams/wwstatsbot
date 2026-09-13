@@ -41,6 +41,23 @@ def main(ctx=None):
     redis_name = "Redis" if prod else "Redis-93UD"
     redis_volume_name = "redis-volume" if prod else "redis-volume-RI6D"
 
+    # Serverless (formerly app-sleeping) stops a container after ~5 minutes with no
+    # *outbound* traffic and wakes it on the next inbound request.
+    #
+    # The bot asks for it in both environments. The data layer asks for it in development
+    # only, where an idle-hours cold start costs nothing. Production's Postgres and Redis
+    # stay hot deliberately: a slept database answers the first connection with a 502, and
+    # db.init_pool() builds the asyncpg pool once at startup with no retry — so a cold data
+    # layer there is a crash loop rather than one slow reply.
+    #
+    # None of this does anything yet, and that is expected rather than broken. PTB's
+    # persistence loop calls update_bot_data on a fixed 60-second interval whether or not
+    # anything changed, which RedisPersistence turns into a Redis write, and the asyncpg
+    # pool holds min_size=1 open besides — so the container never sees five idle minutes.
+    # The flag is set now because it is infrastructure; making the bot quiet enough to
+    # sleep is a runtime change and belongs in its own PR.
+    sleep_databases = not prod
+
     postgres_volume = volume(
         "postgres-volume",
         alerts=_VOLUME_ALERTS,
@@ -66,7 +83,7 @@ def main(ctx=None):
         networking={"privateNetworkEndpoint": "postgres", "tcpProxies": {"5432": {}}},
         deploy={
             "multiRegionConfig": {REGION: {"numReplicas": 1}},
-            "sleepApplication": False,
+            "sleepApplication": sleep_databases,
         },
     )
 
@@ -83,7 +100,7 @@ def main(ctx=None):
                 "&& exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD "
                 '--save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH"'
             ),
-            "sleepApplication": False,
+            "sleepApplication": sleep_databases,
         },
     )
 
@@ -119,8 +136,7 @@ def main(ctx=None):
             # come back; one whose config is wrong should stop rather than restart forever.
             "restartPolicyType": "ON_FAILURE",
             "restartPolicyMaxRetries": 10,
-            # Carried from railway.json too, which set it explicitly.
-            "sleepApplication": False,
+            "sleepApplication": True,
         },
         # Values stay on Railway. preserve() means "keep whatever is already set" —
         # BOT_TOKEN and the connection strings are secrets that must never be written into
