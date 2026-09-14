@@ -19,7 +19,7 @@ parsed, and compared against the session it came from.
 
 import pytest
 from conftest import FakeUpdate, FakeUser, bot_message, message
-from test_standin_list import big_game, visible
+from test_standin_list import big_game, post_text, visible
 from test_standin_session import reveal, start_session
 
 import db
@@ -86,7 +86,7 @@ async def posted_list(context, session_data):
     comparison and the half these tests are about.
     """
     await context.job_queue.run_pending(context)
-    return bot_message(visible(gamesession.render_list(session_data)), message_id=session_data["list_message_id"])
+    return bot_message(visible(post_text(session_data)), message_id=session_data["list_message_id"])
 
 
 async def crowded(context, count=24):
@@ -106,7 +106,7 @@ async def test_info_cards_what_the_post_had_no_room_to_print(context):
     session_data = await crowded(context)
     replied = await posted_list(context, session_data)
 
-    shown = achv_handlers._extract_possible_achievements(visible(gamesession.render_list(session_data)))
+    shown = achv_handlers._extract_possible_achievements(visible(post_text(session_data)))
     per_player, _groups, _mentions = achv_handlers._post_contents(context, replied)
     known = achv_handlers._row_names(per_player)
 
@@ -125,7 +125,7 @@ async def test_a_candidate_the_post_could_not_fit_can_still_be_rolled(context):
     replied = await posted_list(context, session_data)
 
     per_player, groups, _mentions = achv_handlers._post_contents(context, replied)
-    from_text = achv_handlers._extract_by_player(visible(gamesession.render_list(session_data)))
+    from_text = achv_handlers._extract_by_player(visible(post_text(session_data)))
 
     wider = []
     for _player, rows in per_player:
@@ -182,7 +182,7 @@ async def test_the_session_and_the_parser_agree_on_an_untrimmed_post(context):
     await reveal(context, 2, "harlot")
     await reveal(context, 3, "seer")
 
-    rendered = gamesession.render_list(session_data)
+    rendered = post_text(session_data)
     assert "Trimmed to fit" not in rendered and "more</i>" not in rendered, "must be whole"
 
     parsed_players, parsed_groups = achv_handlers._extract_by_player(visible(rendered))

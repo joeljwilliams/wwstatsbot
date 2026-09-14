@@ -693,6 +693,28 @@ STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of the
 # freezes the list at whatever it last said and explains nothing.
 STANDIN_LIST_TOO_LONG = N_("<i>Too long to show in full.</i>\n")
 
+# --- HTML: the full list, paged privately (handlers/gamesession.py) ---------
+#
+# The button appears only when the post in the group had to leave something out, because
+# a pager offering exactly what is already on screen is a button that does nothing.
+#
+# It opens in the tapper's PM rather than paging the group's message, and that is the
+# whole design: the post is one shared message that sixteen people are watching and that
+# re-renders itself every few seconds, so a page number on it belongs to whoever pressed
+# a button last. Everybody who wants the rest gets their own copy instead.
+STANDIN_FULL_BUTTON = N_("\N{PAGE FACING UP} Show me the full list")
+STANDIN_FULL_PREV = N_("\N{BLACK LEFT-POINTING DOUBLE TRIANGLE}\N{VARIATION SELECTOR-16} Prev")
+STANDIN_FULL_NEXT = N_("Next \N{BLACK RIGHT-POINTING DOUBLE TRIANGLE}\N{VARIATION SELECTOR-16}")
+STANDIN_FULL_PAGE_FOOTER = N_("<i>Page {index} of {total}</i>\n")
+STANDIN_FULL_SENT = N_("Sent the full list to your PM \N{WHITE HEAVY CHECK MARK}")
+# Rendered from the session on every tap rather than from a copy taken when the pager was
+# opened, so a page turned two minutes into a game shows the game as it is now. That makes
+# the session ending the one thing a page cannot be turned to.
+STANDIN_FULL_ENDED = N_("That game has ended, so there is no list to page through.")
+STANDIN_FULL_NO_PM = N_(
+    "I can't message you yet. Start a private chat with me first (tap my name, then Start), then tap the button again."
+)
+
 STANDIN_LA_POINTER = N_("The list is here, and updates as roles come in.")
 STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears once someone does.")
 

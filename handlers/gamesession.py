@@ -56,6 +56,12 @@ logger = structlog.get_logger(__name__)
 
 STOP_CALLBACK = "standin:stop"
 
+# The full-list pager. The chat id rides in the callback data because the *later* taps
+# happen on a message in the tapper's PM, where context.chat_data is that private chat's
+# and the game's session is somewhere else entirely — see full_list_callback.
+FULL_LIST_CALLBACK = "standin:full"
+_FULL_LIST_PREFIX = "standin:full:"
+
 # The Stop button takes two presses. The real manager's stops on the first, and it sits
 # under sixteen players' thumbs for the length of a game — a mis-tap there kills a live
 # session that then has to be rebuilt by hand. Arming expires so that a press now and a
@@ -1525,6 +1531,38 @@ def reply_contents(chat_data, message):
     )
 
 
+def _certain_only(entries):
+    """The rows nothing has still to go right for. The certain-only pass drops the rest."""
+    return [entry for entry in entries if entry["tier"] == rulelist.CHECK and not entry["swing"]]
+
+
+def _player_block(uid, name, entries, cap):
+    """One player's part of the post: their name, then their rows."""
+    out = t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
+    shown = entries if cap is None else entries[:cap]
+    for entry in shown:
+        template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
+        out += template.format(name=html.escape(entry["name"]))
+    if len(entries) > len(shown):
+        out += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
+    return out + "\n\n"
+
+
+def _group_block(name, eligible, cap):
+    """One roleless achievement, and who can still get it.
+
+    The count in the heading is of everyone eligible, never of the names that fitted — it
+    is the answer to "how many are still in for this", and a capped one would be wrong.
+    """
+    shown = eligible if cap is None else eligible[:cap]
+    names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
+    if len(eligible) > len(shown):
+        names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
+    return t.STANDIN_LIST_GROUP_HEADER.format(
+        name=html.escape(name), count=len(eligible)
+    ) + t.STANDIN_LIST_GROUP_NAMES.format(names=names)
+
+
 def _build_list(session_data, contents, cap, include_uncertain):
     """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
     per_player, groups = contents
@@ -1533,21 +1571,16 @@ def _build_list(session_data, contents, cap, include_uncertain):
 
     for uid, name, entries in per_player:
         if not include_uncertain:
-            entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
+            entries = _certain_only(entries)
         if not entries:
             continue
-
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
-        shown = entries if cap is None else entries[:cap]
-        for entry in shown:
-            template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
-            msg += template.format(name=html.escape(entry["name"]))
-        if len(entries) > len(shown):
-            msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
-        msg += "\n\n"
+        msg += _player_block(uid, name, entries, cap)
 
-    sections = _group_sections(groups, include_uncertain, cap)
+    sections = ""
+    for name, tier, eligible in groups:
+        if include_uncertain or tier == rulelist.CHECK:
+            sections += _group_block(name, eligible, cap)
 
     revealed, total = session.revealed_count(session_data)
     if not listed and not sections:
@@ -1560,42 +1593,179 @@ def _build_list(session_data, contents, cap, include_uncertain):
     return msg
 
 
-def _group_sections(groups, include_uncertain, cap):
-    """The bottom of the post: each roleless achievement, and who can still get it.
-
-    The count in the heading is of everyone eligible, never of the names that fitted — it
-    is the answer to "how many are still in for this", and a capped one would be wrong.
-    """
-    out = ""
-    for name, tier, eligible in groups:
-        if not include_uncertain and tier != rulelist.CHECK:
-            continue
-        shown = eligible if cap is None else eligible[:cap]
-        names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
-        if len(eligible) > len(shown):
-            names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
-        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(name), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=names)
-    return out
-
-
 def render_list(session_data):
-    """The Possible Achievements post.
+    """The Possible Achievements post: (html, keyboard), as render_state returns.
 
     Byte-compatible with the game's own manager — an unindented player name, then indented
     " - " rows — so replying to it with /info returns the cards, exactly as it does for the
     incumbent's post. The status markers sit *after* the dash for the same reason.
+
+    The keyboard is a button to the full list in PM, and it is there only when this
+    rendering had to leave something out. A pager offering exactly what is already on the
+    screen is a button that does nothing.
     """
     contents = list_contents(session_data)
 
     for cap in _ROW_LADDER:
         msg = _build_list(session_data, contents, cap, include_uncertain=True)
         if _visible_len(msg) <= _LIST_LIMIT:
-            return msg
+            return msg, _full_list_keyboard(cap is not None)
     # Still too long with one row each: drop everything uncertain and say so, rather than
     # let Telegram reject the message and leave the list frozen at its last edit.
     msg = _build_list(session_data, contents, 3, include_uncertain=False)
-    return msg if _visible_len(msg) <= _LIST_LIMIT else _truncate(msg)
+    if _visible_len(msg) > _LIST_LIMIT:
+        msg = _truncate(msg)
+    return msg, _full_list_keyboard(True)
+
+
+def _full_list_keyboard(trimmed):
+    """The one button on the post, when there is more of it to see."""
+    if not trimmed:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton(t.STANDIN_FULL_BUTTON, callback_data=FULL_LIST_CALLBACK)]])
+
+
+# --- The full list, paged privately ----------------------------------------
+
+
+def full_list_pages(session_data):
+    """The whole list, nothing capped and nothing dropped, split into messages.
+
+    Split on block boundaries, so a player's rows are never divided across two pages and
+    the section naming everyone who can get a roleless achievement stays with its heading.
+    Every page carries the header and the footer: they are read one at a time rather than
+    scrolled through as one message, so a page has to stand on its own.
+    """
+    per_player, groups = list_contents(session_data)
+    blocks = [_player_block(uid, name, entries, None) for uid, name, entries in per_player]
+    blocks += [_group_block(name, eligible, None) for name, _tier, eligible in groups]
+
+    revealed, total = session.revealed_count(session_data)
+    if not blocks:
+        blocks = [t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE]
+    footer = t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
+    # The page counter is not known until the pages are counted, so room is set aside for
+    # it rather than measured. Thirty characters is "Page 100 of 100" twice over.
+    room = _LIST_LIMIT - _visible_len(t.STANDIN_LIST_HEADER) - _visible_len(footer) - 30
+
+    bodies, current, used = [], "", 0
+    for block in blocks:
+        length = _visible_len(block)
+        if current and used + length > room:
+            bodies.append(current)
+            current, used = "", 0
+        current += block
+        used += length
+    bodies.append(current)
+
+    pages = []
+    for index, body in enumerate(bodies):
+        page = t.STANDIN_LIST_HEADER + body + footer
+        page += t.STANDIN_FULL_PAGE_FOOTER.format(index=index + 1, total=len(bodies))
+        # One block can be bigger than a whole message on its own — a group section naming
+        # a table of sixty — and no amount of splitting between blocks helps.
+        pages.append(page if _visible_len(page) <= _LIST_LIMIT else _truncate(page))
+    return pages
+
+
+def _full_list_page_keyboard(chat_id, index, total):
+    """Prev/Next, wrapping, so the keyboard keeps its shape at both ends of the list.
+
+    The chat id rides in the button because these taps land in the reader's *private*
+    chat, where `context.chat_data` is that conversation's and the game's session is
+    somewhere else entirely.
+    """
+    if total == 1:
+        return None
+
+    def page(target):
+        return "{}{}:{}".format(_FULL_LIST_PREFIX, chat_id, target % total)
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(t.STANDIN_FULL_PREV, callback_data=page(index - 1)),
+                InlineKeyboardButton(t.STANDIN_FULL_NEXT, callback_data=page(index + 1)),
+            ]
+        ]
+    )
+
+
+async def full_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """The full-list button on the post, and the Prev/Next of the pager it opens.
+
+    Two shapes reach here. A bare `standin:full` is the button in the group, where
+    `context.chat_data` is the game's own; it opens page one in the tapper's PM rather
+    than paging the post, because the post is one shared message that sixteen people are
+    watching and a page number on it would belong to whoever pressed a button last.
+    `standin:full:<chat_id>:<page>` comes from that private message, and is why the chat
+    id has to be carried: PTB hands a handler the chat_data of the chat the *button* is
+    in, which by then is a conversation with one person in it.
+
+    Pages are rendered from the session on every tap rather than from a copy taken when
+    the pager opened, so a page turned two minutes into a game shows the game as it is
+    now — and the session having ended is the one thing a page cannot be turned to.
+    """
+    query = update.callback_query
+    user = query.from_user
+    opening = query.data == FULL_LIST_CALLBACK
+
+    if opening:
+        chat_id = query.message.chat.id
+        session_data = session.get(context.chat_data)
+        index = 0
+    else:
+        raw_chat, _, raw_index = query.data[len(_FULL_LIST_PREFIX) :].partition(":")
+        chat_id = int(raw_chat)
+        session_data = session.get(context.application.chat_data.get(chat_id) or {})
+        index = int(raw_index) if raw_index.isdigit() else 0
+
+    logger.info(
+        "callback",
+        command="standin_full",
+        user_id=user.id,
+        user=unidecode(user.first_name),
+        chat_id=chat_id,
+        page=index,
+        ended=session_data is None,
+    )
+
+    if session_data is None:
+        await query.answer(t.STANDIN_FULL_ENDED, show_alert=True)
+        return
+
+    pages = full_list_pages(session_data)
+    # Modulo rather than a bounds check: a death or a reveal between taps can change how
+    # many pages there are, and the index in the button was written before that happened.
+    index %= len(pages)
+    keyboard = _full_list_page_keyboard(chat_id, index, len(pages))
+
+    if not opening:
+        try:
+            await query.edit_message_text(
+                pages[index], reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
+        except BadRequest as err:
+            # Two taps raced and the page is already the one being asked for.
+            if _UNMODIFIED.search(str(err)) is None:
+                logger.warning("standin_full_page_failed", chat_id=chat_id, error=str(err))
+        await query.answer()
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=pages[index],
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        # Almost always that they have never started the bot in PM, so there is no chat to
+        # send to. A callback answer cannot carry a button, so the alert spells out the fix.
+        await query.answer(t.STANDIN_FULL_NO_PM, show_alert=True)
+        return
+    await query.answer(t.STANDIN_FULL_SENT)
 
 
 def _truncate(msg):
@@ -1684,7 +1854,7 @@ async def _publish(context):
 
     await _refresh_state(context, chat_id, session_data)
 
-    msg = render_list(session_data)
+    msg, keyboard = render_list(session_data)
     message_id = session_data.get("list_message_id")
     if message_id is None:
         # The first post, and the one failure that is not cosmetic: without an id every
@@ -1693,7 +1863,11 @@ async def _publish(context):
         # not there.
         try:
             posted = await context.bot.send_message(
-                chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+                chat_id=chat_id,
+                text=msg,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
         except (BadRequest, Forbidden) as err:
             logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
@@ -1707,6 +1881,7 @@ async def _publish(context):
         chat_id=chat_id,
         message_id=message_id,
         text=msg,
+        reply_markup=keyboard,
     )
 
 

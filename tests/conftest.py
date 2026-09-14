@@ -339,9 +339,13 @@ class FakeMessage:
 class FakeCallbackQuery:
     """Records .answer() and .edit_message_text() calls."""
 
-    def __init__(self, data="", from_user=None):
+    def __init__(self, data="", from_user=None, message=None):
         self.data = data
         self.from_user = from_user or FakeUser()
+        # The message the button sits on. A real CallbackQuery always carries one, and
+        # the stand-in's full-list button reads the chat id off it — the pager it opens
+        # lives in a different chat from the game, so that id has to come from somewhere.
+        self.message = message if message is not None else FakeMessage()
         self.answers = []
         self.edits = []
         self.edit_error = None
@@ -508,7 +512,9 @@ class FakeContext:
     and JSON-serializability tests exercise the real code path.
     """
 
-    def __init__(self, args=None, bot=None, bot_data=None, chat_data=None, error=None, job_queue=None):
+    def __init__(
+        self, args=None, bot=None, bot_data=None, chat_data=None, error=None, job_queue=None, application=None
+    ):
         self.args = args if args is not None else []
         # The stand-in session schedules its message updates; a chat with no queue is
         # the shape of a bot built without the job-queue extra, which must still work.
@@ -519,7 +525,18 @@ class FakeContext:
         # Per-chat store, as PTB provides it. /schall's remembered player list lives here,
         # so a fresh FakeContext means a chat with nothing remembered.
         self.chat_data = chat_data if chat_data is not None else {}
+        # PTB hands a handler the chat_data of the chat the update came from, and exposes
+        # every chat's under application.chat_data. The stand-in's pager needs that: its
+        # Prev/Next taps land in a private chat while the game is in a group.
+        self.application = application or FakeApplication({FakeChat().id: self.chat_data})
         self.error = error
+
+
+class FakeApplication:
+    """The one thing this bot reaches for on the Application: the per-chat stores."""
+
+    def __init__(self, chat_data=None):
+        self.chat_data = chat_data if chat_data is not None else {}
 
 
 @pytest.fixture

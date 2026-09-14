@@ -222,6 +222,24 @@ def test_the_standin_stop_button_reaches_its_handler():
     assert handler_for_callback_data(application(), data) is gamesession.stop_callback
 
 
+def test_the_full_list_button_and_its_pager_reach_their_handler():
+    """Both shapes, and both against the *narrowed* Stop pattern.
+
+    The two share a prefix — "standin:stop" and "standin:full:..." — and the Stop handler
+    used to be registered for the whole of "^standin:". Fed through the real dispatcher so
+    that a pattern which swallowed the other's taps fails here rather than in a group.
+    """
+    app = application()
+
+    assert handler_for_callback_data(app, gamesession.FULL_LIST_CALLBACK) is gamesession.full_list_callback
+
+    keyboard = gamesession._full_list_page_keyboard(-1001234, 0, 3)
+    for button in keyboard.inline_keyboard[0]:
+        assert handler_for_callback_data(app, button.callback_data) is gamesession.full_list_callback, (
+            "no handler matches {!r}".format(button.callback_data)
+        )
+
+
 def test_every_allinfo_button_reaches_its_handler():
     app = application()
     _, keyboard = achv_handlers._render_allinfo_page(["A", "B", "C"], 0, "TOK")
