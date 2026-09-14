@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-14 11:28+0200\n"
+"POT-Creation-Date: 2026-09-14 11:56+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1241,51 +1241,51 @@ msgstr ""
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: templates.py:658
+#: templates.py:661
 #, python-brace-format
-msgid " - <i>…and {count} more</i>\n"
+msgid "   <i>…and {count} more</i>\n"
 msgstr ""
 
-#: templates.py:659
+#: templates.py:662
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:663
+#: templates.py:666
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:672
+#: templates.py:675
 #, python-brace-format
 msgid "<b>{name}</b> ({count}):\n"
 msgstr ""
 
-#: templates.py:673
+#: templates.py:676
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: templates.py:676
+#: templates.py:679
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:682
+#: templates.py:685
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:684
+#: templates.py:687
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:685
+#: templates.py:688
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:688
+#: templates.py:691
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1293,7 +1293,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:691
+#: templates.py:694
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

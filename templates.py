@@ -655,7 +655,10 @@ STANDIN_LIST_PLAYER = N_("{name}\n")
 STANDIN_LIST_ROW = N_(" - {name}\n")
 STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
 STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
-STANDIN_LIST_MORE = N_(" - <i>…and {count} more</i>\n")
+# Indented under the rows but *without* the dash, which is the one thing in this post that
+# means "an achievement is named here". With it, replying to a trimmed post with /info
+# asked the catalogue for an achievement called "…and 6 more".
+STANDIN_LIST_MORE = N_("   <i>…and {count} more</i>\n")
 STANDIN_LIST_NOBODY = N_("<i>Nothing yet — no roles revealed.</i>\n")
 # Not the same thing, and saying the first when the second is true reads as a bug: early on
 # a lone revealed Villager really does have nothing available, because almost everything

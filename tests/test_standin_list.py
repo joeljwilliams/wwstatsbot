@@ -292,6 +292,18 @@ async def test_trimming_says_that_it_trimmed(context):
     assert "more</i>" in rendered or "Trimmed to fit" in rendered
 
 
+async def test_the_and_n_more_line_is_not_read_as_an_achievement(context):
+    """It carried the dash that means "an achievement is named here", so replying to a
+    trimmed post with /info asked the catalogue for "…and 6 more"."""
+    session_data = await big_game(context)
+    rendered = gamesession.render_list(session_data)
+    assert "more</i>" in rendered, "this game was supposed to trim"
+
+    names = achv_handlers._extract_possible_achievements(visible(rendered))
+
+    assert not [name for name in names if "more" in name], names
+
+
 # --- The debounce -----------------------------------------------------------
 
 
