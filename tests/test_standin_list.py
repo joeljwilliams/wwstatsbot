@@ -17,6 +17,8 @@ is well past that; a rejected edit would freeze the list at whatever it last sai
 renderer degrades in steps instead, and the test drives a 16-player game to prove it.
 """
 
+from html.parser import HTMLParser
+
 import pytest
 from conftest import FakeUpdate, FakeUser, message
 from test_standin_session import player_message, reveal, start_session
@@ -29,6 +31,25 @@ import session
 from handlers import achievements as achv_handlers
 from handlers import gamesession
 from rulelist import RULES
+
+
+class _Stripped(HTMLParser):
+    def handle_data(self, data):
+        self.text = getattr(self, "text", "") + data
+
+
+def visible(rendered):
+    """The post as a reader sees it, with the markup taken off.
+
+    Almost everything in this file is about *content* — who is listed under what — and
+    every name in the post is a tg:// mention, so asserting on the raw string would mean
+    spelling out an <a href> in each of them. Parsed rather than regexed on purpose: the
+    renderer measures its own length by stripping tags, and a test that stripped them the
+    same way would agree with it whether or not either was right.
+    """
+    parser = _Stripped(convert_charrefs=True)
+    parser.feed(rendered)
+    return getattr(parser, "text", "")
 
 
 @pytest.fixture(autouse=True)
@@ -123,10 +144,48 @@ async def test_roleless_achievements_are_named_once_with_everyone_who_can_get_th
     await reveal(context, 1, "villager")
     await reveal(context, 2, "seer")
 
-    rendered = gamesession.render_list(session_data)
+    rendered = visible(gamesession.render_list(session_data))
     assert rendered.count("Welcome to Hell") == 1
     assert "Welcome to Hell (4):" in rendered, "named once, with a count"
     assert "Ren, omu, J J" in rendered, "and the players who can still get it"
+
+
+async def test_every_name_in_the_post_is_tappable(context):
+    """Names here are mentions, like every other message this bot sends.
+
+    A post of sixteen plain names is one you cannot tap through, and two players with
+    similar display names are impossible to tell apart in it.
+    """
+    session_data = await start_session(context)
+    await reveal(context, 1, "snow_wolf")
+    await reveal(context, 2, "harlot")
+
+    rendered = gamesession.render_list(session_data)
+
+    assert "<a href='tg://user?id=1'>Ren</a>\n" in rendered, "the player heading"
+    # And in the group sections at the bottom, where the whole living roster is named.
+    header = rendered.split("Welcome to Hell</b> (4):\n")[1].split("\n")[0]
+    assert header.count("tg://user?id=") == 4, header
+
+
+async def test_a_group_achievement_is_named_in_bold(context):
+    """Its line and the line under it are both lists of names otherwise."""
+    session_data = await start_session(context)
+    rendered = gamesession.render_list(session_data)
+    assert "<b>Welcome to Hell</b> (4):" in rendered
+
+
+async def test_the_mention_markup_is_not_charged_against_the_message_limit(context):
+    """The markup is most of the bytes and none of the message.
+
+    A full game renders to well over 4096 raw characters now, all of it <a href> Telegram
+    never counts — measuring the raw string would trim a list that fits comfortably.
+    """
+    session_data = await big_game(context)
+    rendered = gamesession.render_list(session_data)
+
+    assert len(rendered) > 4096, "otherwise this test proves nothing"
+    assert len(visible(rendered)) <= 4096
 
 
 async def test_an_unrevealed_player_is_left_out(context):
@@ -167,7 +226,7 @@ async def test_the_post_says_how_far_along_the_reveal_is(context):
 async def test_before_anyone_reveals_only_the_roleless_sections_show(context):
     """Nothing role-gated can be judged yet, but "play a game" is already true."""
     session_data = await start_session(context)
-    rendered = gamesession.render_list(session_data)
+    rendered = visible(gamesession.render_list(session_data))
 
     assert "Welcome to Hell (4):" in rendered
     assert "0 of 4 revealed" in rendered
@@ -204,9 +263,12 @@ async def big_game(context):
 
 
 async def test_a_full_game_still_fits_in_one_message(context):
-    """Telegram rejects anything over 4096, and a rejected edit freezes the list."""
+    """Telegram rejects anything over 4096, and a rejected edit freezes the list.
+
+    Measured on what a client displays, which is what the limit is actually against — the
+    mention markup around every name is several times the size of the names themselves."""
     session_data = await big_game(context)
-    rendered = gamesession.render_list(session_data)
+    rendered = visible(gamesession.render_list(session_data))
     assert len(rendered) <= 4096, len(rendered)
 
 
@@ -469,7 +531,7 @@ async def test_one_players_collection_does_not_hide_it_from_another(context):
     session.set_attained(session_data, 1, ["Cold as Ice"])
     rendered = gamesession.render_list(session_data)
 
-    ren, _, rest = rendered.partition("omu\n")
+    ren, _, rest = visible(rendered).partition("omu\n")
     assert "Cold as Ice" not in ren
     assert "Cold as Ice" in rest
 
@@ -480,7 +542,7 @@ async def test_a_roleless_achievement_lists_only_the_players_missing_it(context)
     session.set_attained(session_data, 1, ["Welcome to Hell"])
     session.set_attained(session_data, 2, ["Welcome to Hell"])
 
-    rendered = gamesession.render_list(session_data)
+    rendered = visible(gamesession.render_list(session_data))
     assert "Welcome to Hell (2):" in rendered
     assert "Ren" not in rendered.split("Welcome to Hell (2):")[1].split("\n")[1]
 
@@ -616,10 +678,10 @@ async def test_an_alts_role_still_counts_for_everybody_else(context, alts):
 async def test_an_alt_is_not_counted_among_the_players_who_can_get_a_group_achievement(context, alts):
     session_data = await start_session(context)
     await reveal(context, 1, "villager")
-    assert "Welcome to Hell (4):" in gamesession.render_list(session_data)
+    assert "Welcome to Hell (4):" in visible(gamesession.render_list(session_data))
 
     alts.add(4)
-    assert "Welcome to Hell (3):" in gamesession.render_list(session_data)
+    assert "Welcome to Hell (3):" in visible(gamesession.render_list(session_data))
 
 
 async def test_the_roster_says_who_is_an_alt(context, alts):

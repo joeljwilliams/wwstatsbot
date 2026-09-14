@@ -667,7 +667,9 @@ STANDIN_LIST_NOTHING_POSSIBLE = N_("<i>Nothing available yet from what has been 
 # the same thing sixteen times and crowd out the rows that are about somebody in particular.
 # No marker on these, matching the manager: everything in this post is "possible", and a
 # section that belongs to nobody in particular has no per-player certainty to qualify.
-STANDIN_LIST_GROUP_HEADER = N_("{name} ({count}):\n")
+# Bold, because this line and the one under it are both lists of names otherwise: the
+# achievement reads as one more player until it is set apart.
+STANDIN_LIST_GROUP_HEADER = N_("<b>{name}</b> ({count}):\n")
 STANDIN_LIST_GROUP_NAMES = N_("{names}\n\n")
 
 STANDIN_LIST_FOOTER = N_(
