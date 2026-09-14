@@ -1470,6 +1470,31 @@ def list_contents(session_data):
     return per_player, groups
 
 
+def reply_contents(chat_data, message):
+    """What our own Possible Achievements post lists — or None if `message` is not it.
+
+    Shaped exactly as handlers/achievements.py parses a post, (per_player, groups,
+    mentions), because the whole point is that it stands in for the parsing. The message
+    is a *trimmed* view of the session, so a /roll read off the text can draw from three
+    of a player's nine rows with nothing on screen to say the other six existed.
+
+    `mentions` names everybody at the table rather than only the players the post had room
+    for, so a candidate trimmed out of the message is still tappable in the result.
+    """
+    if message is None:
+        return None
+    session_data = session.get(chat_data)
+    if session_data is None or message.message_id != session_data.get("list_message_id"):
+        return None
+
+    per_player, groups = list_contents(session_data)
+    return (
+        [(name, [entry["name"] for entry in entries]) for _uid, name, entries in per_player],
+        {name: [player for _uid, player in eligible] for name, _tier, eligible in groups},
+        {entry["name"]: uid for uid, entry in session.players_in_order(session_data)},
+    )
+
+
 def _build_list(session_data, contents, row_cap, include_uncertain):
     """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
     per_player, groups = contents
