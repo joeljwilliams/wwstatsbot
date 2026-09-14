@@ -211,6 +211,30 @@ def test_the_thief_cannot_reach_wolves_the_serial_killer_or_cultists():
         assert immune not in reachable, immune
 
 
+def test_a_thief_puts_the_stealable_roles_within_everybodys_reach():
+    """Not only the Thief's own. The theft moves an identity between two players, so the
+    Barkeep who already holds Liquid Business is not the only one who might be the Barkeep
+    by morning — and a list that said otherwise left fifteen players short of rows that
+    were really on the table."""
+    c = comp("thief", "barkeep", "villager", "seer", "werewolf")
+    assert {"barkeep", "seer", "thief"} <= feasibility.reachable_roles(("villager",), c)
+    assert {"villager", "seer", "thief"} <= feasibility.reachable_roles(("barkeep",), c)
+
+
+def test_the_steal_immune_are_immune_in_both_directions():
+    """Nothing is shuffled onto a wolf, a cultist or the serial killer, and nothing is
+    shuffled off one: they cannot be robbed, so their seat is not part of the exchange."""
+    c = comp("thief", "barkeep", "werewolf", "cultist", "serial_killer")
+    for immune in ("werewolf", "cultist", "serial_killer"):
+        assert feasibility.reachable_roles((immune,), c) == {immune}, immune
+    assert "werewolf" not in feasibility.reachable_roles(("barkeep",), c)
+
+
+def test_without_a_thief_nobody_is_shuffled_anywhere():
+    c = comp("chef", "villager", "seer")
+    assert feasibility.reachable_roles(("villager",), c) == {"villager"}
+
+
 def test_a_villager_can_reach_the_drunk_through_the_bar():
     assert "drunk" in feasibility.reachable_roles(("villager",), comp("barkeep", "villager"))
     assert "drunk" not in feasibility.reachable_roles(("villager",), comp("seer", "villager"))

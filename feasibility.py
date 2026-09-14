@@ -213,13 +213,26 @@ def reachable_roles(candidates, composition):
     if (turns or composition.present("alpha_wolf")) and composition.max_possible_wolves():
         reachable.add("werewolf")
 
-    # The Doppelgänger copies whoever it shadowed; the Thief steals what it can reach.
+    # The Doppelgänger copies whoever it shadowed.
     if "doppelganger" in candidates:
         reachable.update(composition.roles)
-    if "thief" in candidates:
-        reachable.update(
-            role for role in composition.roles if not roles_registry.has_tag(role, roles_registry.STEAL_IMMUNE)
-        )
+
+    # A Thief in the game puts every stealable role within reach of everybody holding one,
+    # not just of the Thief. The theft moves an identity between two players and neither
+    # end of it is fixed in advance, so the question a list has to answer is "could this
+    # achievement end up being yours", and with a Thief at the table it can: the Barkeep
+    # who already has Liquid Business is not the only player who might be the Barkeep by
+    # morning. Reaching it only from the Thief's own seat answered a narrower question than
+    # the post is for, and left the other fifteen players' lists missing rows that were
+    # genuinely on the table.
+    #
+    # Steal-immune both ways, which is the same list either way: the wolves, the cult and
+    # the serial killer cannot be robbed, and a player who *is* one cannot be robbed out of
+    # it either, so nothing is shuffled onto or off them. The Sorcerer and the Arsonist are
+    # fair game — only actual wolves are protected.
+    stealable = [role for role in composition.roles if not roles_registry.has_tag(role, roles_registry.STEAL_IMMUNE)]
+    if composition.present("thief") and any(role in stealable for role in candidates):
+        reachable.update(stealable)
 
     # The bar turns lowly villagers into drunks.
     if "villager" in candidates and composition.present("barkeep"):

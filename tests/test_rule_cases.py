@@ -558,9 +558,10 @@ SUBJECT_CASES = {
         ({"d": ("doppelganger",), "w": ("wild_child",), "v": ("villager",)}, {"d", "w"}, False, "the pair"),
         (
             {"t": ("thief",), "d": ("doppelganger",), "v": ("villager",)},
-            {"t", "d"},
+            {"t", "d", "v"},
             False,
-            "or a Thief and either of them",
+            "a Thief and either of them -- and with a Thief at the table the Villager could be "
+            "holding the Doppelganger's seat by morning, so the row is theirs too",
         ),
     ],
     "Triple Kill": [
@@ -587,10 +588,17 @@ SUBJECT_CASES = {
     ],
     "Double Shifter": [
         (
-            {"d": ("doppelganger",), "t": ("thief",), "c": ("cursed",), "a": ("alpha_wolf",)},
-            {"d", "t"},
+            {"d": ("doppelganger",), "c": ("cursed",), "a": ("alpha_wolf",)},
+            {"d"},
             False,
             "the Cursed turns once and is then a wolf; carrying the role_swing tag is not swinging twice",
+        ),
+        (
+            {"d": ("doppelganger",), "t": ("thief",), "c": ("cursed",), "a": ("alpha_wolf",)},
+            {"d", "t", "c"},
+            False,
+            "with a Thief in the game the Cursed can end up holding an identity that swings again, "
+            "which is a different statement from the tag they were dealt",
         ),
     ],
     "Cold as Ice": [
