@@ -235,29 +235,32 @@ async def test_before_anyone_reveals_only_the_roleless_sections_show(context):
 # --- Fitting in one message -------------------------------------------------
 
 
+# The roles that produce the longest lists, and enough of them for a big table.
+LOUD_ROLES = [
+    "alpha_wolf",
+    "wolf_cub",
+    "serial_killer",
+    "arsonist",
+    "hunter",
+    "gunner",
+    "guardian_angel",
+    "chemist",
+    "harlot",
+    "cupid",
+    "tanner",
+    "cultist",
+    "cultist_hunter",
+    "grave_digger",
+    "barkeep",
+    "doppelganger",
+]
+
+
 async def big_game(context):
     """Sixteen players, all revealed, in the roles that produce the longest lists."""
     roster = [(i, "Player{}".format(i)) for i in range(1, 17)]
     session_data = await start_session(context, players=roster)
-    loud = [
-        "alpha_wolf",
-        "wolf_cub",
-        "serial_killer",
-        "arsonist",
-        "hunter",
-        "gunner",
-        "guardian_angel",
-        "chemist",
-        "harlot",
-        "cupid",
-        "tanner",
-        "cultist",
-        "cultist_hunter",
-        "grave_digger",
-        "barkeep",
-        "doppelganger",
-    ]
-    for (uid, _), role_name in zip(roster, loud, strict=True):
+    for (uid, _), role_name in zip(roster, LOUD_ROLES, strict=True):
         await reveal(context, uid, role_name)
     return session_data
 
@@ -302,6 +305,75 @@ async def test_the_and_n_more_line_is_not_read_as_an_achievement(context):
     names = achv_handlers._extract_possible_achievements(visible(rendered))
 
     assert not [name for name in names if "more" in name], names
+
+
+async def crowded_game(context, count=24, namelen=8):
+    """A table too big for one message — the size where the old ladder fell off a cliff."""
+    roster = [(uid, ("N" * namelen)[:namelen] + str(uid)) for uid in range(1, count + 1)]
+    session_data = await start_session(context, players=roster)
+    for uid, role_name in zip(range(1, count + 1), LOUD_ROLES * 4, strict=False):
+        await reveal(context, uid, role_name)
+    return session_data
+
+
+async def test_a_table_too_big_for_the_message_still_shows_every_player(context):
+    """The regression this ladder exists for.
+
+    With rungs of eight, five and three rows and nothing below them, a twenty-four player
+    game missed every rung and landed on the certain-only pass — which drops a player
+    whose achievements are all uncertain, and for most role mixes that is most of them.
+    Nine thousand characters of content came out as five hundred.
+    """
+    session_data = await crowded_game(context)
+    rendered = visible(gamesession.render_list(session_data))
+
+    for _uid, entry in session.players_in_order(session_data):
+        assert entry["name"] in rendered, entry["name"]
+    assert "Trimmed to fit" not in rendered, "one row each beats dropping people"
+    assert len(rendered) > 2500, "and it should use the room it has"
+
+
+async def test_the_group_sections_are_capped_the_way_the_rows_are(context):
+    """They name every living player, so in a big game they were a quarter of the post
+    and the only part of it that could not be made to give any room back."""
+    session_data = await crowded_game(context)
+    rendered = visible(gamesession.render_list(session_data))
+
+    assert "more</i>" in gamesession.render_list(session_data)
+    names_line = rendered.split("Welcome to Hell (24):\n")[1].split("\n")[0]
+    assert "and " in names_line and "more" in names_line, names_line
+
+
+async def test_a_capped_group_still_counts_everyone(context):
+    """The number in the heading answers "how many are still in for this". A count of the
+    names that happened to fit would be a different, wrong answer."""
+    session_data = await crowded_game(context)
+    rendered = visible(gamesession.render_list(session_data))
+    assert "Welcome to Hell (24):" in rendered
+
+
+async def test_a_post_that_cannot_fit_at_all_is_cut_and_says_so(context):
+    """Sixty players whose display names are the length Telegram allows.
+
+    Bigger than any real game, deliberately: the point is that there is a net under the
+    last rung at all. Nothing renders this in under 4096 characters, and the old floor was
+    returned with no length check — so Telegram refused the edit and the list froze at
+    whatever it last said, with nothing anywhere to explain why.
+    """
+    session_data = await crowded_game(context, count=60, namelen=128)
+    rendered = gamesession.render_list(session_data)
+
+    assert "Too long to show in full" in rendered
+    assert len(visible(rendered)) <= 4096, len(visible(rendered))
+
+
+async def test_cutting_stops_at_a_line_boundary(context):
+    """Half a player's name is a worse last line than one fewer player."""
+    session_data = await crowded_game(context, count=60, namelen=128)
+    rendered = visible(gamesession.render_list(session_data))
+
+    body = rendered[: rendered.index("Too long to show in full")]
+    assert body.endswith("\n"), repr(body[-40:])
 
 
 # --- The debounce -----------------------------------------------------------

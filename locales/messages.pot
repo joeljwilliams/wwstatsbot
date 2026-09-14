@@ -1273,19 +1273,28 @@ msgid ""
 "🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:685
+#: templates.py:686
+#, python-brace-format
+msgid " <i>and {count} more</i>"
+msgstr ""
+
+#: templates.py:690
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:687
+#: templates.py:694
+msgid "<i>Too long to show in full.</i>\n"
+msgstr ""
+
+#: templates.py:696
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:688
+#: templates.py:697
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:691
+#: templates.py:700
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1293,7 +1302,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:694
+#: templates.py:703
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

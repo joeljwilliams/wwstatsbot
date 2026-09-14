@@ -1392,7 +1392,18 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # outcome nobody could work around, while dropping the least certain rows still leaves
 # everyone able to see where they stand.
 _LIST_LIMIT = 3900
-_ROW_LADDER = (None, 8, 5, 3)
+
+# One number per rung, and it caps both the rows under a player and the names under a
+# group section. The two used to be separate in the worst way: rows were capped and the
+# sections were not, so in a twenty-four player game the sections were a quarter of the
+# message and could not be made to give any of it back.
+#
+# The rungs run down to one row each *before* the certain-only pass below, because that
+# pass removes players — a player whose achievements are all uncertain vanishes from a
+# list that is supposed to be about everyone. One row each says less about each player;
+# the other says nothing at all about some of them. That ordering is why a twenty-four
+# player game now shows every player instead of collapsing to a few hundred characters.
+_ROW_LADDER = (None, 8, 5, 3, 2, 1)
 
 # Telegram counts the message a client *displays*, not the markup that produced it, and
 # here the two are nothing like the same length: every name in the post is a tg:// mention,
@@ -1495,7 +1506,7 @@ def reply_contents(chat_data, message):
     )
 
 
-def _build_list(session_data, contents, row_cap, include_uncertain):
+def _build_list(session_data, contents, cap, include_uncertain):
     """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
     per_player, groups = contents
     msg = t.STANDIN_LIST_HEADER
@@ -1509,7 +1520,7 @@ def _build_list(session_data, contents, row_cap, include_uncertain):
 
         listed += 1
         msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
-        shown = entries if row_cap is None else entries[:row_cap]
+        shown = entries if cap is None else entries[:cap]
         for entry in shown:
             template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
             msg += template.format(name=html.escape(entry["name"]))
@@ -1517,7 +1528,7 @@ def _build_list(session_data, contents, row_cap, include_uncertain):
             msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
         msg += "\n\n"
 
-    sections = _group_sections(groups, include_uncertain)
+    sections = _group_sections(groups, include_uncertain, cap)
 
     revealed, total = session.revealed_count(session_data)
     if not listed and not sections:
@@ -1530,16 +1541,22 @@ def _build_list(session_data, contents, row_cap, include_uncertain):
     return msg
 
 
-def _group_sections(groups, include_uncertain):
-    """The bottom of the post: each roleless achievement, and who can still get it."""
+def _group_sections(groups, include_uncertain, cap):
+    """The bottom of the post: each roleless achievement, and who can still get it.
+
+    The count in the heading is of everyone eligible, never of the names that fitted — it
+    is the answer to "how many are still in for this", and a capped one would be wrong.
+    """
     out = ""
     for name, tier, eligible in groups:
         if not include_uncertain and tier != rulelist.CHECK:
             continue
+        shown = eligible if cap is None else eligible[:cap]
+        names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
+        if len(eligible) > len(shown):
+            names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
         out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(name), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(
-            names=", ".join(_mention(uid, player_name) for uid, player_name in eligible)
-        )
+        out += t.STANDIN_LIST_GROUP_NAMES.format(names=names)
     return out
 
 
@@ -1552,13 +1569,33 @@ def render_list(session_data):
     """
     contents = list_contents(session_data)
 
-    for row_cap in _ROW_LADDER:
-        msg = _build_list(session_data, contents, row_cap, include_uncertain=True)
+    for cap in _ROW_LADDER:
+        msg = _build_list(session_data, contents, cap, include_uncertain=True)
         if _visible_len(msg) <= _LIST_LIMIT:
             return msg
-    # Still too long with three rows each: drop everything uncertain and say so, rather
-    # than let Telegram reject the message and leave the list frozen at its last edit.
-    return _build_list(session_data, contents, 3, include_uncertain=False)
+    # Still too long with one row each: drop everything uncertain and say so, rather than
+    # let Telegram reject the message and leave the list frozen at its last edit.
+    msg = _build_list(session_data, contents, 3, include_uncertain=False)
+    return msg if _visible_len(msg) <= _LIST_LIMIT else _truncate(msg)
+
+
+def _truncate(msg):
+    """Cut a post that will not fit however it is rendered, on a line boundary.
+
+    Only a table whose names are near the length Telegram allows gets here, and what is
+    left is mostly headings. It is still the right answer: the alternative is a message
+    Telegram refuses, and a refused edit leaves the list showing something older with
+    nothing to say why. Cut between lines so the last thing standing is never half a name.
+    """
+    budget = _LIST_LIMIT - _visible_len(t.STANDIN_LIST_TOO_LONG)
+    kept, used = [], 0
+    for line in msg.splitlines(keepends=True):
+        length = _visible_len(line)
+        if used + length > budget:
+            break
+        kept.append(line)
+        used += length
+    return "".join(kept) + t.STANDIN_LIST_TOO_LONG
 
 
 # --- Scheduling: one trailing debounce per chat ----------------------------
