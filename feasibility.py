@@ -201,8 +201,16 @@ def reachable_roles(candidates, composition):
 
     # Turning into a wolf: by your own role, or by anyone's bad luck when an Alpha is in
     # play. Plain Werewolf either way — the bite does not make Alphas.
+    #
+    # And only when the game can have a wolf at all, which is the same question
+    # `max_possible_wolves()` answers: the Cursed needs somebody to bite them and the
+    # Traitor needs wolves to have existed and died, so in a game dealt neither a pack nor
+    # a Wild Child, a Cursed player turns into nothing. Without the guard the two halves
+    # disagreed — the count said no wolf was possible while this said the Cursed was one
+    # away from being it, and the Cursed was listed for the wolves' achievements in a game
+    # that has no wolves.
     turns = any(roles_registry.has_tag(role, roles_registry.POTENTIAL_WOLF) for role in candidates)
-    if turns or composition.present("alpha_wolf"):
+    if (turns or composition.present("alpha_wolf")) and composition.max_possible_wolves():
         reachable.add("werewolf")
 
     # The Doppelgänger copies whoever it shadowed; the Thief steals what it can reach.

@@ -179,6 +179,17 @@ def test_an_alpha_puts_every_player_within_reach_of_the_pack():
     assert "werewolf" in feasibility.reachable_roles(("seer",), c)
 
 
+def test_the_cursed_reaches_nothing_in_a_game_that_can_have_no_wolf():
+    """The other half of the same rule the wolf ceiling follows.
+
+    Nobody bites the Cursed in a game dealt no pack and no Wild Child, so listing the
+    wolves' achievements under them said a game with no wolves had one.
+    """
+    c = comp("cursed", "traitor", "villager", "seer")
+    assert c.max_possible_wolves() == 0
+    assert feasibility.reachable_roles(("cursed",), c) == {"cursed"}
+
+
 def test_without_an_alpha_an_ordinary_villager_stays_put():
     c = comp("werewolf", "villager", "seer")
     assert feasibility.reachable_roles(("seer",), c) == {"seer"}

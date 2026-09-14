@@ -158,10 +158,15 @@ RULES = [
     _rule(
         "Sunday Bloody Sunday",
         ANY,
-        "night_killers() >= 2 or ispresent('arsonist')",
-        "Four deaths in one night needs several killers who can kill *at night*, or an arsonist who "
-        "can burn a street at once. `killers()` counts the Gunner and the Hunter too, and neither has "
-        "ever killed anybody after dark.",
+        "ispresent('arsonist') "
+        "or night_killers() >= 2 "
+        "or (night_killers() >= 1 and count('harlot','guardian_angel') >= 2)",
+        "Four deaths in one night: an arsonist, who can burn a street at once; or two hands that kill "
+        "after dark; or one hand and the two callers who die alongside its victim, the Harlot and the "
+        "Guardian Angel — the same two Triple Kill counts, because they die by the same rule. "
+        "`killers()` was the wrong count twice over: it carries the Gunner and the Hunter, neither of "
+        "whom has ever killed anybody after dark, and two of them is not the only way four people "
+        "fall in one night.",
     ),
     _rule(
         "Change Sides Works",

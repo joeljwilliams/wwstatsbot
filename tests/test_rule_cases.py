@@ -112,6 +112,12 @@ EXPR_CASES = {
     "Sunday Bloody Sunday": [
         (["werewolf", "serial_killer"] + pad(3), True, "two hands that kill in the dark"),
         (["arsonist"] + pad(4), True, "one arsonist can burn a street at once"),
+        (
+            ["alpha_wolf", "harlot", "guardian_angel"] + pad(2),
+            True,
+            "one hand, and the two callers who die alongside its victim",
+        ),
+        (["alpha_wolf", "harlot"] + pad(3), False, "one hand and one caller is two deaths, not four"),
         (["gunner", "hunter"] + pad(3), False, "two killers, both of whom fire by day"),
     ],
     "Forbidden Love": [
