@@ -530,6 +530,42 @@ requester check comes first so the common tap costs no `admins` lookup, and payl
 before the field existed stay open to everyone — with `REDIS_URL` set they survive a restart,
 and locking the requester out of a live message would be the worse failure.
 
+**The Possible Achievements post is a view, and `list_contents()` is what it is a view
+of.** A twenty-four player game has around nine thousand characters of content and four
+thousand to put it in, so the post is trimmed almost every game — which made `/info` and
+`/roll` wrong, because both read the text of the message they reply to. A roll drew from
+the three rows that survived with nothing on screen to say the other six existed.
+`gamesession.reply_contents()` answers from the session when the replied-to message is
+this chat's own list (matched on `list_message_id`), in exactly the shapes
+`_extract_by_player` returns, and `handlers/achievements.py::_post_contents` prefers it.
+Anything else — the real manager's post, a forward — is still parsed. The two readings are
+compared against each other on an untrimmed post in `tests/test_standin_replies.py`, which
+is the only thing stopping them drifting.
+
+Two rules inside the trimming itself. Rows are capped before the certain-only pass,
+down to **one row each**, because that pass is not a smaller list but a different one: a
+player whose achievements are all uncertain vanishes from a post that is about everybody,
+and dropping players is the one outcome nobody can work around. And the **group sections
+are capped by the same number** — they name every living player and were once the only
+uncapped thing in the renderer, a quarter of a big post and the one part that could not
+give any of it back. Their heading still counts everyone eligible, because that answers a
+different question from the names under it.
+
+Lengths are measured with `_visible_len`, never `len`: every name in the post is a
+`tg://` mention, so a full game is ~8000 raw characters of which under 3200 are ever
+displayed, and Telegram's 4096 is against what a client shows.
+
+**The full list is paged in PM, and deliberately does not page the post.** The post is one
+shared message that a table of sixteen is watching and that re-renders every few seconds,
+so a page number on it would belong to whoever pressed a button last — the same failure
+the `/schall` toggle above had. The button appears only when a rendering left something
+out, and opens the whole list as a private pager for whoever tapped. Its Prev/Next land in
+that private chat, where `context.chat_data` is the conversation's and the game's is
+somewhere else entirely, which is why the group's chat id rides in the callback data and
+the handler reaches for `context.application.chat_data`. Pages are rendered from the
+session on every tap rather than from a copy, so a page turned after a death shows the
+table as it is now — and a session that has ended is the one thing a page cannot turn to.
+
 **Every stats lookup goes through `playerdata.py`, and nothing else may call `api.get_*`.**
 Three behaviours hang off that single door, and a handler fetching for itself would opt out
 of all three while looking perfectly correct — so

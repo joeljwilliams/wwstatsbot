@@ -175,7 +175,11 @@ def build_application():
     app.add_handler(CommandHandler(["slo", "setlynchorder"], gamesession.set_lynch_order_cmd))
     app.add_handler(CommandHandler(["rslo", "resetlynchorder"], gamesession.reset_lynch_order_cmd))
     app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
-    app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:"))
+    # Both patterns are exact rather than prefixes, so neither depends on being registered
+    # first: the Stop button's data is the whole string, and the pager's always has more
+    # after it. A bare "^standin:" for one of them would swallow the other's taps.
+    app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:stop$"))
+    app.add_handler(CallbackQueryHandler(gamesession.full_list_callback, pattern=r"^standin:full(:|$)"))
     # Join announcements. A service message, not a command, so it arrives as an ordinary
     # message update — no allowed_updates change needed, unlike a ChatMemberHandler.
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome.greet_new_members))

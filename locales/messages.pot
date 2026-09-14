@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-14 11:56+0200\n"
+"POT-Creation-Date: 2026-09-14 12:06+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -427,7 +427,7 @@ msgstr ""
 msgid "Those achievements are no longer available."
 msgstr ""
 
-#: templates.py:235
+#: templates.py:235 templates.py:715
 msgid ""
 "I can't message you yet. Start a private chat with me first (tap my name,"
 " then Start), then tap the button again."
@@ -1286,15 +1286,40 @@ msgstr ""
 msgid "<i>Too long to show in full.</i>\n"
 msgstr ""
 
-#: templates.py:696
+#: templates.py:705
+msgid "📄 Show me the full list"
+msgstr ""
+
+#: templates.py:706
+msgid "⏪️ Prev"
+msgstr ""
+
+#: templates.py:707
+msgid "Next ⏩️"
+msgstr ""
+
+#: templates.py:708
+#, python-brace-format
+msgid "<i>Page {index} of {total}</i>\n"
+msgstr ""
+
+#: templates.py:709
+msgid "Sent the full list to your PM ✅"
+msgstr ""
+
+#: templates.py:713
+msgid "That game has ended, so there is no list to page through."
+msgstr ""
+
+#: templates.py:718
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:697
+#: templates.py:719
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:700
+#: templates.py:722
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1302,7 +1327,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:703
+#: templates.py:725
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 
