@@ -1420,27 +1420,70 @@ def _entry_sort_key(entry):
     return 0 if entry["tier"] == rulelist.CHECK else 1
 
 
-def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
-    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
-    msg = t.STANDIN_LIST_HEADER
-    listed = 0
+def list_contents(session_data):
+    """Everything the post can say, before any trimming: (per_player, groups).
 
+    The post is a *view* of this, and a trimmed one — so /info and /roll read this rather
+    than the message they are replying to (see handlers/achievements.py). Parsing the
+    rendered text was exact only while the whole list fitted in one message, and a roll
+    drawn from three of a player's nine rows is a wrong answer nobody can see.
+
+    `per_player` is [(user_id, name, [entry, ...])] in roster order, the certain entries
+    first; `groups` is [(achievement, tier, [(user_id, name), ...])] for the roleless ones.
+    Both are already filtered — the dead, the alts, and anything a player has earned are
+    gone — so a renderer decides only how much of this to show, never what is true.
+    """
+    revealed = session.revealed_roles(session_data)
+    feasible, shared = feasibility.feasible(revealed, db.get_rules())
+
+    per_player = []
     for uid, player_entry in session.players_in_order(session_data):
         if not player_entry["alive"] or not player_entry["roles"] or db.is_alt_account(uid):
             continue
-        entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
         # Nobody is hunting an achievement they already hold, so what a player has earned
         # is dropped before anything else. This is why the roster's attained lists are
         # fetched at /gs: without them the post is a list of things half the room finished
         # months ago.
-        entries = [e for e in entries if not session.already_has(session_data, uid, e["name"])]
+        entries = [
+            entry
+            for entry in sorted(feasible.get(uid, []), key=_entry_sort_key)
+            if not session.already_has(session_data, uid, entry["name"])
+        ]
+        if entries:
+            per_player.append((uid, player_entry["name"], entries))
+
+    # Every living player is a candidate for these, revealed or not — they depend on no
+    # role, so a player who has not said what they are is as able to earn one as anybody.
+    # An achievement nobody is missing is left out rather than named with an empty list.
+    groups = []
+    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
+        eligible = [
+            (uid, player_entry["name"])
+            for uid, player_entry in session.players_in_order(session_data)
+            if player_entry["alive"]
+            and not db.is_alt_account(uid)
+            and not session.already_has(session_data, uid, entry["name"])
+        ]
+        if eligible:
+            groups.append((entry["name"], entry["tier"], eligible))
+
+    return per_player, groups
+
+
+def _build_list(session_data, contents, row_cap, include_uncertain):
+    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
+    per_player, groups = contents
+    msg = t.STANDIN_LIST_HEADER
+    listed = 0
+
+    for uid, name, entries in per_player:
         if not include_uncertain:
             entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
         if not entries:
             continue
 
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, player_entry["name"]))
+        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
         shown = entries if row_cap is None else entries[:row_cap]
         for entry in shown:
             template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
@@ -1449,41 +1492,29 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
             msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
         msg += "\n\n"
 
-    groups = _group_sections(session_data, shared, include_uncertain)
+    sections = _group_sections(groups, include_uncertain)
 
     revealed, total = session.revealed_count(session_data)
-    if not listed and not groups:
+    if not listed and not sections:
         msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
 
-    msg += groups
+    msg += sections
     msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
     if not include_uncertain:
         msg += t.STANDIN_LIST_TRIMMED
     return msg
 
 
-def _group_sections(session_data, shared, include_uncertain):
-    """The bottom of the post: each roleless achievement, and who can still get it.
-
-    Every living player is a candidate, revealed or not — these depend on no role, so a
-    player who has not said what they are is as able to earn one as anybody. An achievement
-    nobody is missing is left out entirely rather than printed with an empty list.
-    """
+def _group_sections(groups, include_uncertain):
+    """The bottom of the post: each roleless achievement, and who can still get it."""
     out = ""
-    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
-        if not include_uncertain and entry["tier"] != rulelist.CHECK:
+    for name, tier, eligible in groups:
+        if not include_uncertain and tier != rulelist.CHECK:
             continue
-        eligible = [
-            _mention(uid, player_entry["name"])
-            for uid, player_entry in session.players_in_order(session_data)
-            if player_entry["alive"]
-            and not db.is_alt_account(uid)
-            and not session.already_has(session_data, uid, entry["name"])
-        ]
-        if not eligible:
-            continue
-        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(entry["name"]), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(eligible))
+        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(name), count=len(eligible))
+        out += t.STANDIN_LIST_GROUP_NAMES.format(
+            names=", ".join(_mention(uid, player_name) for uid, player_name in eligible)
+        )
     return out
 
 
@@ -1494,16 +1525,15 @@ def render_list(session_data):
     " - " rows — so replying to it with /info returns the cards, exactly as it does for the
     incumbent's post. The status markers sit *after* the dash for the same reason.
     """
-    revealed = session.revealed_roles(session_data)
-    per_player, shared = feasibility.feasible(revealed, db.get_rules())
+    contents = list_contents(session_data)
 
     for row_cap in _ROW_LADDER:
-        msg = _build_list(session_data, per_player, shared, row_cap, include_uncertain=True)
+        msg = _build_list(session_data, contents, row_cap, include_uncertain=True)
         if _visible_len(msg) <= _LIST_LIMIT:
             return msg
     # Still too long with three rows each: drop everything uncertain and say so, rather
     # than let Telegram reject the message and leave the list frozen at its last edit.
-    return _build_list(session_data, per_player, shared, 3, include_uncertain=False)
+    return _build_list(session_data, contents, 3, include_uncertain=False)
 
 
 # --- Scheduling: one trailing debounce per chat ----------------------------
