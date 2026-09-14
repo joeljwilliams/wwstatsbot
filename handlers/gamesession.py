@@ -1525,6 +1525,38 @@ def reply_contents(chat_data, message):
     )
 
 
+def _certain_only(entries):
+    """The rows nothing has still to go right for. The certain-only pass drops the rest."""
+    return [entry for entry in entries if entry["tier"] == rulelist.CHECK and not entry["swing"]]
+
+
+def _player_block(uid, name, entries, cap):
+    """One player's part of the post: their name, then their rows."""
+    out = t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
+    shown = entries if cap is None else entries[:cap]
+    for entry in shown:
+        template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
+        out += template.format(name=html.escape(entry["name"]))
+    if len(entries) > len(shown):
+        out += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
+    return out + "\n\n"
+
+
+def _group_block(name, eligible, cap):
+    """One roleless achievement, and who can still get it.
+
+    The count in the heading is of everyone eligible, never of the names that fitted — it
+    is the answer to "how many are still in for this", and a capped one would be wrong.
+    """
+    shown = eligible if cap is None else eligible[:cap]
+    names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
+    if len(eligible) > len(shown):
+        names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
+    return t.STANDIN_LIST_GROUP_HEADER.format(
+        name=html.escape(name), count=len(eligible)
+    ) + t.STANDIN_LIST_GROUP_NAMES.format(names=names)
+
+
 def _build_list(session_data, contents, cap, include_uncertain):
     """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
     per_player, groups = contents
@@ -1533,21 +1565,16 @@ def _build_list(session_data, contents, cap, include_uncertain):
 
     for uid, name, entries in per_player:
         if not include_uncertain:
-            entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
+            entries = _certain_only(entries)
         if not entries:
             continue
-
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
-        shown = entries if cap is None else entries[:cap]
-        for entry in shown:
-            template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
-            msg += template.format(name=html.escape(entry["name"]))
-        if len(entries) > len(shown):
-            msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
-        msg += "\n\n"
+        msg += _player_block(uid, name, entries, cap)
 
-    sections = _group_sections(groups, include_uncertain, cap)
+    sections = ""
+    for name, tier, eligible in groups:
+        if include_uncertain or tier == rulelist.CHECK:
+            sections += _group_block(name, eligible, cap)
 
     revealed, total = session.revealed_count(session_data)
     if not listed and not sections:
@@ -1558,25 +1585,6 @@ def _build_list(session_data, contents, cap, include_uncertain):
     if not include_uncertain:
         msg += t.STANDIN_LIST_TRIMMED
     return msg
-
-
-def _group_sections(groups, include_uncertain, cap):
-    """The bottom of the post: each roleless achievement, and who can still get it.
-
-    The count in the heading is of everyone eligible, never of the names that fitted — it
-    is the answer to "how many are still in for this", and a capped one would be wrong.
-    """
-    out = ""
-    for name, tier, eligible in groups:
-        if not include_uncertain and tier != rulelist.CHECK:
-            continue
-        shown = eligible if cap is None else eligible[:cap]
-        names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
-        if len(eligible) > len(shown):
-            names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
-        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(name), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=names)
-    return out
 
 
 def render_list(session_data):
