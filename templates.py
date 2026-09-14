@@ -650,10 +650,12 @@ STANDIN_LIST_HEADER = N_("Possible Achievements:\n\n")
 # Name alone, no role: the game's own manager lists players this way, and the role is
 # already on the roster message a few lines up.
 STANDIN_LIST_PLAYER = N_("{name}\n")
-# Three row shapes, one prefix each. The dash and the space are load-bearing — they are
+# Two row shapes, one prefix each. The dash and the space are load-bearing — they are
 # what /info matches on — so a marker always follows them rather than replacing them.
+# There used to be a third, a ❓ on the rows something still had to go right for. It is
+# gone with the rule tiers: the post says what the roles make possible, and a marker on
+# two thirds of it only told players something they were already better at judging.
 STANDIN_LIST_ROW = N_(" - {name}\n")
-STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
 STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
 # Indented under the rows but *without* the dash, which is the one thing in this post that
 # means "an achievement is named here". With it, replying to a trimmed post with /info
@@ -677,7 +679,6 @@ STANDIN_LIST_GROUP_NAMES = N_("{names}\n\n")
 
 STANDIN_LIST_FOOTER = N_(
     "\n\N{CLOCK FACE ONE OCLOCK} {revealed} of {total} revealed · "
-    "\N{BLACK QUESTION MARK ORNAMENT} needs luck · "
     "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} if your role changes\n"
 )
 # The bottom sections name everyone who can still get a roleless achievement, and in a
@@ -685,8 +686,9 @@ STANDIN_LIST_FOOTER = N_(
 # rows are, and by the same count, rather than the section being dropped whole.
 STANDIN_LIST_GROUP_MORE = N_(" <i>and {count} more</i>")
 
-# Shown when the full list will not fit in one Telegram message and the uncertain rows
-# were dropped to make room. Silently truncating would read as "this is everything".
+# Shown when the full list will not fit in one Telegram message and the rows needing a
+# role change were dropped to make room. Silently truncating would read as "this is
+# everything".
 STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of them.</i>\n")
 # The last resort, when even one row a player will not fit — a full table whose display
 # names are the length Telegram allows. Saying so beats a message Telegram refuses, which

@@ -262,7 +262,7 @@ def test_every_listed_rule_can_pass_in_a_game_containing_every_role():
     """A rule that cannot fire even with all 44 roles present is unreachable by anyone."""
     sink = feasibility.Composition([(role_id,) for role_id in roles.ROLES])
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP or rule["name"] in NOT_SATISFIED_BY_A_FULL_GAME:
+        if not rulelist.is_listed(rule) or rule["name"] in NOT_SATISFIED_BY_A_FULL_GAME:
             continue
         assert feasibility.evaluate(rule["expr"], sink), "{}: {}".format(rule["name"], rule["expr"])
 
@@ -282,11 +282,11 @@ def test_an_empty_game_lists_nothing_for_anybody():
     assert shared, "the roleless achievements are still true of the game itself"
 
 
-def test_skipped_rules_never_pass():
+def test_opted_out_rules_never_pass():
     sink = feasibility.Composition([(role_id,) for role_id in roles.ROLES])
     passing = feasibility.passing_rules(sink, CATALOGUE)
     for name, rule in CATALOGUE.items():
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             assert name not in passing, name
 
 
@@ -325,12 +325,13 @@ def test_achievements_anyone_can_earn_are_returned_once_not_per_player():
         assert not names_for(per_player, key) & names
 
 
-def test_shared_entries_keep_their_tier():
-    """The renderer marks them the same way it marks anything else."""
+def test_shared_entries_carry_a_name_and_nothing_else():
+    """No tier and no swing: an achievement belonging to no role cannot be reached by
+    changing role, and the catalogue no longer grades how likely any of it is."""
     _, shared = feasibility.feasible({"a": ("villager",), "b": ("tanner",), "c": ("cupid",)}, CATALOGUE)
-    tiers = {entry["name"]: entry["tier"] for entry in shared}
-    assert tiers["Welcome to Hell"] == rulelist.ALWAYS
-    assert tiers["Romeo and Juliet"] == rulelist.MAYBE
+    names = {entry["name"] for entry in shared}
+    assert {"Welcome to Hell", "Romeo and Juliet"} <= names
+    assert all(set(entry) == {"name"} for entry in shared), shared
 
 
 def test_a_swing_reachable_row_is_marked_as_such():

@@ -11,8 +11,8 @@ The earlier drafts of this catalogue missed five achievements and misspelled a s
 ("Demoted by Death" for "Demoted by the Death"). Nothing in the running bot would have
 noticed either.
 
-Skipped achievements count as covered — they carry tier `skip` and a reason — so opting one
-out is a visible decision in the catalogue rather than an omission.
+Skipped achievements count as covered — they carry an empty subject and a reason — so
+opting one out is a visible decision in the catalogue rather than an omission.
 """
 
 import pytest
@@ -57,7 +57,6 @@ def test_rules_are_in_achievement_order():
 
 @pytest.mark.parametrize("rule", RULES, ids=[r["name"] for r in RULES])
 def test_rule_fields_are_well_formed(rule):
-    assert rule["tier"] in rulelist.TIERS, rule["tier"]
     assert rule["expr"], "expr must never be empty; use 'True' for no gate"
     assert rule["note"], "every rule carries its reasoning"
     assert isinstance(rule["subject"], str)
@@ -80,19 +79,23 @@ def test_every_subject_names_something_real(rule):
             assert token in roles.ROLES, "unknown role id {!r}".format(token)
 
 
-def test_skipped_rules_are_inert():
-    """Tier and expression have to agree, or a skipped rule could still be evaluated."""
+def test_an_opted_out_rule_is_inert_both_ways():
+    """The subject is the switch, and the expression must not disagree with it.
+
+    An empty subject already stops a rule rendering, so `False` is belt and braces — but
+    a rule that opted out with an expression still able to pass would be one edit away
+    from being listed by accident.
+    """
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             assert rule["expr"] == "False", rule["name"]
             assert rule["subject"] == "", rule["name"]
 
 
-def test_listed_rules_have_a_subject():
-    """Anything that renders must say who it renders under."""
+def test_a_listed_rule_is_one_with_a_subject():
+    """`is_listed` reads the subject and nothing else; pin that, since it is the switch."""
     for rule in RULES:
-        if rule["tier"] != rulelist.SKIP:
-            assert rule["subject"], rule["name"]
+        assert rulelist.is_listed(rule) is bool(rule["subject"]), rule["name"]
 
 
 # --- Subject expansion -----------------------------------------------------
@@ -117,7 +120,7 @@ def test_empty_subject_expands_to_nothing():
 
 def test_every_listed_rule_has_at_least_one_subject_role():
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             continue
         assert rulelist.subject_roles(rule["subject"], roles), rule["name"]
 
@@ -180,8 +183,8 @@ def test_liquid_business_counts_lowly_villagers_not_the_village_team():
 def test_mode_gated_achievements_are_skipped_except_lone_wolf():
     """This group always plays chaos, so Lone Wolf's role condition is its whole gate."""
     for name in ("Welcome to the Asylum", "Spy vs Spy", "Naughty!", "I Have No Idea What I'm Doing"):
-        assert _rule(name)["tier"] == rulelist.SKIP, name
-    assert _rule("Lone Wolf")["tier"] != rulelist.SKIP
+        assert not rulelist.is_listed(_rule(name)), name
+    assert rulelist.is_listed(_rule("Lone Wolf"))
 
 
 def test_the_five_achievements_earlier_drafts_missed_are_present():

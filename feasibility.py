@@ -18,8 +18,8 @@ renderer and the rule matcher can never disagree about it.
 a Seer and a Fool, and conversions are counted at their ceiling rather than their start —
 the cult recruits, the Alpha bites, the bar makes drunks. Both follow from what this list is
 for: it says what *could* happen, so the honest failure is to overstate rather than to hide
-something that turns out to be reachable. The tier (`check` vs `maybe`) is what carries the
-difference between "the game can do this" and "the game can do this if it cooperates".
+something that turns out to be reachable. What a rule never says is how *likely* any of it
+is — see rulelist.py: the table judges that, and better.
 
 The expressions themselves come from the database and are editable at runtime, so they are
 evaluated in a sandbox: no builtins, no attribute access, and only the vocabulary registered
@@ -274,12 +274,12 @@ def validate(expr):
 def passing_rules(composition, rules):
     """The rules whose expression holds for this composition: name -> rule.
 
-    Skipped rules are dropped here rather than filtered by every caller, so "in this dict"
-    means "listable".
+    Rules opted out of listing are dropped here rather than filtered by every caller, so
+    "in this dict" means "listable".
     """
     passing = {}
     for name, rule in rules.items():
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             continue
         if evaluate(rule["expr"], composition):
             passing[name] = rule
@@ -292,9 +292,9 @@ def feasible(player_roles, rules):
     `player_roles` maps a caller's own key (a Telegram user id, in practice) to that
     player's revealed role candidates. Returns `(per_player, universal)`:
 
-    * `per_player` — key -> list of {name, tier, swing} in the rules' own order, where
-      `swing` marks a row reachable only through a role change;
-    * `shared` — the achievements whose subject is *anyone*, as {name, tier}.
+    * `per_player` — key -> list of {name, swing} in the rules' own order, where `swing`
+      marks a row reachable only through a role change;
+    * `shared` — the achievements whose subject is *anyone*, as {name}.
 
     The split exists because "anyone can earn this" and "you can earn this" look identical
     once printed under a name. A rule like Sunday Bloody Sunday belongs to no role at all,
@@ -305,14 +305,9 @@ def feasible(player_roles, rules):
     composition = Composition(player_roles.values())
     passing = passing_rules(composition, rules)
 
-    # Subject "any" is the whole test for shared, which also covers every `always` rule —
-    # those are written with subject `any` too, because "no role gate" and "every role is
-    # a subject" are the same statement.
-    shared = [
-        {"name": name, "tier": rule["tier"]}
-        for name, rule in passing.items()
-        if rule["subject"].strip() == rulelist.ANY
-    ]
+    # Subject "any" is the whole test for shared: "no role gate" and "every role is a
+    # subject" are the same statement once the output is per player.
+    shared = [{"name": name} for name, rule in passing.items() if rule["subject"].strip() == rulelist.ANY]
     shared_names = {entry["name"] for entry in shared}
 
     per_player = {}
@@ -330,7 +325,6 @@ def feasible(player_roles, rules):
             entries.append(
                 {
                     "name": name,
-                    "tier": rule["tier"],
                     # True when only a role change gets them there, so the renderer can
                     # say "if you turn" rather than implying it is available now.
                     "swing": not subject.intersection(own),
