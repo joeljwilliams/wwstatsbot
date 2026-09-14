@@ -239,9 +239,18 @@ RULES = [
     ),
     _rule(
         "Pack Hunter",
-        "tag:pack,tag:potential_wolf",
-        "max_possible_wolves() >= 7",
-        "Seven living wolves at once, counting conversions — a game is never dealt seven.",
+        "tag:pack,cursed,wild_child,doppelganger",
+        "(players >= 14 and max_live_wolves() >= 7) "
+        "or (players >= 8 and ispresent('alpha_wolf') and ispresent('serial_killer','arsonist'))",
+        "Seven living wolves *at once*, which a game is never dealt and which two things have to "
+        "allow. The pack cannot reach parity with the village or the game ends, so seven wolves need "
+        "seven other players to still be standing: **fourteen**, and the Traitor is not one of the "
+        "seven — they turn only once every wolf is dead, so they are the pack's replacement, never "
+        "its seventh member. Unless a Serial Killer or an Arsonist is in the game, which is the whole "
+        "exception: a third party nobody wins against keeps the game running past parity, so an Alpha "
+        "and enough players to infect is the whole of it. Confirmed at the table. "
+        "Counting conversions alone said a game of six wolves and a Traitor, or an Alpha and six "
+        "villagers, could put seven wolves in a room together.",
     ),
     _rule(
         "Saved by the Bull(et)",
@@ -286,8 +295,9 @@ RULES = [
     _rule(
         "Three Little Wolves and a Big Bad Pig",
         "sorcerer",
-        "max_possible_wolves() >= 3",
-        "Three living wolves alongside a surviving sorcerer.",
+        "max_live_wolves() >= 3",
+        "Three living wolves alongside a surviving sorcerer — alive at the same time, so the Traitor "
+        "is not the third any more than they are Pack Hunter's seventh.",
     ),
     _rule("President", "mayor", "True", "Three votes after revealing — behaviour."),
     _rule(

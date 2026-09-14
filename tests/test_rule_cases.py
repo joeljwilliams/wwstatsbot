@@ -173,9 +173,22 @@ EXPR_CASES = {
         (["werewolf"] + pad(8), False, "nine players"),
     ],
     "Pack Hunter": [
-        (["werewolf"] * 7 + pad(3), True, "seven dealt"),
-        (["alpha_wolf"] + pad(6), True, "the bite puts every player within reach of the pack"),
-        (["werewolf"] * 6 + pad(4), False, "six, with nothing that can make a seventh"),
+        (["werewolf"] * 7 + pad(7), True, "seven dealt, and seven others still standing to allow it"),
+        (["werewolf"] * 7 + pad(6), False, "thirteen players: seven wolves would have reached parity and ended it"),
+        (["werewolf"] * 6 + ["cursed"] + pad(7), True, "the Cursed is bitten while the pack still stands"),
+        (
+            ["werewolf"] * 6 + ["traitor"] + pad(7),
+            False,
+            "the Traitor turns only once every wolf is dead, so they are the seventh wolf of the game "
+            "and never the seventh in the room",
+        ),
+        (
+            ["alpha_wolf", "serial_killer"] + pad(6),
+            True,
+            "a third party nobody wins against keeps the game running past parity",
+        ),
+        (["alpha_wolf", "serial_killer"] + pad(5), False, "seven players cannot hold seven wolves and the killer"),
+        (["alpha_wolf"] + pad(6), False, "an Alpha and six villagers is not seven wolves in a room"),
     ],
     "Saved by the Bull(et)": [
         (["gunner", "werewolf"] + pad(3), True, "wolves to reach parity and a bullet to hold them"),
@@ -213,6 +226,11 @@ EXPR_CASES = {
     "Three Little Wolves and a Big Bad Pig": [
         (["sorcerer", "werewolf", "werewolf", "werewolf"] + pad(2), True, "three to survive alongside"),
         (["sorcerer", "werewolf", "werewolf"] + pad(3), False, "two"),
+        (
+            ["sorcerer", "werewolf", "werewolf", "traitor"] + pad(2),
+            False,
+            "the Traitor is the pack's replacement, not a third wolf standing beside it",
+        ),
     ],
     "I Helped!": [
         (["wolf_cub", "werewolf"] + pad(3), True, "a pack to outlive the cub"),

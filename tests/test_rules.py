@@ -154,7 +154,17 @@ def test_trustworthy_needs_a_seer_to_do_the_checking():
 def test_population_achievements_use_reachable_ceilings():
     """A game is never dealt ten cultists or seven wolves; both are reached by converting."""
     assert _rule("Cultist Convention")["expr"] == "max_possible_cultists() >= 10"
-    assert _rule("Pack Hunter")["expr"] == "max_possible_wolves() >= 7"
+    assert "max_live_wolves()" in _rule("Pack Hunter")["expr"]
+
+
+def test_simultaneous_wolf_counts_do_not_use_the_whole_game_ceiling():
+    """ "Seven living wolves at one time" and "three wolves killed in a game" are different
+    questions, and only the second one may count the Traitor: they turn once every wolf is
+    dead, so they are the pack's replacement rather than another member of it."""
+    for name in ("Pack Hunter", "Three Little Wolves and a Big Bad Pig"):
+        assert "max_live_wolves()" in _rule(name)["expr"], name
+        assert "max_possible_wolves()" not in _rule(name)["expr"], name
+    assert "max_possible_wolves()" in _rule("Serial Samaritan")["expr"], "killed over a game, not at once"
 
 
 def test_drunk_achievements_count_the_barkeeps_drunks():

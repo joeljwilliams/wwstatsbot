@@ -115,6 +115,28 @@ class Composition:
         reachable += self.count("doppelganger")
         return min(reachable, self.players)
 
+    def max_live_wolves(self):
+        """The most wolves that could be alive *at one time*, which is a different count.
+
+        The **Traitor is not among them**. They turn only once every wolf is dead, so they
+        are the pack's replacement and never its seventh member — a game dealt six wolves
+        and a Traitor can produce seven wolves over its length and never seven at once.
+        `max_possible_wolves()` counts them because most of the achievements asking about
+        wolves ask how many a game can produce at all ("kill at least 3 wolves in a single
+        game", and "I Helped!", which fires precisely *because* the Traitor turns as the
+        cub dies). "Be one of 7 living wolves at one time" is the other question.
+
+        Everything else that turns while the pack is still standing does count: the Cursed
+        is bitten, the Wild Child's role model dies, the Doppelgänger copies a wolf.
+        """
+        if self.present("alpha_wolf"):
+            return self.players
+        pack = self.count_tag(roles_registry.PACK)
+        if not pack and not self.count("wild_child"):
+            return 0
+        live = pack + self.count("cursed") + self.count("wild_child") + self.count("doppelganger")
+        return min(live, self.players)
+
     def cultable_count(self):
         """Players the cult could convert. The immune roles are what cap the cult's size."""
         return sum(
@@ -278,6 +300,7 @@ def _functions(composition):
         # people" is a count of players — two achievements a single helper would conflate.
         "distinct_visiting_roles": lambda: composition.distinct_tagged_roles(roles_registry.VISITOR),
         "max_possible_wolves": composition.max_possible_wolves,
+        "max_live_wolves": composition.max_live_wolves,
         "max_possible_cultists": composition.max_possible_cultists,
         "max_possible_drunks": composition.max_possible_drunks,
         "cultable_count": composition.cultable_count,
