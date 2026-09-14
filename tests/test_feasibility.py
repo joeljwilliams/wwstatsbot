@@ -127,6 +127,28 @@ def test_burnable_houses_exclude_the_arsonists_own_and_the_serial_killers():
     assert comp(*(["arsonist", "serial_killer"] + ["villager"] * 9)).max_burnable_houses() == 9
 
 
+def test_a_game_with_nothing_to_start_a_pack_can_never_have_a_wolf():
+    """The Cursed needs a bite and the Traitor needs wolves to have died; neither is a
+    first wolf. Counting them as one offered the Angel a wolf to guard in a game with
+    none."""
+    assert comp("cursed", "traitor", "villager", "seer").max_possible_wolves() == 0
+    assert comp("wild_child", "villager", "seer").max_possible_wolves() == 1, "the role model just dies"
+    assert comp("doppelganger", "villager", "seer").max_possible_wolves() == 0, "nothing to copy"
+
+
+def test_night_killers_exclude_the_roles_that_only_fire_by_day():
+    assert comp("gunner", "hunter", "villager").night_killers() == 0
+    assert comp("werewolf", "serial_killer", "gunner").night_killers() == 2
+
+
+def test_distinct_visiting_roles_counts_roles_where_the_tag_count_counts_players():
+    """Three werewolves are three visitors and one visiting role — the difference between
+    "It Was a Busy Night!" and "Traffic Control"."""
+    c = comp("werewolf", "werewolf", "werewolf", "harlot")
+    assert c.count_tag(roles.VISITOR) == 4
+    assert c.distinct_tagged_roles(roles.VISITOR) == 2
+
+
 def test_burnable_houses_never_goes_negative():
     assert feasibility.Composition(()).max_burnable_houses() == 0
     assert comp("arsonist").max_burnable_houses() == 0
@@ -315,7 +337,7 @@ def test_the_same_achievement_disappears_without_its_condition():
 def test_achievements_anyone_can_earn_are_returned_once_not_per_player():
     """Repeating a roleless achievement under each of sixteen players says the same thing
     sixteen times and crowds out the rows that are actually about that player."""
-    game = {"a": ("villager",), "b": ("seer",), "c": ("hunter",), "d": ("gunner",)}
+    game = {"a": ("villager",), "b": ("seer",), "c": ("werewolf",), "d": ("serial_killer",)}
     per_player, shared = feasibility.feasible(game, CATALOGUE)
     names = {entry["name"] for entry in shared}
 

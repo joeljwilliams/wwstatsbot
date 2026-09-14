@@ -112,15 +112,27 @@ RULES = [
     _rule(
         "Mason Brother",
         "mason",
-        "count('mason') + count('doppelganger') >= 2",
-        "Two surviving masons, and a Doppelganger copying one makes the second.",
+        "ispresent('mason') and count('mason','doppelganger','thief') >= 2",
+        "Two surviving masons — dealt, or one plus a Doppelganger who copied them or a Thief who stole "
+        "the role. The Mason has to be there either way: adding the copiers to the count without "
+        "requiring one said two Doppelgangers and no Mason could make a pair of masons.",
     ),
-    _rule("Double Shifter", "tag:role_swing", "True", "Two role changes in one game."),
+    _rule(
+        "Double Shifter",
+        "doppelganger,thief",
+        "ispresent('alpha_wolf') or tag_count('potential_wolf') >= 1 or (ispresent('barkeep') and count('villager') >= 1)",
+        "Two role changes in one game, which needs a role that takes an identity *and* a second "
+        "thing to change it again. The Cursed, the Traitor and the Wild Child each turn once and "
+        "then they are wolves — carrying the role_swing tag is not the same as swinging twice. The "
+        "Doppelgänger and the Thief take one identity and can then be bitten by the Alpha, turn "
+        "because what they took was a Cursed or a Traitor, or drink their way from Villager to Drunk.",
+    ),
     _rule(
         "Hey Man, Nice Shot",
         "hunter",
-        "pack_count() > 0 or ispresent('serial_killer')",
-        "The dying shot must land on a wolf or the serial killer — a Sorcerer is neither.",
+        "max_possible_wolves() > 0 or ispresent('serial_killer')",
+        "The dying shot must land on a wolf or the serial killer — a Sorcerer is neither, and a "
+        "wolf that only arrives by conversion is still a wolf to shoot.",
     ),
     _rule(
         "That's Why You Don't Stay Home",
@@ -146,14 +158,23 @@ RULES = [
     _rule(
         "Sunday Bloody Sunday",
         ANY,
-        "killers() >= 2 or ispresent('arsonist')",
-        "Four deaths in one night needs several killers, or an arsonist who can burn a street at once.",
+        "night_killers() >= 2 or ispresent('arsonist')",
+        "Four deaths in one night needs several killers who can kill *at night*, or an arsonist who "
+        "can burn a street at once. `killers()` counts the Gunner and the Hunter too, and neither has "
+        "ever killed anybody after dark.",
     ),
-    _rule("Change Sides Works", "tag:role_swing", "True", "A role change plus a win."),
+    _rule(
+        "Change Sides Works",
+        "tag:role_swing",
+        "True",
+        "A role change plus a win. Anybody the Alpha bites has also changed roles and is not listed: "
+        'a subject cannot say "only if you got here by turning", and naming the Werewolf would put '
+        "the row under every wolf that was dealt one.",
+    ),
     _rule(
         "Forbidden Love",
         "villager,tag:pack",
-        "all_present('cupid','villager') and pack_count() > 0",
+        "all_present('cupid','villager') and max_possible_wolves() > 0",
         "'villager, not village team' is literal: the couple must be a wolf and a plain Villager, "
         "and Cupid has to pair them.",
     ),
@@ -162,14 +183,20 @@ RULES = [
     _rule(
         "Smart Gunner",
         "gunner",
-        "bad_count() >= 2",
-        "Both bullets must hit a wolf, serial killer or cultist, so two bad roles have to exist.",
+        "pack_count() + count('serial_killer','cultist') >= 2",
+        "Both bullets must hit a wolf, serial killer or cultist, so two of those have to exist. "
+        "`bad_count()` is the wrong count for it: the tag also carries the Sorcerer and the Arsonist, "
+        "and a bullet in either of them earns nothing.",
     ),
     _rule(
         "Streetwise",
         "detective",
-        "distinct_bad_roles() >= 4",
-        "Four nights in a row finding a *different* one, so four distinct bad roles are needed.",
+        "pack_count() + count('serial_killer','cultist') >= 4",
+        "Four nights in a row finding a *different* one — a different *player*, not a different role, "
+        "so four of them have to exist. Counting distinct roles instead let a game with four wolves "
+        "fail the test and a game with one of each of four kinds pass it. The trio is the one the "
+        "achievement names: the Sorcerer and the Arsonist are bad roles the Detective's find is not "
+        "about.",
     ),
     _rule("Speed Dating", ANY, "ispresent('cupid')", "The bot only picks lovers when Cupid failed to."),
     _rule("Even a Stopped Clock is Right Twice a Day", "fool", "True", "Two correct visions, by luck."),
@@ -199,9 +226,11 @@ RULES = [
     _rule(
         "Lone Wolf",
         "tag:pack",
-        "team_count('wolf') == 1 and players >= 10",
+        "pack_count() == 1 and players >= 10",
         "Chaos-mode only per its description, which is safe to ignore here: this group always plays "
-        "chaos, so the role condition is the whole gate.",
+        "chaos, so the role condition is the whole gate. The count is of the pack, not the team — a "
+        "lone Werewolf with a Sorcerer beside them is still the only wolf, and asking the team "
+        "disqualified exactly that game.",
     ),
     _rule(
         "Pack Hunter",
@@ -212,26 +241,41 @@ RULES = [
     _rule(
         "Saved by the Bull(et)",
         "team:village",
-        "ispresent('gunner') and pack_count() > 0",
+        "ispresent('gunner') and max_possible_wolves() > 0",
         "Wolves must reach parity with the village while the Gunner still holds a bullet.",
     ),
     _rule("In for the Long Haul", ANY, "True", "An hour of wall clock, no role gate."),
-    _rule("OH SHI-", "tag:killer", "ispresent('cupid')", "You must have a lover to kill on night one."),
+    _rule(
+        "OH SHI-",
+        "tag:pack,tag:night_killer",
+        "ispresent('cupid')",
+        "You must have a lover to kill on night one — and be able to kill on a night at all. The "
+        "Gunner and the Hunter carry the killer tag and fire only by day, so both were being offered "
+        "an achievement neither can reach.",
+    ),
     _skip("Veteran", "500 games, cumulative."),
     _rule("No Sorcery!", "tag:pack", "ispresent('sorcerer')", "There has to be a sorcerer to eat."),
     _rule(
         "Cultist Tracker",
         "cultist_hunter",
-        "ispresent('cultist') and cultable_count() >= 3",
-        "Three cultists to kill, which the cult reaches by recruiting from the convertible players.",
+        "max_possible_cultists() >= 3",
+        "Three cultists to kill, which the cult reaches by recruiting from the convertible players. "
+        "Said in the one helper that already means both halves — no cult, no ceiling.",
     ),
     _rule("I'M NOT DRUN-- *BURPPP*", "clumsy", "True", "Three correct lynches, half of them by coin flip."),
-    _rule("Wuffie-Cult", "alpha_wolf", "players >= 5", "Three successful bites needs bodies to bite."),
+    _rule(
+        "Wuffie-Cult",
+        "alpha_wolf",
+        "players - pack_count() >= 3",
+        "Three successful bites needs three bodies to bite, and the pack is not among them — a "
+        "five-player game that is three-quarters wolves has one candidate, not five.",
+    ),
     _rule(
         "Did you guard yourself?",
         "guardian_angel",
-        "pack_count() > 0",
-        "There must be a wolf to guard, three times, and survive it.",
+        "max_possible_wolves() > 0",
+        "There must be a wolf to guard, three times, and survive it — counting the ones a bite or a "
+        "Wild Child's turn could still make.",
     ),
     _rule("Spoiled Rich Brat", "prince", "True", "The village has to lynch them twice."),
     _rule(
@@ -253,8 +297,11 @@ RULES = [
     _rule(
         "It Was a Busy Night!",
         ANY,
-        "tag_count('visitor') >= 3",
-        "Three *different* visiting roles in one night, so three must be in the game.",
+        "distinct_visiting_roles() >= 3",
+        "Three *different* visiting roles in one night, so three must be in the game. Counting "
+        "visiting players instead passed a game whose only visitors were three werewolves, which is "
+        "one role three times over. Contrast Traffic Control, which counts people and so counts "
+        "players.",
     ),
     _rule("Strongest Alpha", "alpha_wolf", "ispresent('serial_killer')", "The serial killer is the target."),
     _rule("Am I Your Seer?", "fool", "ispresent('beholder')", "There must be a Beholder to spot."),
@@ -280,13 +327,21 @@ RULES = [
         "A seer/sorcerer couple needs Cupid to pair them.",
     ),
     _rule("Just a Beardy Guy..?", "wolfman", "ispresent('alpha_wolf')", "Only the Alpha's bite can turn them."),
-    _rule("That Came Unexpected!", "tanner", "players >= 4", "Being lynched down to the last three."),
+    _rule(
+        "That Came Unexpected!",
+        "tanner",
+        "players >= 3",
+        "Lynched with only three left, which a three-player game is already at.",
+    ),
     _rule(
         "Now I'm Blind",
         "oracle",
-        "ispresent('cultist') or distinct_roles() <= 2",
-        "The vision fails when everyone else shares one role. Conventionally the cult converts the "
-        "rest of the village into that one role; a game dealt only one other role gets there directly.",
+        "True",
+        "The vision fails when everyone else shares one role, and every game reaches that: with two "
+        'players left "everyone else" is one person, who trivially all have the same role. The '
+        "achievement's own note describes it — three players, the Oracle checks the killer while the "
+        "killer takes the third. Asking for a cult or a two-role game withheld it from the games it "
+        "is easiest in.",
     ),
     _rule("Every Man for Himself!", "pacifist", "True", "Saving yourself from a lynch in progress."),
     _rule(
@@ -295,11 +350,18 @@ RULES = [
         "all_present('pacifist','cupid')",
         "You must be in love with the pacifist, so Cupid has to pair you.",
     ),
-    _rule("Cult Leader", "cultist", "True", "Survive and win as an original cultist."),
+    _rule(
+        "Cult Leader",
+        "cultist",
+        "True",
+        "Survive and win as an original cultist. A Doppelgänger who copied one is offered it as a "
+        'role change and cannot really earn it — "from the beginning" is a fact about the deal, and '
+        "the subject has no way to say so.",
+    ),
     _rule(
         "Thanks, Junior!",
         "wild_child,doppelganger",
-        "max_possible_drunks() >= 1 and pack_count() > 0",
+        "max_possible_drunks() >= 1 and max_possible_wolves() > 0",
         "You turn wolf the night the pack eats the Drunk — reachable via a Wild Child whose role "
         "model was eaten or a Doppelganger's copy, but never via the Cursed or the Traitor.",
     ),
@@ -321,8 +383,11 @@ RULES = [
     _rule(
         "Indestructible",
         "doppelganger,wild_child,thief",
-        "True",
-        "Ending up as your own role model — reachable by any role that takes on another's identity.",
+        "all_present('doppelganger','wild_child') or (ispresent('thief') and ispresent('doppelganger','wild_child'))",
+        '"*Become* Doppelgänger or Wild Child with your role model being yourself" needs two of '
+        "these roles, never one: one of the pair has to already be pointing at you when you take the "
+        "other's identity. So the Doppelgänger and the Wild Child together, or a Thief who steals "
+        "either of them. A game with a lone Doppelgänger was being offered it and there is no route.",
     ),
     _rule("Psychopath Killer", "serial_killer", "players >= 35", "A 35-player win."),
     _skip("Today's Special!", "An event-only role, absent from the standard /rolelist."),
@@ -342,8 +407,9 @@ RULES = [
     _rule(
         "Domino",
         "hunter",
-        "count('hunter') >= 2 or ispresent('doppelganger')",
-        "A second hunter to shoot — dealt, or made by a Doppelganger copying the first.",
+        "count('hunter') >= 2 or (ispresent('hunter') and ispresent('doppelganger','thief'))",
+        "A second hunter to shoot — dealt, or made by a Doppelganger copying the first or a Thief "
+        "stealing the role. Either copier needs a Hunter to copy, which the expression now says.",
     ),
     _rule(
         "Double Shot",
@@ -355,8 +421,19 @@ RULES = [
     _rule("Firework", "arsonist", "max_burnable_houses() >= 10", "Ten houses that can be doused."),
     _rule("Cold as Ice", "snow_wolf", "ispresent('harlot')", "The harlot is the one who has to be frozen."),
     _rule("Good Choice... For You", "chemist", "players >= 4", "Three surviving visits needs targets."),
-    _rule("Increase the Pack!", "alpha_wolf", "ispresent('wolf_cub')", "The cub has to die first."),
-    _rule("Firefighter", "guardian_angel", "ispresent('arsonist')", "Three houses of kerosene to clean."),
+    _rule(
+        "Increase the Pack!",
+        "alpha_wolf",
+        "ispresent('wolf_cub') and players - pack_count() >= 2",
+        "The cub has to die first, and there have to be two players outside the pack left to infect.",
+    ),
+    _rule(
+        "Firefighter",
+        "guardian_angel",
+        "ispresent('arsonist') and max_burnable_houses() >= 3",
+        "Three houses of kerosene to clean, so three the arsonist could have doused in the first "
+        "place — their own and the serial killer's are not among them.",
+    ),
     _rule(
         "Helpful Paranoia",
         "hunter",
@@ -367,10 +444,23 @@ RULES = [
     _rule(
         "S-Tier Hunter",
         "hunter",
-        "pack_count() > 0 and ispresent('cultist')",
+        "max_possible_wolves() > 0 and ispresent('cultist')",
         "One of each, in the same night.",
     ),
-    _rule("Triple Kill", "serial_killer,tag:pack", "players >= 4", "Three deaths by one hand in one night."),
+    _rule(
+        "Triple Kill",
+        "serial_killer,tag:pack",
+        "(ispresent('serial_killer') and tag_count('visitor') - count('serial_killer') >= 2) "
+        "or (max_possible_wolves() > 0 and count('harlot','guardian_angel') >= 2) "
+        "or (ispresent('wolf_cub') and max_possible_wolves() >= 2 and count('harlot','guardian_angel') >= 1)",
+        "Three deaths by one hand in one night, and the two hands get there differently — which is "
+        "why a player count was never the gate. The serial killer kills their target and everybody "
+        "who called on them that night, so any two other visiting roles will do. The wolves take "
+        "only their victim and the two callers who die for visiting a wolf, the Harlot and the "
+        "Guardian Angel, so both must be dealt — *unless* there is a Wolf Cub, whose death buys the "
+        "pack a second eat and leaves one visitor enough. That last route is the one route the Cub "
+        "itself can never take: it is the one who had to die for it.",
+    ),
     _rule(
         "Resist the Beast",
         "wild_child,traitor,cursed",
@@ -392,15 +482,17 @@ RULES = [
     _rule(
         "In the Middle of the Trouble",
         "guardian_angel",
-        "pack_count() > 0 and ispresent('serial_killer','arsonist')",
-        "Saving a werewolf means something else has to be attacking one.",
+        "max_possible_wolves() > 0 and ispresent('serial_killer','arsonist')",
+        "Saving a werewolf means something else has to be attacking one. Not the Chemist: the angel's "
+        'guard does not stop the poison, which is the whole of "At least you tried...".',
     ),
     _rule(
         "Am I hallucinating?!",
         "fool",
-        "ispresent('traitor','wolfman')",
-        "The Seer reads a WolfMan as a wolf and a Traitor as a villager, so those two are the roles "
-        "a real vision can never report — seeing one proves you are the Fool.",
+        "ispresent('traitor','wolfman','lycan')",
+        "The Seer reads a Wolf Man as a wolf, a Lycan as a villager and a Traitor as a villager, so "
+        "those three are the roles a real vision can never report — seeing one proves you are the "
+        "Fool. The Lycan is the Wolf Man's mirror and was missed for exactly that reason.",
     ),
     _rule(
         "Going Down with my Beer",
@@ -422,7 +514,12 @@ RULES = [
         "'Visited by 3 or more villagers' is literal — the bar opens for lowly villagers, not the village team.",
     ),
     _rule("Traffic Control", "chef", "tag_count('visitor') >= 3", "Three visits to one player in one night."),
-    _rule("Definitely Dead", "chef", "killers() >= 1", "Somebody has to be murdered that night."),
+    _rule(
+        "Definitely Dead",
+        "chef",
+        "night_killers() >= 1",
+        "Somebody has to be murdered *that night*, so a game whose only killers fire by day cannot produce one.",
+    ),
     _rule("Going Out Of Business", "barkeep", "players >= 10", "Ten players, and three empty nights."),
     _rule("Food Waste", "chef", "players >= 5", "Three players who stayed home and had no visitors."),
 ]

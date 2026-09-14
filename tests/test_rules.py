@@ -163,11 +163,17 @@ def test_drunk_achievements_count_the_barkeeps_drunks():
         assert "max_possible_drunks()" in _rule(name)["expr"], name
 
 
-def test_wolf_attack_achievements_use_the_pack_not_the_team():
-    """team_count('wolf') includes the Sorcerer, who cannot eat anybody."""
-    for name in ("Hey Man, Nice Shot", "Did you guard yourself?", "S-Tier Hunter"):
-        assert "pack_count()" in _rule(name)["expr"], name
+def test_wolf_attack_achievements_never_ask_the_team():
+    """team_count('wolf') includes the Sorcerer, who cannot eat anybody.
+
+    "Is there a wolf" is asked with `max_possible_wolves()`, which counts the ones a bite
+    or a Wild Child's turn could still make; `pack_count()` is for the questions that are
+    about the dealt pack itself, like being its only member.
+    """
+    for name in ("Hey Man, Nice Shot", "Did you guard yourself?", "S-Tier Hunter", "Forbidden Love"):
+        assert "max_possible_wolves()" in _rule(name)["expr"], name
         assert "team_count" not in _rule(name)["expr"], name
+    assert _rule("Lone Wolf")["expr"].startswith("pack_count() == 1"), "the only wolf is a pack count"
 
 
 def test_thanks_junior_excludes_the_cursed_and_the_traitor():

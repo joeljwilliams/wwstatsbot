@@ -96,11 +96,22 @@ class Composition:
         with one in play no other role caps the count. Without one, the ceiling is the
         pack plus the roles that turn on their own (Cursed, Wild Child, Traitor) plus a
         Doppelgänger copying any of them.
+
+        **A game needs a first wolf, and only two things are one.** Of the roles that
+        turn, the Cursed needs a bite and the Traitor needs wolves to have existed and
+        died — so neither can start a pack. Only a dealt pack member or a Wild Child
+        whose role model dies can, and the Doppelgänger only ever copies what is already
+        there. Counting all of them unconditionally said a game of a Cursed, a Traitor
+        and fourteen villagers could produce a wolf: it offered the Guardian Angel a
+        wolf to guard and the Hunter a wolf to shoot in a game that has none and can
+        never have one.
         """
         if self.present("alpha_wolf"):
             return self.players
-        reachable = self.count_tag(roles_registry.PACK)
-        reachable += self.count_tag(roles_registry.POTENTIAL_WOLF)
+        pack = self.count_tag(roles_registry.PACK)
+        if not pack and not self.count("wild_child"):
+            return 0
+        reachable = pack + self.count_tag(roles_registry.POTENTIAL_WOLF)
         reachable += self.count("doppelganger")
         return min(reachable, self.players)
 
@@ -129,10 +140,16 @@ class Composition:
         makes a drunk — so a Barkeep plus plain Villagers is a source of drunks, and
         "Alcoholics Anonymous" (three drunks alive at the end) is reachable well below
         three dealt Drunks. Villagers specifically: the village *team* does not drink here.
+
+        The Doppelgänger and the Thief are counted the same way the wolf ceiling counts
+        the Doppelgänger — only when a drunk is there to be copied or stolen, or the bar
+        can make one. Neither can conjure a role the game did not deal.
         """
-        drunks = self.count("drunk") + self.count("doppelganger") + self.count("thief")
+        drunks = self.count("drunk")
         if self.present("barkeep"):
             drunks += self.count("villager")
+        if drunks:
+            drunks += self.count("doppelganger") + self.count("thief")
         return min(drunks, self.players)
 
     def attackers(self):
@@ -144,6 +161,16 @@ class Composition:
         return (
             self.count_tag(roles_registry.PACK) + self.count_tag(roles_registry.POTENTIAL_WOLF) + self.count("cultist")
         )
+
+    def night_killers(self):
+        """Players who could choose to kill somebody after dark.
+
+        Not `killers()`, which is every role that can cause a death by any route: the
+        Gunner and the Hunter fire by day, so a game whose only killers are those two has
+        no night deaths at all. The Hunter's return fire does land at night and is still
+        not counted, because a reaction cannot be aimed — see roles.NIGHT_KILLER.
+        """
+        return self.count_tag(roles_registry.NIGHT_KILLER)
 
     def max_burnable_houses(self):
         """Houses the Arsonist could douse: everyone's but their own, and not the SK's.
@@ -216,8 +243,12 @@ def _functions(composition):
         "bad_count": lambda: composition.count_tag(roles_registry.BAD),
         "village_count": lambda: composition.count_team(roles_registry.VILLAGE),
         "visitor_count": lambda: composition.count_tag(roles_registry.VISITOR),
+        "night_killers": composition.night_killers,
         "distinct_roles": composition.distinct_roles,
         "distinct_bad_roles": lambda: composition.distinct_tagged_roles(roles_registry.BAD),
+        # "3 or more different visiting roles" is a count of roles, where "visited by 3
+        # people" is a count of players — two achievements a single helper would conflate.
+        "distinct_visiting_roles": lambda: composition.distinct_tagged_roles(roles_registry.VISITOR),
         "max_possible_wolves": composition.max_possible_wolves,
         "max_possible_cultists": composition.max_possible_cultists,
         "max_possible_drunks": composition.max_possible_drunks,
