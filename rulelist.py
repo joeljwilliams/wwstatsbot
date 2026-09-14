@@ -442,9 +442,15 @@ RULES = [
     _rule(
         "Helpful Paranoia",
         "hunter",
-        "attackers() >= 2",
-        "Two attackers to shoot: wolves, the wolves they could still turn, and cultists. "
-        "The Sorcerer never attacks anyone.",
+        "ispresent('cultist') or (pack_count() > 0 and ispresent('wild_child','traitor','doppelganger'))",
+        "Two attackers shot, which the game reaches two ways. A cult sends somebody against the "
+        "Hunter, loses them, and sends the next — so a cult on its own is enough. Or a wolf attacks, "
+        "dies to the shot, and *something turns in the same moment it dies* to come again: the "
+        "Traitor, a Wild Child whose role model has gone, or a Doppelganger who copied the wolf. "
+        "Confirmed at the table, and the exclusion is the point — the **Cursed cannot be the second "
+        "attacker**, because a living wolf has to bite them and the only wolf has just been shot. "
+        "A count of everything that could ever attack said otherwise: it made a lone cult "
+        "insufficient and a wolf-plus-Cursed enough, and both were backwards.",
     ),
     _rule(
         "S-Tier Hunter",

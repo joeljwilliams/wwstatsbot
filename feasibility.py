@@ -153,10 +153,17 @@ class Composition:
         return min(drunks, self.players)
 
     def attackers(self):
-        """Roles that come for you in the night, in the sense "Helpful Paranoia" means.
+        """Everything that could ever come for you in the night.
 
         Wolves, the players who could still become wolves, and cultists. Explicitly not the
         Sorcerer, who is wolf-team and attacks nobody.
+
+        No canonical rule uses it, and "Helpful Paranoia" is why it is worth saying so: that
+        rule was written as `attackers() >= 2` and the count is the wrong shape for it. Two
+        attackers have to arrive *in sequence*, the second turning at the moment the first
+        dies, which is a question about which roles can replace which — not about how many
+        there are. Kept in the vocabulary because an admin writing a new rule needs
+        something to write it with.
         """
         return (
             self.count_tag(roles_registry.PACK) + self.count_tag(roles_registry.POTENTIAL_WOLF) + self.count("cultist")

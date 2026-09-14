@@ -356,9 +356,21 @@ EXPR_CASES = {
         (["guardian_angel"] + pad(4), False, "no kerosene anywhere"),
     ],
     "Helpful Paranoia": [
-        (["hunter", "werewolf", "cultist"] + pad(2), True, "two things that come for you in the night"),
-        (["hunter", "cursed", "cultist"] + pad(2), True, "the Cursed counts: they may be coming later"),
-        (["hunter", "werewolf", "sorcerer"] + pad(2), False, "the Sorcerer attacks nobody"),
+        (["hunter", "cultist"] + pad(3), True, "a cult sends the next one after losing the first"),
+        (
+            ["hunter", "werewolf", "traitor"] + pad(2),
+            True,
+            "the wolf dies to the shot and the Traitor turns in the same moment, so a second attacker arrives",
+        ),
+        (["hunter", "werewolf", "wild_child"] + pad(2), True, "a Wild Child whose role model has gone does the same"),
+        (["hunter", "werewolf", "doppelganger"] + pad(2), True, "and so does a Doppelganger who copied the wolf"),
+        (
+            ["hunter", "werewolf", "cursed"] + pad(2),
+            False,
+            "the Cursed needs a living wolf to bite them, and the only wolf has just been shot",
+        ),
+        (["hunter", "werewolf", "werewolf"] + pad(2), False, "a pack, and nothing that turns to replace it"),
+        (["hunter", "traitor", "wild_child"] + pad(2), False, "two that could turn and no first attacker at all"),
     ],
     "S-Tier Hunter": [
         (["hunter", "werewolf", "cultist"] + pad(2), True, "one of each, in one night"),
