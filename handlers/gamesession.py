@@ -24,6 +24,7 @@ than one that ignored them.
 """
 
 import asyncio
+import hashlib
 import html
 import re
 import time
@@ -31,7 +32,7 @@ import time
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
@@ -385,16 +386,69 @@ def render_state(session_data, ended=False):
 _UNMODIFIED = re.compile(r"message is not modified", re.IGNORECASE)
 
 
-async def _edit_live_message(context, event, **kwargs):
-    """Edit one of the session's live messages, best effort but never silently."""
+def _fingerprint(text, keyboard):
+    """What a live message would look like, in sixteen characters.
+
+    The keyboard counts: the list's button appears and disappears with the trimming, so a
+    message whose text is unchanged but whose button has gone still has to be edited.
+    """
+    buttons = [
+        button.callback_data or button.url or button.text
+        for row in (keyboard.inline_keyboard if keyboard is not None else ())
+        for button in row
+    ]
+    return hashlib.blake2s("\x00".join([text, *buttons]).encode(), digest_size=8).hexdigest()
+
+
+async def _edit_live_message(context, event, session_data, key, chat_id, message_id, text, reply_markup=None):
+    """Edit one of the session's live messages: best effort, never silently, never twice.
+
+    Returns False only when flood control was hit, which means the rest of this publish
+    would be refused the same way and has already been rescheduled.
+
+    **An edit identical to the last one that landed is not sent at all.** Both live
+    messages are re-rendered and re-sent on every publish whether or not either changed,
+    and a publish follows every write — so a `/love` between two players who were already
+    lovers, a re-sent roster that moved nothing, a second `/dead` for somebody already
+    dead, all spent an API call asking Telegram to replace a message with itself. It
+    answers "message is not modified", which the code below is careful to ignore, and the
+    call still counted against a per-chat limit of roughly twenty a minute.
+
+    This is the same rule `RedisPersistence._save` follows one layer down, including the
+    half that matters: the fingerprint advances only on an edit that *landed*, so a failed
+    one is retried rather than remembered as done. The exception is "not modified" itself,
+    which is Telegram confirming the message already looks like this — that is worth
+    recording, and it is what stops a second identical publish asking again.
+    """
+    fingerprint = _fingerprint(text, reply_markup)
+    if session_data.get(key) == fingerprint:
+        return True
+
     try:
-        await context.bot.edit_message_text(parse_mode=ParseMode.HTML, disable_web_page_preview=True, **kwargs)
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except RetryAfter as err:
+        seconds = _retry_seconds(err)
+        _postpone_publish(context, chat_id, seconds)
+        logger.warning(event, chat_id=chat_id, retry_after=seconds)
+        return False
     except BadRequest as err:
         if _UNMODIFIED.search(str(err)) is None:
-            logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+            logger.warning(event, chat_id=chat_id, error=str(err))
+            return True
     except Forbidden as err:
         # Kicked, or the chat is gone. The session will expire on its own.
-        logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+        logger.warning(event, chat_id=chat_id, error=str(err))
+        return True
+
+    session_data[key] = fingerprint
+    return True
 
 
 async def _refresh_state(context, chat_id, session_data):
@@ -406,11 +460,13 @@ async def _refresh_state(context, chat_id, session_data):
     """
     message_id = session_data.get("state_message_id")
     if message_id is None:
-        return
+        return True
     msg, keyboard = render_state(session_data)
-    await _edit_live_message(
+    return await _edit_live_message(
         context,
         "standin_roster_edit_failed",
+        session_data,
+        "state_fingerprint",
         chat_id=chat_id,
         message_id=message_id,
         text=msg,
@@ -468,9 +524,11 @@ async def _open_session(context, chat_id, starter_id, roster):
         disable_web_page_preview=True,
     )
     # The id is what every later edit needs; without it the roster would be re-posted on
-    # each reveal instead of updated.
+    # each reveal instead of updated. The fingerprint alongside it is what stops the very
+    # first publish editing this message into exactly what was just posted.
     if posted is not None:
         session_data["state_message_id"] = posted.message_id
+        session_data["state_fingerprint"] = _fingerprint(msg, keyboard)
         await _pin_state(context, chat_id, session_data, posted.message_id)
     # A session nobody ever touches still has to expire, so the idle clock starts here
     # rather than on the first reveal.
@@ -883,6 +941,8 @@ async def _finish(context, chat_id, session_data):
     await _edit_live_message(
         context,
         "standin_roster_close_failed",
+        session_data,
+        "state_fingerprint",
         chat_id=chat_id,
         message_id=message_id,
         text=msg,
@@ -1826,6 +1886,38 @@ def _schedule_publish(context, chat_id):
     queue.run_once(_publish, _DEBOUNCE_SECONDS, chat_id=chat_id, name=name)
 
 
+def _retry_seconds(error):
+    """How long Telegram asked us to wait, as a number of seconds.
+
+    PTB is mid-migration on this one: `retry_after` is a number today and warns that it
+    becomes a `timedelta` in a future major version (opt in early with PTB_TIMEDELTA=1).
+    Read both ways, because the alternative is finding out through a TypeError raised
+    inside flood handling — the worst moment available for a new exception.
+    """
+    delay = error.retry_after
+    return delay.total_seconds() if hasattr(delay, "total_seconds") else delay
+
+
+def _postpone_publish(context, chat_id, seconds):
+    """Flood control: push the next publish past the window Telegram named.
+
+    Replaces whatever was pending rather than adding to it — a publish already scheduled
+    five seconds out would land inside the same window and be refused the same way. The
+    live messages are only *late*, and this is what makes them late rather than stuck at
+    their last successful edit until somebody happens to reveal a role.
+
+    A second past the window because the two clocks are not the same one, and being early
+    costs another refusal and another wait.
+    """
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _PUBLISH_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_publish, seconds + 1, chat_id=chat_id, name=name)
+
+
 def _schedule_idle(context, chat_id):
     """Restart the idle countdown. Any activity pushes the end of the session back."""
     queue = _job_queue(context)
@@ -1852,7 +1944,10 @@ async def _publish(context):
         # Ended between the schedule and the fire. Nothing to say.
         return
 
-    await _refresh_state(context, chat_id, session_data)
+    if not await _refresh_state(context, chat_id, session_data):
+        # Flood control, and the list edit below would meet the same window. Already
+        # rescheduled; both messages catch up together when it reopens.
+        return
 
     msg, keyboard = render_list(session_data)
     message_id = session_data.get("list_message_id")
@@ -1869,15 +1964,23 @@ async def _publish(context):
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             )
+        except RetryAfter as err:
+            seconds = _retry_seconds(err)
+            _postpone_publish(context, chat_id, seconds)
+            logger.warning("standin_list_post_failed", chat_id=chat_id, retry_after=seconds)
+            return
         except (BadRequest, Forbidden) as err:
             logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
             return
         if posted is not None:
             session_data["list_message_id"] = posted.message_id
+            session_data["list_fingerprint"] = _fingerprint(msg, keyboard)
         return
     await _edit_live_message(
         context,
         "standin_list_edit_failed",
+        session_data,
+        "list_fingerprint",
         chat_id=chat_id,
         message_id=message_id,
         text=msg,
