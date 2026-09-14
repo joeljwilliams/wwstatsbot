@@ -229,9 +229,9 @@ def _extract_by_player(text):
     return [(player, rows) for player, rows in per_player if rows], groups
 
 
-def _players_who_can_get(text, achievement):
-    """Everyone in the post who can still earn `achievement`, in the order listed."""
-    per_player, groups = _extract_by_player(text)
+def _players_who_can_get(contents, achievement):
+    """Everyone the post lists who can still earn `achievement`, in the order listed."""
+    per_player, groups = contents
     key = achievement.casefold()
 
     found = [player for player, rows in per_player if any(row.casefold() == key for row in rows)]
@@ -241,9 +241,9 @@ def _players_who_can_get(text, achievement):
     return found
 
 
-def _listed_names(text):
+def _listed_names(contents):
     """Every achievement the post names, in order, without duplicates."""
-    per_player, groups = _extract_by_player(text)
+    per_player, groups = contents
     listed = []
     for _, rows in per_player:
         listed += rows
@@ -257,7 +257,7 @@ def _listed_names(text):
     return names
 
 
-async def _listed_achievement(text, query):
+async def _listed_achievement(contents, query):
     """The achievement in the post that `query` names: (name or None, ambiguous).
 
     Matched against what the post lists rather than the whole catalogue, because the answer
@@ -272,7 +272,7 @@ async def _listed_achievement(text, query):
     index. Whatever that search returns still has to be listed in the post; the search
     decides *which* achievement is meant, never who can get it.
     """
-    names = _listed_names(text)
+    names = _listed_names(contents)
     key = query.casefold().strip()
 
     exact = [name for name in names if name.casefold() == key]
@@ -452,18 +452,20 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.ROLL_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    source = replied.text or replied.caption or ""
-    listed, ambiguous = await _listed_achievement(source, query)
+    # Parsed once and passed down: every question below is about the same post, and
+    # re-reading the text for each of them was three passes over the same string.
+    contents = _extract_by_player(replied.text or replied.caption or "")
+    listed, ambiguous = await _listed_achievement(contents, query)
     if ambiguous:
         await message.reply_text(t.ROLL_AMBIGUOUS.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
         return
     if listed is None:
-        per_player, groups = _extract_by_player(source)
+        per_player, groups = contents
         template = t.ROLL_NO_LIST if not per_player and not groups else t.ROLL_NOT_LISTED
         await message.reply_text(template.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
         return
 
-    candidates = _players_who_can_get(source, listed)
+    candidates = _players_who_can_get(contents, listed)
     if not candidates:
         await message.reply_text(t.ROLL_NOT_LISTED.format(name=html.escape(listed)), parse_mode=ParseMode.HTML)
         return
