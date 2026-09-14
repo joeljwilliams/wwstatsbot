@@ -429,6 +429,7 @@ async def test_a_publish_for_an_ended_session_does_nothing(context):
 
 async def test_an_identical_edit_is_swallowed(context):
     """A reveal that unlocks nothing new produces "message is not modified"."""
+    from structlog.testing import capture_logs
     from telegram.error import BadRequest
 
     await start_session(context)
@@ -437,7 +438,54 @@ async def test_an_identical_edit_is_swallowed(context):
 
     context.bot._edit_error = BadRequest("Message is not modified")
     await reveal(context, 2, "villager")
-    await publish(context)  # must not raise
+    with capture_logs() as entries:
+        await publish(context)  # must not raise
+
+    assert not [e for e in entries if "failed" in e["event"]], entries
+
+
+async def test_an_edit_that_failed_for_any_other_reason_is_reported(context):
+    """The silent freeze. "Message is too long", "can't parse entities" and "message to
+    edit not found" all wore the same exception as the no-op above, so `except BadRequest:
+    pass` left the live message quietly no longer following the game — nothing in the log,
+    nothing on screen, and the list still showing whatever it last managed to say."""
+    from structlog.testing import capture_logs
+    from telegram.error import BadRequest
+
+    await start_session(context)
+    await reveal(context, 1, "villager")
+    await publish(context)
+
+    context.bot._edit_error = BadRequest("Message_too_long")
+    await reveal(context, 2, "seer")
+    with capture_logs() as entries:
+        await publish(context)  # still must not raise
+
+    failures = [e for e in entries if e["event"] == "standin_list_edit_failed"]
+    assert len(failures) == 1, entries
+    assert "Message_too_long" in failures[0]["error"]
+
+
+async def test_a_first_post_that_failed_is_reported_and_left_unrecorded(context):
+    """Without a message id every later publish posts the list again instead of editing
+    it, so the one thing this must not do is record an id it never got."""
+    from structlog.testing import capture_logs
+    from telegram.error import BadRequest
+
+    session_data = await start_session(context)
+    await reveal(context, 1, "villager")
+
+    context.bot._send_error = BadRequest("Chat not found")
+    with capture_logs() as entries:
+        await publish(context)
+
+    assert [e["event"] for e in entries if "failed" in e["event"]] == ["standin_list_post_failed"]
+    assert session_data.get("list_message_id") is None
+
+    context.bot._send_error = None
+    await reveal(context, 2, "seer")
+    await publish(context)
+    assert session_data["list_message_id"] is not None, "and the next reveal retries"
 
 
 async def test_everything_still_works_without_a_job_queue(context):

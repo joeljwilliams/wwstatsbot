@@ -366,6 +366,31 @@ def render_state(session_data, ended=False):
     return msg, keyboard
 
 
+# Telegram answers "Bad Request: message is not modified" when an edit would change
+# nothing, and this bot asks for one on every publish whether or not anything changed —
+# so that particular refusal is the ordinary case and is meant to be ignored.
+#
+# Everything else wearing the same exception is not. "Message is too long", "can't parse
+# entities", "message to edit not found" all arrived here too, and `except BadRequest:
+# pass` made them indistinguishable from a no-op: the live message simply stopped
+# following the game, with nothing in the log and nothing on screen. Reported rather than
+# raised, because a player who did successfully issue a command should not see it fail
+# over a message they cannot see.
+_UNMODIFIED = re.compile(r"message is not modified", re.IGNORECASE)
+
+
+async def _edit_live_message(context, event, **kwargs):
+    """Edit one of the session's live messages, best effort but never silently."""
+    try:
+        await context.bot.edit_message_text(parse_mode=ParseMode.HTML, disable_web_page_preview=True, **kwargs)
+    except BadRequest as err:
+        if _UNMODIFIED.search(str(err)) is None:
+            logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+    except Forbidden as err:
+        # Kicked, or the chat is gone. The session will expire on its own.
+        logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+
+
 async def _refresh_state(context, chat_id, session_data):
     """Re-render the live roster message in place.
 
@@ -377,17 +402,14 @@ async def _refresh_state(context, chat_id, session_data):
     if message_id is None:
         return
     msg, keyboard = render_state(session_data)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    await _edit_live_message(
+        context,
+        "standin_roster_edit_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=keyboard,
+    )
 
 
 # --- /gs -------------------------------------------------------------------
@@ -852,17 +874,14 @@ async def _finish(context, chat_id, session_data):
     if message_id is None:
         return
     msg, _ = render_state(session_data, ended=True)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=None,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    await _edit_live_message(
+        context,
+        "standin_roster_close_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=None,
+    )
 
 
 async def end_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1668,23 +1687,27 @@ async def _publish(context):
     msg = render_list(session_data)
     message_id = session_data.get("list_message_id")
     if message_id is None:
-        posted = await context.bot.send_message(
-            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
-        )
+        # The first post, and the one failure that is not cosmetic: without an id every
+        # later publish posts the list again instead of editing it. Reported and left
+        # unrecorded, so the next reveal retries rather than editing a message that is
+        # not there.
+        try:
+            posted = await context.bot.send_message(
+                chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
+        except (BadRequest, Forbidden) as err:
+            logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
+            return
         if posted is not None:
             session_data["list_message_id"] = posted.message_id
         return
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        # Identical to what is already there — a change that unlocked nothing.
-        pass
+    await _edit_live_message(
+        context,
+        "standin_list_edit_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+    )
 
 
 async def _idle_warning(context):
