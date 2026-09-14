@@ -366,6 +366,31 @@ def render_state(session_data, ended=False):
     return msg, keyboard
 
 
+# Telegram answers "Bad Request: message is not modified" when an edit would change
+# nothing, and this bot asks for one on every publish whether or not anything changed —
+# so that particular refusal is the ordinary case and is meant to be ignored.
+#
+# Everything else wearing the same exception is not. "Message is too long", "can't parse
+# entities", "message to edit not found" all arrived here too, and `except BadRequest:
+# pass` made them indistinguishable from a no-op: the live message simply stopped
+# following the game, with nothing in the log and nothing on screen. Reported rather than
+# raised, because a player who did successfully issue a command should not see it fail
+# over a message they cannot see.
+_UNMODIFIED = re.compile(r"message is not modified", re.IGNORECASE)
+
+
+async def _edit_live_message(context, event, **kwargs):
+    """Edit one of the session's live messages, best effort but never silently."""
+    try:
+        await context.bot.edit_message_text(parse_mode=ParseMode.HTML, disable_web_page_preview=True, **kwargs)
+    except BadRequest as err:
+        if _UNMODIFIED.search(str(err)) is None:
+            logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+    except Forbidden as err:
+        # Kicked, or the chat is gone. The session will expire on its own.
+        logger.warning(event, chat_id=kwargs.get("chat_id"), error=str(err))
+
+
 async def _refresh_state(context, chat_id, session_data):
     """Re-render the live roster message in place.
 
@@ -377,17 +402,14 @@ async def _refresh_state(context, chat_id, session_data):
     if message_id is None:
         return
     msg, keyboard = render_state(session_data)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    await _edit_live_message(
+        context,
+        "standin_roster_edit_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=keyboard,
+    )
 
 
 # --- /gs -------------------------------------------------------------------
@@ -852,17 +874,14 @@ async def _finish(context, chat_id, session_data):
     if message_id is None:
         return
     msg, _ = render_state(session_data, ended=True)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=None,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    await _edit_live_message(
+        context,
+        "standin_roster_close_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=None,
+    )
 
 
 async def end_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1392,7 +1411,18 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # outcome nobody could work around, while dropping the least certain rows still leaves
 # everyone able to see where they stand.
 _LIST_LIMIT = 3900
-_ROW_LADDER = (None, 8, 5, 3)
+
+# One number per rung, and it caps both the rows under a player and the names under a
+# group section. The two used to be separate in the worst way: rows were capped and the
+# sections were not, so in a twenty-four player game the sections were a quarter of the
+# message and could not be made to give any of it back.
+#
+# The rungs run down to one row each *before* the certain-only pass below, because that
+# pass removes players — a player whose achievements are all uncertain vanishes from a
+# list that is supposed to be about everyone. One row each says less about each player;
+# the other says nothing at all about some of them. That ordering is why a twenty-four
+# player game now shows every player instead of collapsing to a few hundred characters.
+_ROW_LADDER = (None, 8, 5, 3, 2, 1)
 
 # Telegram counts the message a client *displays*, not the markup that produced it, and
 # here the two are nothing like the same length: every name in the post is a tg:// mention,
@@ -1420,28 +1450,96 @@ def _entry_sort_key(entry):
     return 0 if entry["tier"] == rulelist.CHECK else 1
 
 
-def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
-    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
-    msg = t.STANDIN_LIST_HEADER
-    listed = 0
+def list_contents(session_data):
+    """Everything the post can say, before any trimming: (per_player, groups).
 
+    The post is a *view* of this, and a trimmed one — so /info and /roll read this rather
+    than the message they are replying to (see handlers/achievements.py). Parsing the
+    rendered text was exact only while the whole list fitted in one message, and a roll
+    drawn from three of a player's nine rows is a wrong answer nobody can see.
+
+    `per_player` is [(user_id, name, [entry, ...])] in roster order, the certain entries
+    first; `groups` is [(achievement, tier, [(user_id, name), ...])] for the roleless ones.
+    Both are already filtered — the dead, the alts, and anything a player has earned are
+    gone — so a renderer decides only how much of this to show, never what is true.
+    """
+    revealed = session.revealed_roles(session_data)
+    feasible, shared = feasibility.feasible(revealed, db.get_rules())
+
+    per_player = []
     for uid, player_entry in session.players_in_order(session_data):
         if not player_entry["alive"] or not player_entry["roles"] or db.is_alt_account(uid):
             continue
-        entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
         # Nobody is hunting an achievement they already hold, so what a player has earned
         # is dropped before anything else. This is why the roster's attained lists are
         # fetched at /gs: without them the post is a list of things half the room finished
         # months ago.
-        entries = [e for e in entries if not session.already_has(session_data, uid, e["name"])]
+        entries = [
+            entry
+            for entry in sorted(feasible.get(uid, []), key=_entry_sort_key)
+            if not session.already_has(session_data, uid, entry["name"])
+        ]
+        if entries:
+            per_player.append((uid, player_entry["name"], entries))
+
+    # Every living player is a candidate for these, revealed or not — they depend on no
+    # role, so a player who has not said what they are is as able to earn one as anybody.
+    # An achievement nobody is missing is left out rather than named with an empty list.
+    groups = []
+    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
+        eligible = [
+            (uid, player_entry["name"])
+            for uid, player_entry in session.players_in_order(session_data)
+            if player_entry["alive"]
+            and not db.is_alt_account(uid)
+            and not session.already_has(session_data, uid, entry["name"])
+        ]
+        if eligible:
+            groups.append((entry["name"], entry["tier"], eligible))
+
+    return per_player, groups
+
+
+def reply_contents(chat_data, message):
+    """What our own Possible Achievements post lists — or None if `message` is not it.
+
+    Shaped exactly as handlers/achievements.py parses a post, (per_player, groups,
+    mentions), because the whole point is that it stands in for the parsing. The message
+    is a *trimmed* view of the session, so a /roll read off the text can draw from three
+    of a player's nine rows with nothing on screen to say the other six existed.
+
+    `mentions` names everybody at the table rather than only the players the post had room
+    for, so a candidate trimmed out of the message is still tappable in the result.
+    """
+    if message is None:
+        return None
+    session_data = session.get(chat_data)
+    if session_data is None or message.message_id != session_data.get("list_message_id"):
+        return None
+
+    per_player, groups = list_contents(session_data)
+    return (
+        [(name, [entry["name"] for entry in entries]) for _uid, name, entries in per_player],
+        {name: [player for _uid, player in eligible] for name, _tier, eligible in groups},
+        {entry["name"]: uid for uid, entry in session.players_in_order(session_data)},
+    )
+
+
+def _build_list(session_data, contents, cap, include_uncertain):
+    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
+    per_player, groups = contents
+    msg = t.STANDIN_LIST_HEADER
+    listed = 0
+
+    for uid, name, entries in per_player:
         if not include_uncertain:
             entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
         if not entries:
             continue
 
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, player_entry["name"]))
-        shown = entries if row_cap is None else entries[:row_cap]
+        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
+        shown = entries if cap is None else entries[:cap]
         for entry in shown:
             template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
             msg += template.format(name=html.escape(entry["name"]))
@@ -1449,41 +1547,35 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
             msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
         msg += "\n\n"
 
-    groups = _group_sections(session_data, shared, include_uncertain)
+    sections = _group_sections(groups, include_uncertain, cap)
 
     revealed, total = session.revealed_count(session_data)
-    if not listed and not groups:
+    if not listed and not sections:
         msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
 
-    msg += groups
+    msg += sections
     msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
     if not include_uncertain:
         msg += t.STANDIN_LIST_TRIMMED
     return msg
 
 
-def _group_sections(session_data, shared, include_uncertain):
+def _group_sections(groups, include_uncertain, cap):
     """The bottom of the post: each roleless achievement, and who can still get it.
 
-    Every living player is a candidate, revealed or not — these depend on no role, so a
-    player who has not said what they are is as able to earn one as anybody. An achievement
-    nobody is missing is left out entirely rather than printed with an empty list.
+    The count in the heading is of everyone eligible, never of the names that fitted — it
+    is the answer to "how many are still in for this", and a capped one would be wrong.
     """
     out = ""
-    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
-        if not include_uncertain and entry["tier"] != rulelist.CHECK:
+    for name, tier, eligible in groups:
+        if not include_uncertain and tier != rulelist.CHECK:
             continue
-        eligible = [
-            _mention(uid, player_entry["name"])
-            for uid, player_entry in session.players_in_order(session_data)
-            if player_entry["alive"]
-            and not db.is_alt_account(uid)
-            and not session.already_has(session_data, uid, entry["name"])
-        ]
-        if not eligible:
-            continue
-        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(entry["name"]), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(eligible))
+        shown = eligible if cap is None else eligible[:cap]
+        names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
+        if len(eligible) > len(shown):
+            names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
+        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(name), count=len(eligible))
+        out += t.STANDIN_LIST_GROUP_NAMES.format(names=names)
     return out
 
 
@@ -1494,16 +1586,35 @@ def render_list(session_data):
     " - " rows — so replying to it with /info returns the cards, exactly as it does for the
     incumbent's post. The status markers sit *after* the dash for the same reason.
     """
-    revealed = session.revealed_roles(session_data)
-    per_player, shared = feasibility.feasible(revealed, db.get_rules())
+    contents = list_contents(session_data)
 
-    for row_cap in _ROW_LADDER:
-        msg = _build_list(session_data, per_player, shared, row_cap, include_uncertain=True)
+    for cap in _ROW_LADDER:
+        msg = _build_list(session_data, contents, cap, include_uncertain=True)
         if _visible_len(msg) <= _LIST_LIMIT:
             return msg
-    # Still too long with three rows each: drop everything uncertain and say so, rather
-    # than let Telegram reject the message and leave the list frozen at its last edit.
-    return _build_list(session_data, per_player, shared, 3, include_uncertain=False)
+    # Still too long with one row each: drop everything uncertain and say so, rather than
+    # let Telegram reject the message and leave the list frozen at its last edit.
+    msg = _build_list(session_data, contents, 3, include_uncertain=False)
+    return msg if _visible_len(msg) <= _LIST_LIMIT else _truncate(msg)
+
+
+def _truncate(msg):
+    """Cut a post that will not fit however it is rendered, on a line boundary.
+
+    Only a table whose names are near the length Telegram allows gets here, and what is
+    left is mostly headings. It is still the right answer: the alternative is a message
+    Telegram refuses, and a refused edit leaves the list showing something older with
+    nothing to say why. Cut between lines so the last thing standing is never half a name.
+    """
+    budget = _LIST_LIMIT - _visible_len(t.STANDIN_LIST_TOO_LONG)
+    kept, used = [], 0
+    for line in msg.splitlines(keepends=True):
+        length = _visible_len(line)
+        if used + length > budget:
+            break
+        kept.append(line)
+        used += length
+    return "".join(kept) + t.STANDIN_LIST_TOO_LONG
 
 
 # --- Scheduling: one trailing debounce per chat ----------------------------
@@ -1576,23 +1687,27 @@ async def _publish(context):
     msg = render_list(session_data)
     message_id = session_data.get("list_message_id")
     if message_id is None:
-        posted = await context.bot.send_message(
-            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
-        )
+        # The first post, and the one failure that is not cosmetic: without an id every
+        # later publish posts the list again instead of editing it. Reported and left
+        # unrecorded, so the next reveal retries rather than editing a message that is
+        # not there.
+        try:
+            posted = await context.bot.send_message(
+                chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
+        except (BadRequest, Forbidden) as err:
+            logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
+            return
         if posted is not None:
             session_data["list_message_id"] = posted.message_id
         return
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        # Identical to what is already there — a change that unlocked nothing.
-        pass
+    await _edit_live_message(
+        context,
+        "standin_list_edit_failed",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+    )
 
 
 async def _idle_warning(context):

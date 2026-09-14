@@ -655,7 +655,10 @@ STANDIN_LIST_PLAYER = N_("{name}\n")
 STANDIN_LIST_ROW = N_(" - {name}\n")
 STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
 STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
-STANDIN_LIST_MORE = N_(" - <i>…and {count} more</i>\n")
+# Indented under the rows but *without* the dash, which is the one thing in this post that
+# means "an achievement is named here". With it, replying to a trimmed post with /info
+# asked the catalogue for an achievement called "…and 6 more".
+STANDIN_LIST_MORE = N_("   <i>…and {count} more</i>\n")
 STANDIN_LIST_NOBODY = N_("<i>Nothing yet — no roles revealed.</i>\n")
 # Not the same thing, and saying the first when the second is true reads as a bug: early on
 # a lone revealed Villager really does have nothing available, because almost everything
@@ -677,9 +680,18 @@ STANDIN_LIST_FOOTER = N_(
     "\N{BLACK QUESTION MARK ORNAMENT} needs luck · "
     "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} if your role changes\n"
 )
+# The bottom sections name everyone who can still get a roleless achievement, and in a
+# big game that is the longest thing in the post — so the names are capped the way the
+# rows are, and by the same count, rather than the section being dropped whole.
+STANDIN_LIST_GROUP_MORE = N_(" <i>and {count} more</i>")
+
 # Shown when the full list will not fit in one Telegram message and the uncertain rows
 # were dropped to make room. Silently truncating would read as "this is everything".
 STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of them.</i>\n")
+# The last resort, when even one row a player will not fit — a full table whose display
+# names are the length Telegram allows. Saying so beats a message Telegram refuses, which
+# freezes the list at whatever it last said and explains nothing.
+STANDIN_LIST_TOO_LONG = N_("<i>Too long to show in full.</i>\n")
 
 STANDIN_LA_POINTER = N_("The list is here, and updates as roles come in.")
 STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears once someone does.")

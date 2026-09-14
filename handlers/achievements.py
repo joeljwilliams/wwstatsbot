@@ -26,6 +26,7 @@ import db
 import playerdata
 import templates as t
 import wwstats
+from handlers import gamesession
 from handlers.common import mention_map
 
 logger = structlog.get_logger(__name__)
@@ -229,9 +230,9 @@ def _extract_by_player(text):
     return [(player, rows) for player, rows in per_player if rows], groups
 
 
-def _players_who_can_get(text, achievement):
-    """Everyone in the post who can still earn `achievement`, in the order listed."""
-    per_player, groups = _extract_by_player(text)
+def _players_who_can_get(contents, achievement):
+    """Everyone the post lists who can still earn `achievement`, in the order listed."""
+    per_player, groups = contents
     key = achievement.casefold()
 
     found = [player for player, rows in per_player if any(row.casefold() == key for row in rows)]
@@ -241,9 +242,9 @@ def _players_who_can_get(text, achievement):
     return found
 
 
-def _listed_names(text):
+def _listed_names(contents):
     """Every achievement the post names, in order, without duplicates."""
-    per_player, groups = _extract_by_player(text)
+    per_player, groups = contents
     listed = []
     for _, rows in per_player:
         listed += rows
@@ -257,7 +258,7 @@ def _listed_names(text):
     return names
 
 
-async def _listed_achievement(text, query):
+async def _listed_achievement(contents, query):
     """The achievement in the post that `query` names: (name or None, ambiguous).
 
     Matched against what the post lists rather than the whole catalogue, because the answer
@@ -272,7 +273,7 @@ async def _listed_achievement(text, query):
     index. Whatever that search returns still has to be listed in the post; the search
     decides *which* achievement is meant, never who can get it.
     """
-    names = _listed_names(text)
+    names = _listed_names(contents)
     key = query.casefold().strip()
 
     exact = [name for name in names if name.casefold() == key]
@@ -452,23 +453,23 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.ROLL_USAGE, parse_mode=ParseMode.HTML)
         return
 
-    source = replied.text or replied.caption or ""
-    listed, ambiguous = await _listed_achievement(source, query)
+    # Read once and passed down: every question below is about the same post, and
+    # re-reading the text for each of them was three passes over the same string.
+    per_player, groups, mentions = _post_contents(context, replied)
+    contents = (per_player, groups)
+    listed, ambiguous = await _listed_achievement(contents, query)
     if ambiguous:
         await message.reply_text(t.ROLL_AMBIGUOUS.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
         return
     if listed is None:
-        per_player, groups = _extract_by_player(source)
         template = t.ROLL_NO_LIST if not per_player and not groups else t.ROLL_NOT_LISTED
         await message.reply_text(template.format(name=html.escape(query)), parse_mode=ParseMode.HTML)
         return
 
-    candidates = _players_who_can_get(source, listed)
+    candidates = _players_who_can_get(contents, listed)
     if not candidates:
         await message.reply_text(t.ROLL_NOT_LISTED.format(name=html.escape(listed)), parse_mode=ParseMode.HTML)
         return
-
-    mentions = mention_map(replied)
 
     if len(candidates) == 1:
         await message.reply_text(
@@ -491,6 +492,38 @@ async def roll_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def _post_contents(context, replied):
+    """What the post being replied to lists: (per_player, groups, mentions).
+
+    From the session when the post is this bot's own stand-in list, because that message
+    is only a trimmed view of it (see gamesession.reply_contents). Every other post — the
+    real manager's, a forwarded one, an edited copy — is read the only way it can be.
+    """
+    ours = gamesession.reply_contents(context.chat_data, replied)
+    if ours is not None:
+        return ours
+    text = replied.text or replied.caption or ""
+    per_player, groups = _extract_by_player(text)
+    return per_player, groups, mention_map(replied)
+
+
+def _row_names(per_player):
+    """The per-player rows, de-duplicated case-insensitively, in first-seen order.
+
+    The group sections at the bottom are deliberately left out, because
+    _extract_possible_achievements leaves them out: /info has never carded a roleless
+    achievement off a post, and quietly starting to would change what a reply returns.
+    """
+    seen, names = set(), []
+    for _player, rows in per_player:
+        for name in rows:
+            if name.casefold() in seen:
+                continue
+            seen.add(name.casefold())
+            names.append(name)
+    return names
+
+
 async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     name = html.escape(update.message.from_user.first_name)
@@ -502,8 +535,10 @@ async def all_info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t.ALLINFO_NEED_REPLY, parse_mode=ParseMode.HTML)
         return
 
-    source_text = replied.text or replied.caption or ""
-    achv_names = _extract_possible_achievements(source_text)
+    per_player, _groups, _mentions = _post_contents(context, replied)
+    achv_names = (
+        _row_names(per_player) if per_player else _extract_possible_achievements(replied.text or replied.caption or "")
+    )
     if not achv_names:
         await update.message.reply_text(t.ALLINFO_NO_ACHIEVEMENTS, parse_mode=ParseMode.HTML)
         return

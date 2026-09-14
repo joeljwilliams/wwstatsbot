@@ -130,7 +130,7 @@ def test_players_with_no_rows_are_dropped():
 
 
 def test_candidates_are_everyone_listed_under_that_achievement():
-    assert achv_handlers._players_who_can_get(POST, "Double Shot") == [
+    assert achv_handlers._players_who_can_get(achv_handlers._extract_by_player(POST), "Double Shot") == [
         "shu . \N{COMBINING RING ABOVE}\N{SUBSCRIPT PLUS SIGN} \N{DIVISION SIGN} .",
         "Ludwig \N{CRESCENT MOON}",
         "KAI \N{SPARKLES}",
@@ -138,7 +138,9 @@ def test_candidates_are_everyone_listed_under_that_achievement():
 
 
 def test_candidates_come_from_the_group_section_too():
-    assert achv_handlers._players_who_can_get(POST_WITH_GROUPS, "In for the Long Haul") == [
+    assert achv_handlers._players_who_can_get(
+        achv_handlers._extract_by_player(POST_WITH_GROUPS), "In for the Long Haul"
+    ) == [
         "ieb",
         "Infinite",
         "D_Evil_SK",
@@ -146,28 +148,40 @@ def test_candidates_come_from_the_group_section_too():
 
 
 def test_an_achievement_nobody_has_listed_has_no_candidates():
-    assert achv_handlers._players_who_can_get(POST, "Cold as Ice") == []
+    assert achv_handlers._players_who_can_get(achv_handlers._extract_by_player(POST), "Cold as Ice") == []
 
 
 # --- Naming the achievement --------------------------------------------------
 
 
 async def test_the_query_matches_what_the_post_lists_whatever_the_casing():
-    assert await achv_handlers._listed_achievement(POST, "double shot") == ("Double Shot", False)
-    assert await achv_handlers._listed_achievement(POST, "DOUBLE SHOT") == ("Double Shot", False)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "double shot") == (
+        "Double Shot",
+        False,
+    )
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "DOUBLE SHOT") == (
+        "Double Shot",
+        False,
+    )
 
 
 async def test_a_unique_fragment_is_enough():
-    assert await achv_handlers._listed_achievement(POST, "traffic") == ("Traffic Control", False)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "traffic") == (
+        "Traffic Control",
+        False,
+    )
 
 
 async def test_an_ambiguous_fragment_is_refused_rather_than_guessed():
     """A fragment in three of them; picking one decides a game on a coin toss nobody saw."""
-    assert await achv_handlers._listed_achievement(POST, "d") == (None, True)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "d") == (None, True)
 
 
 async def test_something_the_post_does_not_list_is_not_matched():
-    assert await achv_handlers._listed_achievement(POST, "Cold as Ice") == (None, False)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "Cold as Ice") == (
+        None,
+        False,
+    )
 
 
 async def test_a_query_the_post_text_misses_falls_through_to_the_shared_search(monkeypatch):
@@ -179,7 +193,10 @@ async def test_a_query_the_post_text_misses_falls_through_to_the_shared_search(m
         return [{"name": "Did you guard yourself?"}]
 
     monkeypatch.setattr(achv_handlers.builders, "build_info_results", fake_search)
-    assert await achv_handlers._listed_achievement(POST, "dygy") == ("Did you guard yourself?", False)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "dygy") == (
+        "Did you guard yourself?",
+        False,
+    )
 
 
 async def test_the_shared_search_never_decides_who_can_get_it(monkeypatch):
@@ -189,7 +206,7 @@ async def test_the_shared_search_never_decides_who_can_get_it(monkeypatch):
         return [{"name": "Cold as Ice"}]
 
     monkeypatch.setattr(achv_handlers.builders, "build_info_results", fake_search)
-    assert await achv_handlers._listed_achievement(POST, "cai") == (None, False)
+    assert await achv_handlers._listed_achievement(achv_handlers._extract_by_player(POST), "cai") == (None, False)
 
 
 async def test_rolling_an_initialism_works_end_to_end(context, monkeypatch):
