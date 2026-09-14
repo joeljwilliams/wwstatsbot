@@ -464,7 +464,7 @@ wheels = [
 
 [[package]]
 name = "wwstatsbot"
-version = "2.36.5"
+version = "2.36.6"
 source = { virtual = "." }
 dependencies = [
     { name = "asyncpg" },

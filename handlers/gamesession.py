@@ -1394,6 +1394,19 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 _LIST_LIMIT = 3900
 _ROW_LADDER = (None, 8, 5, 3)
 
+# Telegram counts the message a client *displays*, not the markup that produced it, and
+# here the two are nothing like the same length: every name in the post is a tg:// mention,
+# so a sixteen-player game carries well over two thousand characters of <a href> nobody
+# ever sees. Measuring the raw string would degrade the list to fit a limit it never came
+# near. Entities are unescaped for the same reason — "&amp;" is one character on screen.
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _visible_len(msg):
+    """The length Telegram will hold the message to."""
+    return len(html.unescape(_TAG.sub("", msg)))
+
+
 _ROW_TEMPLATES = {
     rulelist.CHECK: t.STANDIN_LIST_ROW,
     rulelist.MAYBE: t.STANDIN_LIST_ROW_MAYBE,
@@ -1427,7 +1440,7 @@ def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
             continue
 
         listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=html.escape(player_entry["name"]))
+        msg += t.STANDIN_LIST_PLAYER.format(name=_mention(uid, player_entry["name"]))
         shown = entries if row_cap is None else entries[:row_cap]
         for entry in shown:
             template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
@@ -1461,7 +1474,7 @@ def _group_sections(session_data, shared, include_uncertain):
         if not include_uncertain and entry["tier"] != rulelist.CHECK:
             continue
         eligible = [
-            player_entry["name"]
+            _mention(uid, player_entry["name"])
             for uid, player_entry in session.players_in_order(session_data)
             if player_entry["alive"]
             and not db.is_alt_account(uid)
@@ -1470,7 +1483,7 @@ def _group_sections(session_data, shared, include_uncertain):
         if not eligible:
             continue
         out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(entry["name"]), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(html.escape(n) for n in eligible))
+        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(eligible))
     return out
 
 
@@ -1486,7 +1499,7 @@ def render_list(session_data):
 
     for row_cap in _ROW_LADDER:
         msg = _build_list(session_data, per_player, shared, row_cap, include_uncertain=True)
-        if len(msg) <= _LIST_LIMIT:
+        if _visible_len(msg) <= _LIST_LIMIT:
             return msg
     # Still too long with three rows each: drop everything uncertain and say so, rather
     # than let Telegram reject the message and leave the list frozen at its last edit.
