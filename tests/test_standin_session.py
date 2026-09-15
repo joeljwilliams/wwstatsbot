@@ -250,13 +250,19 @@ async def test_untrackable_mentions_are_reported_not_dropped(context):
 
 
 async def test_role_records_the_senders_reveal_and_updates_the_roster(context):
+    """Recorded, and answered with silence: the roster is about to say it to everybody.
+
+    Thirty-five players open a game by typing /role at once, and reading each one back
+    buries the reveals underneath their own confirmations. What is *news* is still said —
+    see the section below.
+    """
     session_data = await start_session(context)
     msg = player_message("/role gunner")
     context.args = ["gunner"]
     await gamesession.role_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["roles"] == ["gunner"]
-    assert msg.last_reply == mention(1, "Ren") + "'s role was set to: Gunner \N{PISTOL}"
+    assert msg.replies == []
     # The messages are updated on a trailing debounce, not inline — sixteen players
     # revealing in a minute must not cost sixteen edits (see _DEBOUNCE_SECONDS).
     assert context.job_queue.pending(), "an update should have been scheduled"
@@ -271,16 +277,21 @@ async def test_a_second_role_overwrites_the_first(context):
     assert session_data["players"]["1"]["roles"] == ["werewolf"]
 
 
-async def test_role_sf_records_both_and_says_so(context):
-    """A player told they are the Seer cannot know they are not the Fool."""
+async def test_role_sf_records_both_and_shows_both(context):
+    """A player told they are the Seer cannot know they are not the Fool.
+
+    A first reveal says nothing back, so the roster is where both roles have to appear —
+    and it is the message the rest of the table reads anyway.
+    """
     session_data = await start_session(context)
     msg = player_message("/role sf")
     context.args = ["sf"]
     await gamesession.role_cmd(FakeUpdate(message=msg), context)
 
     assert session_data["players"]["1"]["roles"] == ["seer", "fool"]
-    assert "Seer" in msg.last_reply and "Fool" in msg.last_reply
-    assert "until you know which" in msg.last_reply
+    assert msg.replies == []
+    roster = gamesession.render_state(session_data)[0]
+    assert "Seer" in roster and "Fool" in roster
 
 
 async def test_a_multi_word_role_resolves(context):
@@ -328,6 +339,190 @@ async def test_replying_to_a_non_player_is_reported_not_redirected(context):
 
     assert "player from this game" in msg.last_reply
     assert session_data["players"]["1"]["roles"] == []
+
+
+# --- What is worth saying out loud ------------------------------------------
+#
+# A game of thirty-five opens with everybody typing /role inside a minute, and reading each
+# one back buries the reveals underneath their own confirmations — in exactly the stretch
+# of chat they are needed in. So a player's own first reveal is answered with silence: the
+# roster message is already about to say the same thing to the whole table.
+#
+# Three things are still news, and the tests below are what keep them said: a role that
+# *changed*, a role set *for somebody else*, and a claim the Beholder has already settled —
+# which is recorded as something other than what was typed.
+
+
+async def reveal_message(context, user_id, role_name):
+    """Reveal a role and hand back the message, to assert on what it was told."""
+    msg = player_message("/role " + role_name, user_id=user_id)
+    context.args = role_name.split()
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
+async def already_revealed(context, *user_ids):
+    """Put a role on each player the quiet way, so later /role commands are corrections."""
+    for uid in user_ids:
+        await reveal_message(context, uid, "villager")
+
+
+def role_notices(context):
+    """The collected notices among everything the bot sent — the list post is in there too."""
+    return [sent["text"] for sent in context.bot.sent if sent["text"].startswith("<b>Roles set:</b>")]
+
+
+async def test_a_first_reveal_of_your_own_role_says_nothing(context):
+    session_data = await start_session(context)
+    msg = await reveal_message(context, 2, "harlot")
+
+    assert session_data["players"]["2"]["roles"] == ["harlot"]
+    assert msg.replies == [], "the opening minute of a game is the whole point"
+
+
+async def test_an_unrecognised_role_is_still_refused(context):
+    """The one answer silence must never swallow: nothing was recorded, and only the reply
+    says so — there is no roster row to go and read instead."""
+    session_data = await start_session(context)
+    msg = await reveal_message(context, 2, "blacksmit")
+
+    assert session_data["players"]["2"]["roles"] == []
+    assert "Did you mean" in msg.last_reply
+
+
+async def test_changing_your_own_role_is_said_out_loud(context):
+    """The Thief steals, the Cursed turns: a role that changed is news to the table."""
+    await start_session(context)
+    await already_revealed(context, 1)
+    msg = await reveal_message(context, 1, "werewolf")
+
+    assert msg.last_reply == mention(1, "Ren") + "'s role was set to: Werewolf \N{WOLF FACE}"
+
+
+async def test_typing_the_same_role_again_is_answered(context):
+    """Somebody who saw no answer and typed it again is asking whether it landed, and with
+    the first reveal silent that is the only way left to ask."""
+    await start_session(context)
+    await already_revealed(context, 1)
+    msg = await reveal_message(context, 1, "villager")
+
+    assert "role was set to" in msg.last_reply
+
+
+async def test_a_role_set_for_somebody_else_is_said_out_loud(context):
+    """A claim about another player is not theirs to read off the roster and accept."""
+    session_data = await start_session(context)
+    theirs = message("hello", from_user=FakeUser(2, "omu"))
+    msg = player_message("/role seer", reply_to=theirs)
+    context.args = ["seer"]
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+
+    assert session_data["players"]["2"]["roles"] == ["seer"]
+    assert mention(2, "omu") in msg.last_reply
+
+
+async def test_a_claim_the_beholder_has_settled_is_said_out_loud(context):
+    """Typed "sf", recorded "fool". Silence would leave a player believing they are the
+    Seer, which is the one thing this whole Beholder path exists to settle."""
+    session_data = await start_session(context)
+    await claim(context, "bhns")
+
+    msg = await reveal_message(context, 2, "sf")
+    assert session_data["players"]["2"]["roles"] == ["fool"]
+    assert "Fool" in msg.last_reply
+
+
+# --- A burst of those: one notice, not one each -----------------------------
+#
+# Rarer than the opening flood, but not rare: a night that turns the Wild Child and the
+# Cursed at once, or somebody recording the roles of three players who just died.
+
+
+async def test_only_the_first_of_a_burst_is_answered_on_its_own(context):
+    await start_session(context)
+    await already_revealed(context, 1, 2, 3)
+
+    first = await reveal_message(context, 1, "gunner")
+    second = await reveal_message(context, 2, "seer")
+    third = await reveal_message(context, 3, "harlot")
+
+    assert first.last_reply == mention(1, "Ren") + "'s role was set to: Gunner \N{PISTOL}"
+    assert second.replies == [] and third.replies == []
+
+    await context.job_queue.run_pending(context)
+    notices = role_notices(context)
+    assert len(notices) == 1, "one notice for the burst, not one per change"
+    assert mention(2, "omu") in notices[0] and "Seer" in notices[0]
+    assert mention(3, "J J") in notices[0] and "Harlot" in notices[0]
+    assert mention(1, "Ren") not in notices[0], "already answered; saying it twice is the noise"
+
+
+async def test_a_correction_inside_the_window_is_named_once(context):
+    """The notice is read when it fires — not at the moment of each /role."""
+    await start_session(context)
+    await already_revealed(context, 1, 2)
+
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "seer")
+    await reveal_message(context, 2, "werewolf")
+
+    await context.job_queue.run_pending(context)
+    notice = role_notices(context)[0]
+    assert notice.count(mention(2, "omu")) == 1
+    assert "Werewolf" in notice and "Seer" not in notice
+
+
+async def test_an_unresolved_seer_fool_keeps_its_note_in_the_notice(context):
+    """The "we are counting both" caveat is the whole reason /role sf reads differently."""
+    await start_session(context)
+    await already_revealed(context, 1, 2)
+
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "sf")
+
+    await context.job_queue.run_pending(context)
+    notice = role_notices(context)[0]
+    assert "Seer" in notice and "Fool" in notice
+    assert "until the player knows which" in notice
+
+
+async def test_a_change_after_the_window_is_answered_on_its_own(context, monkeypatch):
+    """A quiet game is unchanged: one change, one quoted reply, no waiting."""
+    await start_session(context)
+    await already_revealed(context, 1, 2)
+    await reveal_message(context, 1, "gunner")
+
+    later = gamesession._now() + gamesession._ROLE_BURST_SECONDS + 1
+    monkeypatch.setattr(gamesession, "_now", lambda: later)
+    msg = await reveal_message(context, 2, "seer")
+
+    assert "Seer" in msg.last_reply
+    assert context.job_queue.pending(gamesession._ROLE_BURST_JOB.format(-100)) == []
+
+
+async def test_every_change_is_answered_when_there_is_no_job_queue(context):
+    """A bot built without the job-queue extra has nothing to flush a buffer with, so
+    buffering there would swallow every confirmation after the first."""
+    await start_session(context)
+    context.job_queue = None
+    await already_revealed(context, 1, 2)
+
+    first = await reveal_message(context, 1, "gunner")
+    second = await reveal_message(context, 2, "seer")
+    assert "Gunner" in first.last_reply
+    assert "Seer" in second.last_reply
+
+
+async def test_a_notice_for_an_ended_session_says_nothing(context):
+    """The session can end between the change and the window closing."""
+    await start_session(context)
+    await already_revealed(context, 1, 2)
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "seer")
+    session.end(context.chat_data)
+
+    await context.job_queue.run_pending(context)
+    assert role_notices(context) == []
 
 
 # --- /rm: three forms, one validation ---------------------------------------
@@ -522,9 +717,11 @@ async def test_the_roster_mirrors_the_managers_layout(context):
 
 
 async def test_an_unrevealed_player_is_shown_as_such(context):
+    """Marked, not merely worded: a player with no role recorded is the one thing in this
+    message somebody has to act on, and italic grey text reads as a footnote."""
     session_data = await start_session(context)
     rendered, _ = gamesession.render_state(session_data)
-    assert mention(2, "omu") + ": <i>not revealed</i>" in rendered
+    assert mention(2, "omu") + ": \N{HEAVY EXCLAMATION MARK SYMBOL} <i>not revealed</i>" in rendered
 
 
 async def test_a_rolemodel_renders_inline_in_parentheses(context):

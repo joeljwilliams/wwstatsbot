@@ -408,6 +408,242 @@ async def test_deaths_alone_are_not_announced(context):
     assert len(context.bot.sent) == sent
 
 
+# --- The end of the first night ----------------------------------------------
+#
+# Two gaps leave the Possible Achievements list unable to answer for somebody: a player who
+# never set a role, and a Wild Child or Doppelgänger nobody named a rolemodel for. Both are
+# read out when the first night ends — which the game bot announces, and which is a moment
+# nothing else in the session knows about.
+#
+# The flavour above the day number is deliberately not what is matched: it says whether
+# anybody died, it differs again for a murderer or a harlot, and every variant is
+# translated. The tests below feed both shapes the game actually posts.
+
+
+QUIET_NIGHT = (
+    "The villagers gather the next morning in the village center, to sighs of relief - "
+    "it appears there was no attack the previous night."
+)
+BLOODY_NIGHT = (
+    "The wolves attempted to have a nice late night snack, but were instead greeted by a "
+    "crazed murderer! Arthur was killed in the fight!"
+)
+
+
+def daybreak(flavour=QUIET_NIGHT, number=1, message_id=10, sender_id=GAME_BOT_ID):
+    """The game bot's day announcement, verbatim in shape: flavour, the timer, "Day N"."""
+    body = "{}\n\nIt is now day time. All of you have 90 seconds to make your accusations, defenses, or just talk.\n\nDay {}".format(
+        flavour, number
+    )
+    msg = bot_message(body, message_id=message_id)
+    msg.from_user = FakeUser(user_id=sender_id, first_name="WerewolfBot", is_bot=True)
+    return msg
+
+
+def nudges(context):
+    return [sent["text"] for sent in context.bot.sent if "Still no role" in sent["text"]]
+
+
+async def opened(context, revealed=()):
+    """A session the automation opened, with a role on each player named."""
+    auto(context)
+    await seen(context, roster(message_id=1))
+    for uid in revealed:
+        await reveal(context, uid, "villager")
+
+
+async def test_the_first_night_ending_names_whoever_has_no_role(context):
+    await opened(context, revealed=[1])
+
+    await seen(context, daybreak())
+
+    assert len(nudges(context)) == 1
+    assert "omu" in nudges(context)[0] and "J J" in nudges(context)[0]
+    assert "Ren" not in nudges(context)[0], "already set one"
+
+
+async def test_a_night_that_killed_somebody_reads_the_same(context):
+    """The flavour is the half that changes; the day number is the half that does not."""
+    await opened(context)
+
+    await seen(context, daybreak(flavour=BLOODY_NIGHT))
+
+    assert len(nudges(context)) == 1
+
+
+async def test_a_wild_child_with_no_rolemodel_is_named_too(context):
+    await opened(context, revealed=[1, 2, 3])
+    await reveal(context, 2, "wc")
+
+    await seen(context, daybreak())
+
+    body = nudges(context)[0]
+    assert "Still no rolemodel set" in body
+    assert "omu" in body
+
+
+async def test_a_wild_child_who_named_a_rolemodel_is_left_alone(context):
+    await opened(context, revealed=[1, 2, 3])
+    await reveal(context, 2, "wc")
+    session.set_model(session.get(context.chat_data), 2, 3)
+
+    await seen(context, daybreak())
+
+    assert nudges(context) == []
+
+
+async def test_a_table_with_no_gaps_is_told_nothing(context):
+    await opened(context, revealed=[1, 2, 3])
+
+    await seen(context, daybreak())
+
+    assert nudges(context) == []
+
+
+async def test_it_is_said_once_and_not_every_morning(context):
+    """A second telling is nagging, and the ❗ stays on the roster for anyone who looks."""
+    await opened(context)
+
+    await seen(context, daybreak(number=1, message_id=10))
+    await seen(context, daybreak(number=2, message_id=11))
+
+    assert len(nudges(context)) == 1
+
+
+async def test_the_moment_passes_even_when_nothing_was_missing(context):
+    """A table that all revealed must not bank its turn for a later morning."""
+    await opened(context, revealed=[1, 2, 3])
+    await seen(context, daybreak(number=1, message_id=10))
+
+    session.set_roles(session.get(context.chat_data), 2, [])
+    await seen(context, daybreak(number=2, message_id=11))
+
+    assert nudges(context) == []
+
+
+async def test_a_day_announcement_changes_nothing_in_the_session(context):
+    """It carries no player list, and must never be read as one."""
+    await opened(context)
+    before = dict(session.get(context.chat_data)["players"])
+
+    await seen(context, daybreak(flavour=BLOODY_NIGHT))
+
+    assert session.get(context.chat_data)["players"] == before
+
+
+async def test_a_day_announcement_with_no_session_is_ignored(context):
+    """Nothing to nudge about, and nothing to open from a message carrying no roster."""
+    auto(context)
+
+    await seen(context, daybreak())
+
+    assert session.get(context.chat_data) is None
+    assert nudges(context) == []
+
+
+# --- Night falling ends the day's lynch order ---------------------------------
+#
+# A typed order answers "who do we point at *today*", and is the one thing in the session
+# about a single day rather than about the game. Read again the next morning it names
+# players who died overnight and a plan the village has already carried out, so night
+# falling clears it and the rotating order — computed from the living roster on demand — is
+# what comes back.
+
+
+NIGHTFALL = (
+    "Night has fallen. Everyone heads to bed, weary after another stressful day. "
+    "Night players: you have 60 seconds use your actions!"
+)
+PACIFIST = (
+    "The Pacifist \N{PEACE SYMBOL}\N{VARIATION SELECTOR-16}, Zoe., is making a heartfelt speech of friendship "
+    "and trust in front of the village. Moved by their speech, there will be no lynching today!\n\n"
+    "Because of the Pacifist's \N{PEACE SYMBOL}\N{VARIATION SELECTOR-16} heartfelt speech, the lynch phase will "
+    "be skipped today!\n\n" + NIGHTFALL
+)
+
+
+def nightfall(body=NIGHTFALL, message_id=20, sender_id=GAME_BOT_ID):
+    """The game bot's "the lynch phase is over" message, in the shapes it comes in."""
+    msg = bot_message(body, message_id=message_id)
+    msg.from_user = FakeUser(user_id=sender_id, first_name="WerewolfBot", is_bot=True)
+    return msg
+
+
+def resets(context):
+    return [sent["text"] for sent in context.bot.sent if "reset as night fell" in sent["text"]]
+
+
+async def test_night_falling_clears_a_typed_order(context):
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall())
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+    assert len(resets(context)) == 1
+
+
+async def test_a_named_order_goes_the_same_way(context):
+    """Stored as ids rather than text, and just as much about one day only."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), [2, 3, 1])
+
+    await seen(context, nightfall())
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+
+
+async def test_a_skipped_lynch_ends_the_day_too(context):
+    """The Pacifist talks the village out of lynching, and the same line closes it."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall(body=PACIFIST))
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+
+
+async def test_nothing_is_said_when_there_was_no_order(context):
+    """Which is most games: a line announcing that nothing happened, every single night, is
+    exactly the noise the rest of this module spends its time avoiding."""
+    await opened(context)
+
+    await seen(context, nightfall())
+
+    assert resets(context) == []
+
+
+async def test_the_rotating_order_is_what_comes_back(context):
+    """Clearing it is not the same as having none — the fallback is computed from whoever
+    is still alive, so the next morning has an order without anybody retyping one."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall())
+
+    current = session.get(context.chat_data)
+    assert [uid for uid, _ in session.rotating_lynch_order(current)] == [1, 2, 3, 1]
+
+
+async def test_night_falling_changes_nothing_else(context):
+    """It carries no player list either, and must never be read as one."""
+    await opened(context)
+    before = dict(session.get(context.chat_data)["players"])
+
+    await seen(context, nightfall())
+
+    assert session.get(context.chat_data)["players"] == before
+
+
+async def test_night_falling_with_no_session_is_ignored(context):
+    auto(context)
+
+    await seen(context, nightfall())
+
+    assert session.get(context.chat_data) is None
+    assert resets(context) == []
+
+
 # --- Closing it out ----------------------------------------------------------
 
 

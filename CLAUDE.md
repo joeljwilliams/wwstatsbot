@@ -412,8 +412,9 @@ arrives at the start of a game and after every death with nobody asking. The **e
 matched on `Game Length: hh:mm:ss`, which the engine appends exactly once, at game end. The
 win messages are the obvious alternative and are the wrong one — they are GIF captions, and
 they differ in every one of the game's hundred-odd language variants. Everything read here
-is English, like `_ROSTER_COUNTS`, `_DEAD_ROW` and `_DOUSED_LINE` before it; a group playing
-in another language keeps typing `/gs`.
+is English, like `_ROSTER_COUNTS`, `_DEAD_ROW`, `_DOUSED_LINE`, `_DAY_BREAKS` and
+`_NIGHT_FALLS` beside it; a group playing in another language keeps typing `/gs` — and gets
+neither the nudge below nor the nightly lynch-order reset.
 
 **Which bot is the game bot is learned, never guessed.** A group has several bots in it and
 a roster-shaped message is not proof of anything, so the answer is whichever bot a human ran
@@ -492,6 +493,17 @@ rotating one, because the incumbent has none — decoration meant to be helpful 
 as a different tool. The one addition is a note naming a dead player dropped at set time,
 which is a wrong answer avoided rather than decoration.
 
+**Night falling clears a typed order**, under `/gm auto`. It is the one thing in the session
+that is about a single *day* rather than about the game — "who do we point at today" — and
+read again the next morning it names players who died overnight and a plan the village has
+already carried out. `_NIGHT_FALLS` matches the line the game bot opens that message with,
+which is the same after a lynch, after a tie and after a Pacifist talks the village out of
+one; the rotating order it falls back to is computed on demand, so the next morning has an
+order with nobody retyping anything. It is announced **only when there was something to
+clear**, which most games never have: a line saying nothing happened, every night, is the
+noise the rest of this module exists to avoid — but a chat that did set one is owed the one
+line, in the place where somebody would otherwise go looking for their order.
+
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;
 a bare `/info` replying to a bot routes to `all_info_cmd`. `/schall` and `/allinfo` still
@@ -566,6 +578,78 @@ game with a round of no-op re-declares went from 63 edits to 31. It is the same 
 fingerprint advances only on an edit that landed**, so a failed one is retried rather than
 remembered as done. The exception is "message is not modified" — that is Telegram
 confirming the message already looks like this, which is worth recording.
+
+**A first reveal is answered with silence; what is news is not.** A thirty-five player
+game opens with thirty-five people typing `/role` inside a minute, and reading each one
+back buries the reveals underneath their own confirmations — in the one stretch of chat
+they are needed in. So `/role` records a player's own first reveal and says nothing: the
+roster message is already about to say the same thing to the whole table. Only an
+unrecognised role is refused, because nothing was recorded and there is no roster row to
+read instead.
+
+Three things are still said out loud, and `tests/test_standin_session.py` is what keeps
+them said: a role that **changed** (the Thief steals, the Cursed turns), a role set **for
+somebody else** (a claim the table has to see, not something its subject quietly accepts),
+and a claim the **Beholder has already settled** — `session.set_roles` collapses a `sf`
+pair to one role when the Beholder has answered, so going quiet there would leave a player
+believing they are the Seer. Re-typing an identical role counts as a change deliberately:
+somebody who saw no answer and typed it again is asking whether it landed, and with the
+first reveal silent that is the only way left to ask.
+
+Those still arrive in bursts — a night that turns two players at once, three roles recorded
+after a wave of deaths — so the first is answered at once, quoted on the message that made
+the claim, and anything inside the next `_ROLE_BURST_SECONDS` is buffered in the session and
+read back in one notice. The window is the publish debounce's, so the notice and the live
+list it describes land together. Three details are load-bearing: the buffer is keyed by
+**player**, so somebody correcting themselves twice inside one window is named once; each
+row is rendered from the session **when the notice fires**, never from what was typed; and a
+bot built with no job queue answers everything, because nothing would flush the buffer and
+every confirmation after the first would vanish. Flood control puts the whole burst back and
+retries past the window, for the same reason.
+
+**What the list cannot answer for is marked, then named once.** Silence on a first reveal
+(above) costs something: nobody is told their `/role` landed, and a player who never sent
+one is invisible until somebody counts the roster. So the roster row carries a ❗ rather
+than only the italic "not revealed" it had — that row is the one thing in the message
+somebody has to act on — and the **first death** in the session names the gaps out loud,
+with mentions.
+
+**Two gaps, one message.** A player with no role at all, and a **Wild Child or Doppelgänger
+with no role model** — the quieter one, because the role is right there on the list while
+the transform their whole game turns on can never fire, leaving them listed as a Wild Child
+to the end and offered the wrong achievements the entire way. The roster has nothing to say
+about that one at all. One send rather than two: the point is to stop the chat scrolling,
+not to add to it.
+
+**The moment is the end of the first night, and the game bot is what announces it.**
+`_DAY_BREAKS` matches a line that is nothing but `Day 3` in what the game bot posts; the
+flavour above it is what a reader notices and is the wrong thing to match, since it says
+whether anybody died, differs again for a murderer or a harlot, and is translated in every
+variant. The day number is structural and identical in all of them. Any day rather than
+strictly Day 1, because the nudge fires once per session anyway — so it reads as "the first
+night that ended while we were watching", which is Day 1 in an ordinary game and still the
+right moment in a session that opened halfway through one.
+
+A **death was the first attempt at that moment and is wrong**: a night can end with nobody
+killed, and the first death that does happen may be a day-one lynch, hours later or never.
+Reading the day announcement means the nudge only exists under **`/gm auto`** — it is the
+only mode that reads the game bot at all — so a session run by hand never sends one, and the
+roster's ❗ is all it has.
+
+Three rules inside it: the **dead are left out** of both lists, since the game bot's death
+rows name their role already and the one person a nudge cannot help is the one who is out;
+it is said **once**, because a second telling is nagging and the ❗ stays on the roster for
+anyone who looks; and the flag is set **whether or not anybody was missing**, so a table
+with no gaps spends the moment there rather than banking it for a later morning.
+
+**An unchanged lynch order is not sent twice in five seconds.** `/lo` is thirty-five lines
+in a thirty-five player game, and several people ask for it within seconds of each other;
+the third copy has scrolled the game itself out of the chat. The rendering is fingerprinted
+and a repeat inside `_LYNCH_REPEAT_SECONDS` is dropped silently — whoever asked is looking
+at the answer. Fingerprinted rather than timed alone because a death or a `/slo` between
+the two asks makes the second a *different* answer, which is worth the room; and recorded
+**before** the send rather than after, because the duplicates this is about arrive while
+that send is still in flight.
 
 **Flood control postpones the publish; it does not lose it.** A `RetryAfter` used to leave
 the loop entirely — both live messages stayed at their last successful edit until somebody

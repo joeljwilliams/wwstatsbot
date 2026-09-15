@@ -262,6 +262,24 @@ async def test_dead_with_something_that_names_nobody_still_says_so(context):
     assert session_data["players"]["1"]["alive"] is True
 
 
+# --- A death is not the end of a night --------------------------------------
+
+
+async def test_a_death_says_nothing_about_anybody_who_never_revealed(context):
+    """Whoever never set a role is named when the *first night ends*, which the game bot
+    announces in as many words — see tests/test_standin_auto.py.
+
+    A death was the first attempt at that moment and is the wrong one: a night can end with
+    nobody killed at all, and the first death that does happen may be a day-one lynch, hours
+    of game later or never.
+    """
+    await start_session(context)
+
+    await dead(context, "Ren")
+
+    assert [sent for sent in context.bot.sent if "Still no role" in sent["text"]] == []
+
+
 # --- /ad --------------------------------------------------------------------
 
 
