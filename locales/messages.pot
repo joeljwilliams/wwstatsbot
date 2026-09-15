@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-13 11:19+0200\n"
+"POT-Creation-Date: 2026-09-14 16:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -427,7 +427,7 @@ msgstr ""
 msgid "Those achievements are no longer available."
 msgstr ""
 
-#: templates.py:235
+#: templates.py:235 templates.py:717
 msgid ""
 "I can't message you yet. Start a private chat with me first (tap my name,"
 " then Start), then tap the button again."
@@ -1226,66 +1226,95 @@ msgid ""
 "\n"
 msgstr ""
 
-#: templates.py:655
+#: templates.py:658
 #, python-brace-format
 msgid " - {name}\n"
 msgstr ""
 
-#: templates.py:656
-#, python-brace-format
-msgid " - ❓ {name}\n"
-msgstr ""
-
-#: templates.py:657
+#: templates.py:659
 #, python-brace-format
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: templates.py:658
+#: templates.py:663
 #, python-brace-format
-msgid " - <i>…and {count} more</i>\n"
+msgid "   <i>…and {count} more</i>\n"
 msgstr ""
 
-#: templates.py:659
+#: templates.py:664
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:663
+#: templates.py:668
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:670
+#: templates.py:677
 #, python-brace-format
-msgid "{name} ({count}):\n"
+msgid "<b>{name}</b> ({count}):\n"
 msgstr ""
 
-#: templates.py:671
+#: templates.py:678
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: templates.py:674
+#: templates.py:681
 #, python-brace-format
 msgid ""
 "\n"
-"🕐 {revealed} of {total} revealed · ❓ needs luck · 🔁 if your role changes\n"
+"🕐 {revealed} of {total} revealed · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:680
+#: templates.py:687
+#, python-brace-format
+msgid " <i>and {count} more</i>"
+msgstr ""
+
+#: templates.py:692
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:682
+#: templates.py:696
+msgid "<i>Too long to show in full.</i>\n"
+msgstr ""
+
+#: templates.py:707
+msgid "📄 Show me the full list"
+msgstr ""
+
+#: templates.py:708
+msgid "⏪️ Prev"
+msgstr ""
+
+#: templates.py:709
+msgid "Next ⏩️"
+msgstr ""
+
+#: templates.py:710
+#, python-brace-format
+msgid "<i>Page {index} of {total}</i>\n"
+msgstr ""
+
+#: templates.py:711
+msgid "Sent the full list to your PM ✅"
+msgstr ""
+
+#: templates.py:715
+msgid "That game has ended, so there is no list to page through."
+msgstr ""
+
+#: templates.py:720
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:683
+#: templates.py:721
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:686
+#: templates.py:724
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1293,7 +1322,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:689
+#: templates.py:727
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

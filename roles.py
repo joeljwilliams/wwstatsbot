@@ -45,6 +45,13 @@ TEAMS = (VILLAGE, WOLF, CULT, SOLO)
 PACK = "pack"
 # Can cause a death by their own action, whatever the mechanism (eat, shoot, poison, burn).
 KILLER = "killer"
+# Strictly narrower: chooses a target and kills it during the *night*. The Gunner and the
+# Hunter carry KILLER and only ever fire by day, so "can anybody die tonight" and "is there
+# a killer here" are different questions — asking the second offered "Sunday Bloody Sunday"
+# and "Definitely Dead" in games where nothing could die after dark. The Hunter's return
+# fire does land at night and is still not tagged, because it is a reaction: it cannot be
+# aimed, which is the whole of "kill your lover on the first night".
+NIGHT_KILLER = "night_killer"
 # Leaves their house at night, so can be caught out by the Grave Digger's pits, the
 # Arsonist's fire, or counted by the Chef's rice. Per the game's own list of visiting roles.
 VISITOR = "visitor"
@@ -129,7 +136,7 @@ ROLES = {
         "name": "Cultist Hunter",
         "emoji": "💂",
         "team": VILLAGE,
-        "tags": _tags(KILLER, VISITOR, CULT_IMMUNE),
+        "tags": _tags(KILLER, NIGHT_KILLER, VISITOR, CULT_IMMUNE),
         "aliases": ("ch", "culthunter"),
     },
     "wild_child": {
@@ -189,7 +196,7 @@ ROLES = {
         "name": "Chemist",
         "emoji": "👨‍🔬",
         "team": VILLAGE,
-        "tags": _tags(VISITOR, KILLER),
+        "tags": _tags(VISITOR, KILLER, NIGHT_KILLER),
         "aliases": ("chem",),
     },
     "grave_digger": {
@@ -215,14 +222,14 @@ ROLES = {
         "name": "Werewolf",
         "emoji": "🐺",
         "team": WOLF,
-        "tags": _tags(PACK, KILLER, VISITOR, BAD, CULT_IMMUNE, STEAL_IMMUNE),
+        "tags": _tags(PACK, KILLER, NIGHT_KILLER, VISITOR, BAD, CULT_IMMUNE, STEAL_IMMUNE),
         "aliases": ("ww", "wolf"),
     },
     "alpha_wolf": {
         "name": "Alpha Wolf",
         "emoji": "⚡️",
         "team": WOLF,
-        "tags": _tags(PACK, KILLER, VISITOR, BAD, CONVERTER, CULT_IMMUNE, STEAL_IMMUNE),
+        "tags": _tags(PACK, KILLER, NIGHT_KILLER, VISITOR, BAD, CONVERTER, CULT_IMMUNE, STEAL_IMMUNE),
         "aliases": ("aw", "alpha"),
     },
     # Pack member, but kills nothing itself — its death grants the pack a second victim.
@@ -246,7 +253,7 @@ ROLES = {
         "name": "Lycan",
         "emoji": "🐺🌝",
         "team": WOLF,
-        "tags": _tags(PACK, KILLER, VISITOR, BAD, CULT_IMMUNE, STEAL_IMMUNE),
+        "tags": _tags(PACK, KILLER, NIGHT_KILLER, VISITOR, BAD, CULT_IMMUNE, STEAL_IMMUNE),
         "aliases": (),
     },
     # Wolf team, wolf-aligned seer, no kill of its own — and notably neither cult- nor
@@ -265,14 +272,14 @@ ROLES = {
         "name": "Serial Killer",
         "emoji": "🔪",
         "team": SOLO,
-        "tags": _tags(KILLER, VISITOR, BAD, LONER, CULT_IMMUNE, STEAL_IMMUNE),
+        "tags": _tags(KILLER, NIGHT_KILLER, VISITOR, BAD, LONER, CULT_IMMUNE, STEAL_IMMUNE),
         "aliases": ("sk",),
     },
     "arsonist": {
         "name": "Arsonist",
         "emoji": "🔥",
         "team": SOLO,
-        "tags": _tags(KILLER, VISITOR, BAD, LONER, CULT_IMMUNE),
+        "tags": _tags(KILLER, NIGHT_KILLER, VISITOR, BAD, LONER, CULT_IMMUNE),
         "aliases": ("arso",),
     },
     # Solo but not a killer, which is why LONER and BAD are separate tags.

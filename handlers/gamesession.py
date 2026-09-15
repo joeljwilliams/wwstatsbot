@@ -24,6 +24,7 @@ than one that ignored them.
 """
 
 import asyncio
+import hashlib
 import html
 import re
 import time
@@ -31,7 +32,7 @@ import time
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
@@ -39,7 +40,6 @@ import db
 import feasibility
 import playerdata
 import roles
-import rulelist
 import session
 import templates as t
 from handlers.common import (
@@ -55,6 +55,12 @@ from handlers.common import (
 logger = structlog.get_logger(__name__)
 
 STOP_CALLBACK = "standin:stop"
+
+# The full-list pager. The chat id rides in the callback data because the *later* taps
+# happen on a message in the tapper's PM, where context.chat_data is that private chat's
+# and the game's session is somewhere else entirely — see full_list_callback.
+FULL_LIST_CALLBACK = "standin:full"
+_FULL_LIST_PREFIX = "standin:full:"
 
 # The Stop button takes two presses. The real manager's stops on the first, and it sits
 # under sixteen players' thumbs for the length of a game — a mis-tap there kills a live
@@ -366,6 +372,84 @@ def render_state(session_data, ended=False):
     return msg, keyboard
 
 
+# Telegram answers "Bad Request: message is not modified" when an edit would change
+# nothing, and this bot asks for one on every publish whether or not anything changed —
+# so that particular refusal is the ordinary case and is meant to be ignored.
+#
+# Everything else wearing the same exception is not. "Message is too long", "can't parse
+# entities", "message to edit not found" all arrived here too, and `except BadRequest:
+# pass` made them indistinguishable from a no-op: the live message simply stopped
+# following the game, with nothing in the log and nothing on screen. Reported rather than
+# raised, because a player who did successfully issue a command should not see it fail
+# over a message they cannot see.
+_UNMODIFIED = re.compile(r"message is not modified", re.IGNORECASE)
+
+
+def _fingerprint(text, keyboard):
+    """What a live message would look like, in sixteen characters.
+
+    The keyboard counts: the list's button appears and disappears with the trimming, so a
+    message whose text is unchanged but whose button has gone still has to be edited.
+    """
+    buttons = [
+        button.callback_data or button.url or button.text
+        for row in (keyboard.inline_keyboard if keyboard is not None else ())
+        for button in row
+    ]
+    return hashlib.blake2s("\x00".join([text, *buttons]).encode(), digest_size=8).hexdigest()
+
+
+async def _edit_live_message(context, event, session_data, key, chat_id, message_id, text, reply_markup=None):
+    """Edit one of the session's live messages: best effort, never silently, never twice.
+
+    Returns False only when flood control was hit, which means the rest of this publish
+    would be refused the same way and has already been rescheduled.
+
+    **An edit identical to the last one that landed is not sent at all.** Both live
+    messages are re-rendered and re-sent on every publish whether or not either changed,
+    and a publish follows every write — so a `/love` between two players who were already
+    lovers, a re-sent roster that moved nothing, a second `/dead` for somebody already
+    dead, all spent an API call asking Telegram to replace a message with itself. It
+    answers "message is not modified", which the code below is careful to ignore, and the
+    call still counted against a per-chat limit of roughly twenty a minute.
+
+    This is the same rule `RedisPersistence._save` follows one layer down, including the
+    half that matters: the fingerprint advances only on an edit that *landed*, so a failed
+    one is retried rather than remembered as done. The exception is "not modified" itself,
+    which is Telegram confirming the message already looks like this — that is worth
+    recording, and it is what stops a second identical publish asking again.
+    """
+    fingerprint = _fingerprint(text, reply_markup)
+    if session_data.get(key) == fingerprint:
+        return True
+
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except RetryAfter as err:
+        seconds = _retry_seconds(err)
+        _postpone_publish(context, chat_id, seconds)
+        logger.warning(event, chat_id=chat_id, retry_after=seconds)
+        return False
+    except BadRequest as err:
+        if _UNMODIFIED.search(str(err)) is None:
+            logger.warning(event, chat_id=chat_id, error=str(err))
+            return True
+    except Forbidden as err:
+        # Kicked, or the chat is gone. The session will expire on its own.
+        logger.warning(event, chat_id=chat_id, error=str(err))
+        return True
+
+    session_data[key] = fingerprint
+    return True
+
+
 async def _refresh_state(context, chat_id, session_data):
     """Re-render the live roster message in place.
 
@@ -375,19 +459,18 @@ async def _refresh_state(context, chat_id, session_data):
     """
     message_id = session_data.get("state_message_id")
     if message_id is None:
-        return
+        return True
     msg, keyboard = render_state(session_data)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    return await _edit_live_message(
+        context,
+        "standin_roster_edit_failed",
+        session_data,
+        "state_fingerprint",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=keyboard,
+    )
 
 
 # --- /gs -------------------------------------------------------------------
@@ -440,9 +523,11 @@ async def _open_session(context, chat_id, starter_id, roster):
         disable_web_page_preview=True,
     )
     # The id is what every later edit needs; without it the roster would be re-posted on
-    # each reveal instead of updated.
+    # each reveal instead of updated. The fingerprint alongside it is what stops the very
+    # first publish editing this message into exactly what was just posted.
     if posted is not None:
         session_data["state_message_id"] = posted.message_id
+        session_data["state_fingerprint"] = _fingerprint(msg, keyboard)
         await _pin_state(context, chat_id, session_data, posted.message_id)
     # A session nobody ever touches still has to expire, so the idle clock starts here
     # rather than on the first reveal.
@@ -852,17 +937,16 @@ async def _finish(context, chat_id, session_data):
     if message_id is None:
         return
     msg, _ = render_state(session_data, ended=True)
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            reply_markup=None,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        pass
+    await _edit_live_message(
+        context,
+        "standin_roster_close_failed",
+        session_data,
+        "state_fingerprint",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=None,
+    )
 
 
 async def end_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1392,105 +1476,377 @@ async def steal_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # outcome nobody could work around, while dropping the least certain rows still leaves
 # everyone able to see where they stand.
 _LIST_LIMIT = 3900
-_ROW_LADDER = (None, 8, 5, 3)
 
-_ROW_TEMPLATES = {
-    rulelist.CHECK: t.STANDIN_LIST_ROW,
-    rulelist.MAYBE: t.STANDIN_LIST_ROW_MAYBE,
-}
+# One number per rung, and it caps both the rows under a player and the names under a
+# group section. The two used to be separate in the worst way: rows were capped and the
+# sections were not, so in a twenty-four player game the sections were a quarter of the
+# message and could not be made to give any of it back.
+#
+# The rungs run down to one row each *before* the certain-only pass below, because that
+# pass removes players — a player whose achievements are all uncertain vanishes from a
+# list that is supposed to be about everyone. One row each says less about each player;
+# the other says nothing at all about some of them. That ordering is why a twenty-four
+# player game now shows every player instead of collapsing to a few hundred characters.
+_ROW_LADDER = (None, 8, 5, 3, 2, 1)
+
+# Telegram counts the message a client *displays*, not the markup that produced it, and
+# here the two are nothing like the same length: every name in the post is a tg:// mention,
+# so a sixteen-player game carries well over two thousand characters of <a href> nobody
+# ever sees. Measuring the raw string would degrade the list to fit a limit it never came
+# near. Entities are unescaped for the same reason — "&amp;" is one character on screen.
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _visible_len(msg):
+    """The length Telegram will hold the message to."""
+    return len(html.unescape(_TAG.sub("", msg)))
 
 
 def _entry_sort_key(entry):
-    """Certain rows first, then the lucky ones, then the ones needing a role change."""
-    if entry["swing"]:
-        return 2
-    return 0 if entry["tier"] == rulelist.CHECK else 1
+    """The rows about who you are now, then the ones needing a role change.
+
+    A stable sort, so within each half the catalogue's own order survives — which is
+    /achievements order, and the order /roll and /info read back.
+    """
+    return 1 if entry["swing"] else 0
 
 
-def _build_list(session_data, per_player, shared, row_cap, include_uncertain):
-    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
-    msg = t.STANDIN_LIST_HEADER
-    listed = 0
+def list_contents(session_data):
+    """Everything the post can say, before any trimming: (per_player, groups).
 
+    The post is a *view* of this, and a trimmed one — so /info and /roll read this rather
+    than the message they are replying to (see handlers/achievements.py). Parsing the
+    rendered text was exact only while the whole list fitted in one message, and a roll
+    drawn from three of a player's nine rows is a wrong answer nobody can see.
+
+    `per_player` is [(user_id, name, [entry, ...])] in roster order, the rows a player can
+    reach as they are first; `groups` is [(achievement, [(user_id, name), ...])] for the
+    roleless ones.
+    Both are already filtered — the dead, the alts, and anything a player has earned are
+    gone — so a renderer decides only how much of this to show, never what is true.
+    """
+    revealed = session.revealed_roles(session_data)
+    feasible, shared = feasibility.feasible(revealed, db.get_rules())
+
+    per_player = []
     for uid, player_entry in session.players_in_order(session_data):
         if not player_entry["alive"] or not player_entry["roles"] or db.is_alt_account(uid):
             continue
-        entries = sorted(per_player.get(uid, []), key=_entry_sort_key)
         # Nobody is hunting an achievement they already hold, so what a player has earned
         # is dropped before anything else. This is why the roster's attained lists are
         # fetched at /gs: without them the post is a list of things half the room finished
         # months ago.
-        entries = [e for e in entries if not session.already_has(session_data, uid, e["name"])]
-        if not include_uncertain:
-            entries = [e for e in entries if e["tier"] == rulelist.CHECK and not e["swing"]]
-        if not entries:
-            continue
+        entries = [
+            entry
+            for entry in sorted(feasible.get(uid, []), key=_entry_sort_key)
+            if not session.already_has(session_data, uid, entry["name"])
+        ]
+        if entries:
+            per_player.append((uid, player_entry["name"], entries))
 
-        listed += 1
-        msg += t.STANDIN_LIST_PLAYER.format(name=html.escape(player_entry["name"]))
-        shown = entries if row_cap is None else entries[:row_cap]
-        for entry in shown:
-            template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
-            msg += template.format(name=html.escape(entry["name"]))
-        if len(entries) > len(shown):
-            msg += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
-        msg += "\n\n"
-
-    groups = _group_sections(session_data, shared, include_uncertain)
-
-    revealed, total = session.revealed_count(session_data)
-    if not listed and not groups:
-        msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
-
-    msg += groups
-    msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
-    if not include_uncertain:
-        msg += t.STANDIN_LIST_TRIMMED
-    return msg
-
-
-def _group_sections(session_data, shared, include_uncertain):
-    """The bottom of the post: each roleless achievement, and who can still get it.
-
-    Every living player is a candidate, revealed or not — these depend on no role, so a
-    player who has not said what they are is as able to earn one as anybody. An achievement
-    nobody is missing is left out entirely rather than printed with an empty list.
-    """
-    out = ""
-    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
-        if not include_uncertain and entry["tier"] != rulelist.CHECK:
-            continue
+    # Every living player is a candidate for these, revealed or not — they depend on no
+    # role, so a player who has not said what they are is as able to earn one as anybody.
+    # An achievement nobody is missing is left out rather than named with an empty list.
+    groups = []
+    for entry in shared:
         eligible = [
-            player_entry["name"]
+            (uid, player_entry["name"])
             for uid, player_entry in session.players_in_order(session_data)
             if player_entry["alive"]
             and not db.is_alt_account(uid)
             and not session.already_has(session_data, uid, entry["name"])
         ]
-        if not eligible:
+        if eligible:
+            groups.append((entry["name"], eligible))
+
+    return per_player, groups
+
+
+def reply_contents(chat_data, message):
+    """What our own Possible Achievements post lists — or None if `message` is not it.
+
+    Shaped exactly as handlers/achievements.py parses a post, (per_player, groups,
+    mentions), because the whole point is that it stands in for the parsing. The message
+    is a *trimmed* view of the session, so a /roll read off the text can draw from three
+    of a player's nine rows with nothing on screen to say the other six existed.
+
+    `mentions` names everybody at the table rather than only the players the post had room
+    for, so a candidate trimmed out of the message is still tappable in the result.
+    """
+    if message is None:
+        return None
+    session_data = session.get(chat_data)
+    if session_data is None or message.message_id != session_data.get("list_message_id"):
+        return None
+
+    per_player, groups = list_contents(session_data)
+    return (
+        [(name, [entry["name"] for entry in entries]) for _uid, name, entries in per_player],
+        {name: [player for _uid, player in eligible] for name, eligible in groups},
+        {entry["name"]: uid for uid, entry in session.players_in_order(session_data)},
+    )
+
+
+def _without_swing(entries):
+    """Only what a player can reach as the role they are. The last-resort pass drops the rest.
+
+    The rows behind a role change are what a post gives up first when even one row each
+    will not fit: "you could get this if the wolves eat you" is the least of what anybody
+    came to the post for.
+    """
+    return [entry for entry in entries if not entry["swing"]]
+
+
+def _player_block(uid, name, entries, cap):
+    """One player's part of the post: their name, then their rows."""
+    out = t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
+    shown = entries if cap is None else entries[:cap]
+    for entry in shown:
+        template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else t.STANDIN_LIST_ROW
+        out += template.format(name=html.escape(entry["name"]))
+    if len(entries) > len(shown):
+        out += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
+    return out + "\n\n"
+
+
+def _group_block(name, eligible, cap):
+    """One roleless achievement, and who can still get it.
+
+    The count in the heading is of everyone eligible, never of the names that fitted — it
+    is the answer to "how many are still in for this", and a capped one would be wrong.
+    """
+    shown = eligible if cap is None else eligible[:cap]
+    names = ", ".join(_mention(uid, player_name) for uid, player_name in shown)
+    if len(eligible) > len(shown):
+        names += t.STANDIN_LIST_GROUP_MORE.format(count=len(eligible) - len(shown))
+    return t.STANDIN_LIST_GROUP_HEADER.format(
+        name=html.escape(name), count=len(eligible)
+    ) + t.STANDIN_LIST_GROUP_NAMES.format(names=names)
+
+
+def _build_list(session_data, contents, cap, include_swing):
+    """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
+    per_player, groups = contents
+    msg = t.STANDIN_LIST_HEADER
+    listed = 0
+
+    for uid, name, entries in per_player:
+        if not include_swing:
+            entries = _without_swing(entries)
+        if not entries:
             continue
-        out += t.STANDIN_LIST_GROUP_HEADER.format(name=html.escape(entry["name"]), count=len(eligible))
-        out += t.STANDIN_LIST_GROUP_NAMES.format(names=", ".join(html.escape(n) for n in eligible))
-    return out
+        listed += 1
+        msg += _player_block(uid, name, entries, cap)
+
+    # The sections are never dropped, only capped: they belong to no role, so nothing in
+    # them can be reached "only by turning" and there is no half of them to give up.
+    sections = ""
+    for name, eligible in groups:
+        sections += _group_block(name, eligible, cap)
+
+    revealed, total = session.revealed_count(session_data)
+    if not listed and not sections:
+        msg += t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE
+
+    msg += sections
+    msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
+    if not include_swing:
+        msg += t.STANDIN_LIST_TRIMMED
+    return msg
 
 
 def render_list(session_data):
-    """The Possible Achievements post.
+    """The Possible Achievements post: (html, keyboard), as render_state returns.
 
     Byte-compatible with the game's own manager — an unindented player name, then indented
     " - " rows — so replying to it with /info returns the cards, exactly as it does for the
     incumbent's post. The status markers sit *after* the dash for the same reason.
-    """
-    revealed = session.revealed_roles(session_data)
-    per_player, shared = feasibility.feasible(revealed, db.get_rules())
 
-    for row_cap in _ROW_LADDER:
-        msg = _build_list(session_data, per_player, shared, row_cap, include_uncertain=True)
-        if len(msg) <= _LIST_LIMIT:
-            return msg
-    # Still too long with three rows each: drop everything uncertain and say so, rather
-    # than let Telegram reject the message and leave the list frozen at its last edit.
-    return _build_list(session_data, per_player, shared, 3, include_uncertain=False)
+    The keyboard is a button to the full list in PM, and it is there only when this
+    rendering had to leave something out. A pager offering exactly what is already on the
+    screen is a button that does nothing.
+    """
+    contents = list_contents(session_data)
+
+    for cap in _ROW_LADDER:
+        msg = _build_list(session_data, contents, cap, include_swing=True)
+        if _visible_len(msg) <= _LIST_LIMIT:
+            return msg, _full_list_keyboard(cap is not None)
+    # Still too long with one row each: drop everything behind a role change and say so,
+    # rather than let Telegram reject the message and leave the list frozen at its last edit.
+    msg = _build_list(session_data, contents, 3, include_swing=False)
+    if _visible_len(msg) > _LIST_LIMIT:
+        msg = _truncate(msg)
+    return msg, _full_list_keyboard(True)
+
+
+def _full_list_keyboard(trimmed):
+    """The one button on the post, when there is more of it to see."""
+    if not trimmed:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton(t.STANDIN_FULL_BUTTON, callback_data=FULL_LIST_CALLBACK)]])
+
+
+# --- The full list, paged privately ----------------------------------------
+
+
+def full_list_pages(session_data):
+    """The whole list, nothing capped and nothing dropped, split into messages.
+
+    Split on block boundaries, so a player's rows are never divided across two pages and
+    the section naming everyone who can get a roleless achievement stays with its heading.
+    Every page carries the header and the footer: they are read one at a time rather than
+    scrolled through as one message, so a page has to stand on its own.
+    """
+    per_player, groups = list_contents(session_data)
+    blocks = [_player_block(uid, name, entries, None) for uid, name, entries in per_player]
+    blocks += [_group_block(name, eligible, None) for name, eligible in groups]
+
+    revealed, total = session.revealed_count(session_data)
+    if not blocks:
+        blocks = [t.STANDIN_LIST_NOBODY if not revealed else t.STANDIN_LIST_NOTHING_POSSIBLE]
+    footer = t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
+    # The page counter is not known until the pages are counted, so room is set aside for
+    # it rather than measured. Thirty characters is "Page 100 of 100" twice over.
+    room = _LIST_LIMIT - _visible_len(t.STANDIN_LIST_HEADER) - _visible_len(footer) - 30
+
+    bodies, current, used = [], "", 0
+    for block in blocks:
+        length = _visible_len(block)
+        if current and used + length > room:
+            bodies.append(current)
+            current, used = "", 0
+        current += block
+        used += length
+    bodies.append(current)
+
+    pages = []
+    for index, body in enumerate(bodies):
+        page = t.STANDIN_LIST_HEADER + body + footer
+        page += t.STANDIN_FULL_PAGE_FOOTER.format(index=index + 1, total=len(bodies))
+        # One block can be bigger than a whole message on its own — a group section naming
+        # a table of sixty — and no amount of splitting between blocks helps.
+        pages.append(page if _visible_len(page) <= _LIST_LIMIT else _truncate(page))
+    return pages
+
+
+def _full_list_page_keyboard(chat_id, index, total):
+    """Prev/Next, wrapping, so the keyboard keeps its shape at both ends of the list.
+
+    The chat id rides in the button because these taps land in the reader's *private*
+    chat, where `context.chat_data` is that conversation's and the game's session is
+    somewhere else entirely.
+    """
+    if total == 1:
+        return None
+
+    def page(target):
+        return "{}{}:{}".format(_FULL_LIST_PREFIX, chat_id, target % total)
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(t.STANDIN_FULL_PREV, callback_data=page(index - 1)),
+                InlineKeyboardButton(t.STANDIN_FULL_NEXT, callback_data=page(index + 1)),
+            ]
+        ]
+    )
+
+
+async def full_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """The full-list button on the post, and the Prev/Next of the pager it opens.
+
+    Two shapes reach here. A bare `standin:full` is the button in the group, where
+    `context.chat_data` is the game's own; it opens page one in the tapper's PM rather
+    than paging the post, because the post is one shared message that sixteen people are
+    watching and a page number on it would belong to whoever pressed a button last.
+    `standin:full:<chat_id>:<page>` comes from that private message, and is why the chat
+    id has to be carried: PTB hands a handler the chat_data of the chat the *button* is
+    in, which by then is a conversation with one person in it.
+
+    Pages are rendered from the session on every tap rather than from a copy taken when
+    the pager opened, so a page turned two minutes into a game shows the game as it is
+    now — and the session having ended is the one thing a page cannot be turned to.
+    """
+    query = update.callback_query
+    user = query.from_user
+    opening = query.data == FULL_LIST_CALLBACK
+
+    if opening:
+        chat_id = query.message.chat.id
+        session_data = session.get(context.chat_data)
+        index = 0
+    else:
+        raw_chat, _, raw_index = query.data[len(_FULL_LIST_PREFIX) :].partition(":")
+        chat_id = int(raw_chat)
+        session_data = session.get(context.application.chat_data.get(chat_id) or {})
+        index = int(raw_index) if raw_index.isdigit() else 0
+
+    logger.info(
+        "callback",
+        command="standin_full",
+        user_id=user.id,
+        user=unidecode(user.first_name),
+        chat_id=chat_id,
+        page=index,
+        ended=session_data is None,
+    )
+
+    if session_data is None:
+        await query.answer(t.STANDIN_FULL_ENDED, show_alert=True)
+        return
+
+    pages = full_list_pages(session_data)
+    # Modulo rather than a bounds check: a death or a reveal between taps can change how
+    # many pages there are, and the index in the button was written before that happened.
+    index %= len(pages)
+    keyboard = _full_list_page_keyboard(chat_id, index, len(pages))
+
+    if not opening:
+        try:
+            await query.edit_message_text(
+                pages[index], reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
+        except BadRequest as err:
+            # Two taps raced and the page is already the one being asked for.
+            if _UNMODIFIED.search(str(err)) is None:
+                logger.warning("standin_full_page_failed", chat_id=chat_id, error=str(err))
+        await query.answer()
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=pages[index],
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        # Almost always that they have never started the bot in PM, so there is no chat to
+        # send to. A callback answer cannot carry a button, so the alert spells out the fix.
+        await query.answer(t.STANDIN_FULL_NO_PM, show_alert=True)
+        return
+    await query.answer(t.STANDIN_FULL_SENT)
+
+
+def _truncate(msg):
+    """Cut a post that will not fit however it is rendered, on a line boundary.
+
+    Only a table whose names are near the length Telegram allows gets here, and what is
+    left is mostly headings. It is still the right answer: the alternative is a message
+    Telegram refuses, and a refused edit leaves the list showing something older with
+    nothing to say why. Cut between lines so the last thing standing is never half a name.
+    """
+    budget = _LIST_LIMIT - _visible_len(t.STANDIN_LIST_TOO_LONG)
+    kept, used = [], 0
+    for line in msg.splitlines(keepends=True):
+        length = _visible_len(line)
+        if used + length > budget:
+            break
+        kept.append(line)
+        used += length
+    return "".join(kept) + t.STANDIN_LIST_TOO_LONG
 
 
 # --- Scheduling: one trailing debounce per chat ----------------------------
@@ -1532,6 +1888,38 @@ def _schedule_publish(context, chat_id):
     queue.run_once(_publish, _DEBOUNCE_SECONDS, chat_id=chat_id, name=name)
 
 
+def _retry_seconds(error):
+    """How long Telegram asked us to wait, as a number of seconds.
+
+    PTB is mid-migration on this one: `retry_after` is a number today and warns that it
+    becomes a `timedelta` in a future major version (opt in early with PTB_TIMEDELTA=1).
+    Read both ways, because the alternative is finding out through a TypeError raised
+    inside flood handling — the worst moment available for a new exception.
+    """
+    delay = error.retry_after
+    return delay.total_seconds() if hasattr(delay, "total_seconds") else delay
+
+
+def _postpone_publish(context, chat_id, seconds):
+    """Flood control: push the next publish past the window Telegram named.
+
+    Replaces whatever was pending rather than adding to it — a publish already scheduled
+    five seconds out would land inside the same window and be refused the same way. The
+    live messages are only *late*, and this is what makes them late rather than stuck at
+    their last successful edit until somebody happens to reveal a role.
+
+    A second past the window because the two clocks are not the same one, and being early
+    costs another refusal and another wait.
+    """
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _PUBLISH_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_publish, seconds + 1, chat_id=chat_id, name=name)
+
+
 def _schedule_idle(context, chat_id):
     """Restart the idle countdown. Any activity pushes the end of the session back."""
     queue = _job_queue(context)
@@ -1558,28 +1946,48 @@ async def _publish(context):
         # Ended between the schedule and the fire. Nothing to say.
         return
 
-    await _refresh_state(context, chat_id, session_data)
+    if not await _refresh_state(context, chat_id, session_data):
+        # Flood control, and the list edit below would meet the same window. Already
+        # rescheduled; both messages catch up together when it reopens.
+        return
 
-    msg = render_list(session_data)
+    msg, keyboard = render_list(session_data)
     message_id = session_data.get("list_message_id")
     if message_id is None:
-        posted = await context.bot.send_message(
-            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
-        )
+        # The first post, and the one failure that is not cosmetic: without an id every
+        # later publish posts the list again instead of editing it. Reported and left
+        # unrecorded, so the next reveal retries rather than editing a message that is
+        # not there.
+        try:
+            posted = await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+        except RetryAfter as err:
+            seconds = _retry_seconds(err)
+            _postpone_publish(context, chat_id, seconds)
+            logger.warning("standin_list_post_failed", chat_id=chat_id, retry_after=seconds)
+            return
+        except (BadRequest, Forbidden) as err:
+            logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
+            return
         if posted is not None:
             session_data["list_message_id"] = posted.message_id
+            session_data["list_fingerprint"] = _fingerprint(msg, keyboard)
         return
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=msg,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except BadRequest:
-        # Identical to what is already there — a change that unlocked nothing.
-        pass
+    await _edit_live_message(
+        context,
+        "standin_list_edit_failed",
+        session_data,
+        "list_fingerprint",
+        chat_id=chat_id,
+        message_id=message_id,
+        text=msg,
+        reply_markup=keyboard,
+    )
 
 
 async def _idle_warning(context):

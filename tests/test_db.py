@@ -523,7 +523,7 @@ async def test_a_deploy_updates_a_rule_nobody_has_edited(ruled):
 
 async def test_a_deploy_leaves_a_hand_edited_rule_alone(ruled):
     """A rule fixed mid-game must not be silently reverted by the next release."""
-    await db.update_rule("Cold as Ice", "check", "snow_wolf", "ispresent('cupid')", "edited live")
+    await db.update_rule("Cold as Ice", "snow_wolf", "ispresent('cupid')", "edited live")
     await db.seed_rules()
     await db.load_rules_cache()
 
@@ -533,7 +533,7 @@ async def test_a_deploy_leaves_a_hand_edited_rule_alone(ruled):
 
 
 async def test_resetting_a_rule_lets_the_next_deploy_restore_it(ruled):
-    await db.update_rule("Cold as Ice", "check", "snow_wolf", "ispresent('cupid')", "edited live")
+    await db.update_rule("Cold as Ice", "snow_wolf", "ispresent('cupid')", "edited live")
     assert await db.reset_rule("Cold as Ice")
     await db.seed_rules()
     await db.load_rules_cache()
@@ -544,7 +544,7 @@ async def test_resetting_a_rule_lets_the_next_deploy_restore_it(ruled):
 
 
 async def test_update_rule_reports_an_unknown_achievement(ruled):
-    assert await db.update_rule("No Such Achievement", "check", "any", "True", "") is False
+    assert await db.update_rule("No Such Achievement", "any", "True", "") is False
     assert await db.reset_rule("No Such Achievement") is False
 
 

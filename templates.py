@@ -650,12 +650,17 @@ STANDIN_LIST_HEADER = N_("Possible Achievements:\n\n")
 # Name alone, no role: the game's own manager lists players this way, and the role is
 # already on the roster message a few lines up.
 STANDIN_LIST_PLAYER = N_("{name}\n")
-# Three row shapes, one prefix each. The dash and the space are load-bearing — they are
+# Two row shapes, one prefix each. The dash and the space are load-bearing — they are
 # what /info matches on — so a marker always follows them rather than replacing them.
+# There used to be a third, a ❓ on the rows something still had to go right for. It is
+# gone with the rule tiers: the post says what the roles make possible, and a marker on
+# two thirds of it only told players something they were already better at judging.
 STANDIN_LIST_ROW = N_(" - {name}\n")
-STANDIN_LIST_ROW_MAYBE = N_(" - \N{BLACK QUESTION MARK ORNAMENT} {name}\n")
 STANDIN_LIST_ROW_SWING = N_(" - \N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} {name}\n")
-STANDIN_LIST_MORE = N_(" - <i>…and {count} more</i>\n")
+# Indented under the rows but *without* the dash, which is the one thing in this post that
+# means "an achievement is named here". With it, replying to a trimmed post with /info
+# asked the catalogue for an achievement called "…and 6 more".
+STANDIN_LIST_MORE = N_("   <i>…and {count} more</i>\n")
 STANDIN_LIST_NOBODY = N_("<i>Nothing yet — no roles revealed.</i>\n")
 # Not the same thing, and saying the first when the second is true reads as a bug: early on
 # a lone revealed Villager really does have nothing available, because almost everything
@@ -667,17 +672,50 @@ STANDIN_LIST_NOTHING_POSSIBLE = N_("<i>Nothing available yet from what has been 
 # the same thing sixteen times and crowd out the rows that are about somebody in particular.
 # No marker on these, matching the manager: everything in this post is "possible", and a
 # section that belongs to nobody in particular has no per-player certainty to qualify.
-STANDIN_LIST_GROUP_HEADER = N_("{name} ({count}):\n")
+# Bold, because this line and the one under it are both lists of names otherwise: the
+# achievement reads as one more player until it is set apart.
+STANDIN_LIST_GROUP_HEADER = N_("<b>{name}</b> ({count}):\n")
 STANDIN_LIST_GROUP_NAMES = N_("{names}\n\n")
 
 STANDIN_LIST_FOOTER = N_(
     "\n\N{CLOCK FACE ONE OCLOCK} {revealed} of {total} revealed · "
-    "\N{BLACK QUESTION MARK ORNAMENT} needs luck · "
     "\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS} if your role changes\n"
 )
-# Shown when the full list will not fit in one Telegram message and the uncertain rows
-# were dropped to make room. Silently truncating would read as "this is everything".
+# The bottom sections name everyone who can still get a roleless achievement, and in a
+# big game that is the longest thing in the post — so the names are capped the way the
+# rows are, and by the same count, rather than the section being dropped whole.
+STANDIN_LIST_GROUP_MORE = N_(" <i>and {count} more</i>")
+
+# Shown when the full list will not fit in one Telegram message and the rows needing a
+# role change were dropped to make room. Silently truncating would read as "this is
+# everything".
 STANDIN_LIST_TRIMMED = N_("<i>Trimmed to fit — reply with /info for any of them.</i>\n")
+# The last resort, when even one row a player will not fit — a full table whose display
+# names are the length Telegram allows. Saying so beats a message Telegram refuses, which
+# freezes the list at whatever it last said and explains nothing.
+STANDIN_LIST_TOO_LONG = N_("<i>Too long to show in full.</i>\n")
+
+# --- HTML: the full list, paged privately (handlers/gamesession.py) ---------
+#
+# The button appears only when the post in the group had to leave something out, because
+# a pager offering exactly what is already on screen is a button that does nothing.
+#
+# It opens in the tapper's PM rather than paging the group's message, and that is the
+# whole design: the post is one shared message that sixteen people are watching and that
+# re-renders itself every few seconds, so a page number on it belongs to whoever pressed
+# a button last. Everybody who wants the rest gets their own copy instead.
+STANDIN_FULL_BUTTON = N_("\N{PAGE FACING UP} Show me the full list")
+STANDIN_FULL_PREV = N_("\N{BLACK LEFT-POINTING DOUBLE TRIANGLE}\N{VARIATION SELECTOR-16} Prev")
+STANDIN_FULL_NEXT = N_("Next \N{BLACK RIGHT-POINTING DOUBLE TRIANGLE}\N{VARIATION SELECTOR-16}")
+STANDIN_FULL_PAGE_FOOTER = N_("<i>Page {index} of {total}</i>\n")
+STANDIN_FULL_SENT = N_("Sent the full list to your PM \N{WHITE HEAVY CHECK MARK}")
+# Rendered from the session on every tap rather than from a copy taken when the pager was
+# opened, so a page turned two minutes into a game shows the game as it is now. That makes
+# the session ending the one thing a page cannot be turned to.
+STANDIN_FULL_ENDED = N_("That game has ended, so there is no list to page through.")
+STANDIN_FULL_NO_PM = N_(
+    "I can't message you yet. Start a private chat with me first (tap my name, then Start), then tap the button again."
+)
 
 STANDIN_LA_POINTER = N_("The list is here, and updates as roles come in.")
 STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears once someone does.")
