@@ -110,9 +110,9 @@ CREATE INDEX IF NOT EXISTS achievements_search_tsv_idx
 CREATE TABLE IF NOT EXISTS achievement_rules (
     achievement TEXT PRIMARY KEY
         REFERENCES achievements(name) ON UPDATE CASCADE ON DELETE CASCADE,
-    -- check | maybe | always | skip -- see rulelist.TIERS.
-    tier        TEXT NOT NULL,
     -- Who can earn it: 'any', role ids, 'tag:<tag>', 'team:<team>', comma-separated.
+    -- Empty means the achievement is never listed (rulelist._skip): the subject is the
+    -- on switch, so there is no second column that has to agree with it.
     subject     TEXT NOT NULL DEFAULT '',
     -- Boolean expression over the composition, evaluated in a sandbox.
     expr        TEXT NOT NULL DEFAULT 'True',
@@ -123,6 +123,13 @@ CREATE TABLE IF NOT EXISTS achievement_rules (
     edited      BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- `tier` graded how much the game still had to cooperate (check/maybe/always/skip) and is
+-- gone: the rules answer what the roles make possible, and the table judges the rest. The
+-- drop is spelled out because CREATE TABLE IF NOT EXISTS above is a no-op on a database
+-- that already has the table -- which is every deployed one -- so the old NOT NULL column
+-- would survive and reject every seeded row.
+ALTER TABLE achievement_rules DROP COLUMN IF EXISTS tier;
 
 -- Second accounts. Being somebody's alt is a fact about the account, not about a
 -- particular game: the same person brings the same spare account to every round, and
@@ -303,17 +310,16 @@ async def seed_rules():
     async with _pool.acquire() as conn:
         await conn.executemany(
             """
-            INSERT INTO achievement_rules (achievement, tier, subject, expr, note)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO achievement_rules (achievement, subject, expr, note)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (achievement) DO UPDATE
-                SET tier = EXCLUDED.tier,
-                    subject = EXCLUDED.subject,
+                SET subject = EXCLUDED.subject,
                     expr = EXCLUDED.expr,
                     note = EXCLUDED.note,
                     updated_at = now()
                 WHERE achievement_rules.edited = FALSE
             """,
-            [(r["name"], r["tier"], r["subject"], r["expr"], r["note"]) for r in RULES],
+            [(r["name"], r["subject"], r["expr"], r["note"]) for r in RULES],
         )
     count = await _scalar("SELECT count(*) FROM achievement_rules")
     edited = await _scalar("SELECT count(*) FROM achievement_rules WHERE edited")
@@ -326,7 +332,7 @@ async def load_rules_cache():
     async with _pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT r.achievement, r.tier, r.subject, r.expr, r.note, r.edited
+            SELECT r.achievement, r.subject, r.expr, r.note, r.edited
             FROM achievement_rules r
             JOIN achievements a ON a.name = r.achievement
             ORDER BY a.sort_order, a.id
@@ -334,7 +340,6 @@ async def load_rules_cache():
         )
     _RULES = {
         r["achievement"]: {
-            "tier": r["tier"],
             "subject": r["subject"],
             "expr": r["expr"],
             "note": r["note"],
@@ -354,7 +359,7 @@ def get_rules():
     return _RULES
 
 
-async def update_rule(achievement, tier, subject, expr, note):
+async def update_rule(achievement, subject, expr, note):
     """Overwrite one rule and mark it hand-edited. Returns True if a row matched.
 
     The `edited` flag is the whole point: it opts this rule out of being overwritten by
@@ -365,12 +370,11 @@ async def update_rule(achievement, tier, subject, expr, note):
         result = await conn.execute(
             """
             UPDATE achievement_rules
-               SET tier = $2, subject = $3, expr = $4, note = $5,
+               SET subject = $2, expr = $3, note = $4,
                    edited = TRUE, updated_at = now()
              WHERE achievement = $1
             """,
             achievement,
-            tier,
             subject,
             expr,
             note,

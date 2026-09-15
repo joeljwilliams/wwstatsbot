@@ -127,6 +127,28 @@ def test_burnable_houses_exclude_the_arsonists_own_and_the_serial_killers():
     assert comp(*(["arsonist", "serial_killer"] + ["villager"] * 9)).max_burnable_houses() == 9
 
 
+def test_a_game_with_nothing_to_start_a_pack_can_never_have_a_wolf():
+    """The Cursed needs a bite and the Traitor needs wolves to have died; neither is a
+    first wolf. Counting them as one offered the Angel a wolf to guard in a game with
+    none."""
+    assert comp("cursed", "traitor", "villager", "seer").max_possible_wolves() == 0
+    assert comp("wild_child", "villager", "seer").max_possible_wolves() == 1, "the role model just dies"
+    assert comp("doppelganger", "villager", "seer").max_possible_wolves() == 0, "nothing to copy"
+
+
+def test_night_killers_exclude_the_roles_that_only_fire_by_day():
+    assert comp("gunner", "hunter", "villager").night_killers() == 0
+    assert comp("werewolf", "serial_killer", "gunner").night_killers() == 2
+
+
+def test_distinct_visiting_roles_counts_roles_where_the_tag_count_counts_players():
+    """Three werewolves are three visitors and one visiting role — the difference between
+    "It Was a Busy Night!" and "Traffic Control"."""
+    c = comp("werewolf", "werewolf", "werewolf", "harlot")
+    assert c.count_tag(roles.VISITOR) == 4
+    assert c.distinct_tagged_roles(roles.VISITOR) == 2
+
+
 def test_burnable_houses_never_goes_negative():
     assert feasibility.Composition(()).max_burnable_houses() == 0
     assert comp("arsonist").max_burnable_houses() == 0
@@ -157,6 +179,17 @@ def test_an_alpha_puts_every_player_within_reach_of_the_pack():
     assert "werewolf" in feasibility.reachable_roles(("seer",), c)
 
 
+def test_the_cursed_reaches_nothing_in_a_game_that_can_have_no_wolf():
+    """The other half of the same rule the wolf ceiling follows.
+
+    Nobody bites the Cursed in a game dealt no pack and no Wild Child, so listing the
+    wolves' achievements under them said a game with no wolves had one.
+    """
+    c = comp("cursed", "traitor", "villager", "seer")
+    assert c.max_possible_wolves() == 0
+    assert feasibility.reachable_roles(("cursed",), c) == {"cursed"}
+
+
 def test_without_an_alpha_an_ordinary_villager_stays_put():
     c = comp("werewolf", "villager", "seer")
     assert feasibility.reachable_roles(("seer",), c) == {"seer"}
@@ -176,6 +209,30 @@ def test_the_thief_cannot_reach_wolves_the_serial_killer_or_cultists():
     assert "sorcerer" in reachable, "the Sorcerer can be robbed"
     for immune in ("werewolf", "serial_killer", "cultist"):
         assert immune not in reachable, immune
+
+
+def test_a_thief_puts_the_stealable_roles_within_everybodys_reach():
+    """Not only the Thief's own. The theft moves an identity between two players, so the
+    Barkeep who already holds Liquid Business is not the only one who might be the Barkeep
+    by morning — and a list that said otherwise left fifteen players short of rows that
+    were really on the table."""
+    c = comp("thief", "barkeep", "villager", "seer", "werewolf")
+    assert {"barkeep", "seer", "thief"} <= feasibility.reachable_roles(("villager",), c)
+    assert {"villager", "seer", "thief"} <= feasibility.reachable_roles(("barkeep",), c)
+
+
+def test_the_steal_immune_are_immune_in_both_directions():
+    """Nothing is shuffled onto a wolf, a cultist or the serial killer, and nothing is
+    shuffled off one: they cannot be robbed, so their seat is not part of the exchange."""
+    c = comp("thief", "barkeep", "werewolf", "cultist", "serial_killer")
+    for immune in ("werewolf", "cultist", "serial_killer"):
+        assert feasibility.reachable_roles((immune,), c) == {immune}, immune
+    assert "werewolf" not in feasibility.reachable_roles(("barkeep",), c)
+
+
+def test_without_a_thief_nobody_is_shuffled_anywhere():
+    c = comp("chef", "villager", "seer")
+    assert feasibility.reachable_roles(("villager",), c) == {"villager"}
 
 
 def test_a_villager_can_reach_the_drunk_through_the_bar():
@@ -262,7 +319,7 @@ def test_every_listed_rule_can_pass_in_a_game_containing_every_role():
     """A rule that cannot fire even with all 44 roles present is unreachable by anyone."""
     sink = feasibility.Composition([(role_id,) for role_id in roles.ROLES])
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP or rule["name"] in NOT_SATISFIED_BY_A_FULL_GAME:
+        if not rulelist.is_listed(rule) or rule["name"] in NOT_SATISFIED_BY_A_FULL_GAME:
             continue
         assert feasibility.evaluate(rule["expr"], sink), "{}: {}".format(rule["name"], rule["expr"])
 
@@ -282,11 +339,11 @@ def test_an_empty_game_lists_nothing_for_anybody():
     assert shared, "the roleless achievements are still true of the game itself"
 
 
-def test_skipped_rules_never_pass():
+def test_opted_out_rules_never_pass():
     sink = feasibility.Composition([(role_id,) for role_id in roles.ROLES])
     passing = feasibility.passing_rules(sink, CATALOGUE)
     for name, rule in CATALOGUE.items():
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             assert name not in passing, name
 
 
@@ -315,7 +372,7 @@ def test_the_same_achievement_disappears_without_its_condition():
 def test_achievements_anyone_can_earn_are_returned_once_not_per_player():
     """Repeating a roleless achievement under each of sixteen players says the same thing
     sixteen times and crowds out the rows that are actually about that player."""
-    game = {"a": ("villager",), "b": ("seer",), "c": ("hunter",), "d": ("gunner",)}
+    game = {"a": ("villager",), "b": ("seer",), "c": ("werewolf",), "d": ("serial_killer",)}
     per_player, shared = feasibility.feasible(game, CATALOGUE)
     names = {entry["name"] for entry in shared}
 
@@ -325,12 +382,13 @@ def test_achievements_anyone_can_earn_are_returned_once_not_per_player():
         assert not names_for(per_player, key) & names
 
 
-def test_shared_entries_keep_their_tier():
-    """The renderer marks them the same way it marks anything else."""
+def test_shared_entries_carry_a_name_and_nothing_else():
+    """No tier and no swing: an achievement belonging to no role cannot be reached by
+    changing role, and the catalogue no longer grades how likely any of it is."""
     _, shared = feasibility.feasible({"a": ("villager",), "b": ("tanner",), "c": ("cupid",)}, CATALOGUE)
-    tiers = {entry["name"]: entry["tier"] for entry in shared}
-    assert tiers["Welcome to Hell"] == rulelist.ALWAYS
-    assert tiers["Romeo and Juliet"] == rulelist.MAYBE
+    names = {entry["name"] for entry in shared}
+    assert {"Welcome to Hell", "Romeo and Juliet"} <= names
+    assert all(set(entry) == {"name"} for entry in shared), shared
 
 
 def test_a_swing_reachable_row_is_marked_as_such():

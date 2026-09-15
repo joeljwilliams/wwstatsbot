@@ -200,7 +200,7 @@ async def test_they_agree_on_a_full_sixteen_player_game(context):
     session_data = await big_game(context)
 
     contents = gamesession.list_contents(session_data)
-    whole = gamesession._build_list(session_data, contents, None, include_uncertain=True)
+    whole = gamesession._build_list(session_data, contents, None, include_swing=True)
     parsed_players, parsed_groups = achv_handlers._extract_by_player(visible(whole))
     session_players, session_groups, _mentions = gamesession.reply_contents(
         context.chat_data, bot_message("", message_id=session_data["list_message_id"])

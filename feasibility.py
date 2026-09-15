@@ -18,8 +18,8 @@ renderer and the rule matcher can never disagree about it.
 a Seer and a Fool, and conversions are counted at their ceiling rather than their start —
 the cult recruits, the Alpha bites, the bar makes drunks. Both follow from what this list is
 for: it says what *could* happen, so the honest failure is to overstate rather than to hide
-something that turns out to be reachable. The tier (`check` vs `maybe`) is what carries the
-difference between "the game can do this" and "the game can do this if it cooperates".
+something that turns out to be reachable. What a rule never says is how *likely* any of it
+is — see rulelist.py: the table judges that, and better.
 
 The expressions themselves come from the database and are editable at runtime, so they are
 evaluated in a sandbox: no builtins, no attribute access, and only the vocabulary registered
@@ -96,13 +96,46 @@ class Composition:
         with one in play no other role caps the count. Without one, the ceiling is the
         pack plus the roles that turn on their own (Cursed, Wild Child, Traitor) plus a
         Doppelgänger copying any of them.
+
+        **A game needs a first wolf, and only two things are one.** Of the roles that
+        turn, the Cursed needs a bite and the Traitor needs wolves to have existed and
+        died — so neither can start a pack. Only a dealt pack member or a Wild Child
+        whose role model dies can, and the Doppelgänger only ever copies what is already
+        there. Counting all of them unconditionally said a game of a Cursed, a Traitor
+        and fourteen villagers could produce a wolf: it offered the Guardian Angel a
+        wolf to guard and the Hunter a wolf to shoot in a game that has none and can
+        never have one.
         """
         if self.present("alpha_wolf"):
             return self.players
-        reachable = self.count_tag(roles_registry.PACK)
-        reachable += self.count_tag(roles_registry.POTENTIAL_WOLF)
+        pack = self.count_tag(roles_registry.PACK)
+        if not pack and not self.count("wild_child"):
+            return 0
+        reachable = pack + self.count_tag(roles_registry.POTENTIAL_WOLF)
         reachable += self.count("doppelganger")
         return min(reachable, self.players)
+
+    def max_live_wolves(self):
+        """The most wolves that could be alive *at one time*, which is a different count.
+
+        The **Traitor is not among them**. They turn only once every wolf is dead, so they
+        are the pack's replacement and never its seventh member — a game dealt six wolves
+        and a Traitor can produce seven wolves over its length and never seven at once.
+        `max_possible_wolves()` counts them because most of the achievements asking about
+        wolves ask how many a game can produce at all ("kill at least 3 wolves in a single
+        game", and "I Helped!", which fires precisely *because* the Traitor turns as the
+        cub dies). "Be one of 7 living wolves at one time" is the other question.
+
+        Everything else that turns while the pack is still standing does count: the Cursed
+        is bitten, the Wild Child's role model dies, the Doppelgänger copies a wolf.
+        """
+        if self.present("alpha_wolf"):
+            return self.players
+        pack = self.count_tag(roles_registry.PACK)
+        if not pack and not self.count("wild_child"):
+            return 0
+        live = pack + self.count("cursed") + self.count("wild_child") + self.count("doppelganger")
+        return min(live, self.players)
 
     def cultable_count(self):
         """Players the cult could convert. The immune roles are what cap the cult's size."""
@@ -129,21 +162,44 @@ class Composition:
         makes a drunk — so a Barkeep plus plain Villagers is a source of drunks, and
         "Alcoholics Anonymous" (three drunks alive at the end) is reachable well below
         three dealt Drunks. Villagers specifically: the village *team* does not drink here.
+
+        The Doppelgänger and the Thief are counted the same way the wolf ceiling counts
+        the Doppelgänger — only when a drunk is there to be copied or stolen, or the bar
+        can make one. Neither can conjure a role the game did not deal.
         """
-        drunks = self.count("drunk") + self.count("doppelganger") + self.count("thief")
+        drunks = self.count("drunk")
         if self.present("barkeep"):
             drunks += self.count("villager")
+        if drunks:
+            drunks += self.count("doppelganger") + self.count("thief")
         return min(drunks, self.players)
 
     def attackers(self):
-        """Roles that come for you in the night, in the sense "Helpful Paranoia" means.
+        """Everything that could ever come for you in the night.
 
         Wolves, the players who could still become wolves, and cultists. Explicitly not the
         Sorcerer, who is wolf-team and attacks nobody.
+
+        No canonical rule uses it, and "Helpful Paranoia" is why it is worth saying so: that
+        rule was written as `attackers() >= 2` and the count is the wrong shape for it. Two
+        attackers have to arrive *in sequence*, the second turning at the moment the first
+        dies, which is a question about which roles can replace which — not about how many
+        there are. Kept in the vocabulary because an admin writing a new rule needs
+        something to write it with.
         """
         return (
             self.count_tag(roles_registry.PACK) + self.count_tag(roles_registry.POTENTIAL_WOLF) + self.count("cultist")
         )
+
+    def night_killers(self):
+        """Players who could choose to kill somebody after dark.
+
+        Not `killers()`, which is every role that can cause a death by any route: the
+        Gunner and the Hunter fire by day, so a game whose only killers are those two has
+        no night deaths at all. The Hunter's return fire does land at night and is still
+        not counted, because a reaction cannot be aimed — see roles.NIGHT_KILLER.
+        """
+        return self.count_tag(roles_registry.NIGHT_KILLER)
 
     def max_burnable_houses(self):
         """Houses the Arsonist could douse: everyone's but their own, and not the SK's.
@@ -174,17 +230,38 @@ def reachable_roles(candidates, composition):
 
     # Turning into a wolf: by your own role, or by anyone's bad luck when an Alpha is in
     # play. Plain Werewolf either way — the bite does not make Alphas.
+    #
+    # And only when the game can have a wolf at all, which is the same question
+    # `max_possible_wolves()` answers: the Cursed needs somebody to bite them and the
+    # Traitor needs wolves to have existed and died, so in a game dealt neither a pack nor
+    # a Wild Child, a Cursed player turns into nothing. Without the guard the two halves
+    # disagreed — the count said no wolf was possible while this said the Cursed was one
+    # away from being it, and the Cursed was listed for the wolves' achievements in a game
+    # that has no wolves.
     turns = any(roles_registry.has_tag(role, roles_registry.POTENTIAL_WOLF) for role in candidates)
-    if turns or composition.present("alpha_wolf"):
+    if (turns or composition.present("alpha_wolf")) and composition.max_possible_wolves():
         reachable.add("werewolf")
 
-    # The Doppelgänger copies whoever it shadowed; the Thief steals what it can reach.
+    # The Doppelgänger copies whoever it shadowed.
     if "doppelganger" in candidates:
         reachable.update(composition.roles)
-    if "thief" in candidates:
-        reachable.update(
-            role for role in composition.roles if not roles_registry.has_tag(role, roles_registry.STEAL_IMMUNE)
-        )
+
+    # A Thief in the game puts every stealable role within reach of everybody holding one,
+    # not just of the Thief. The theft moves an identity between two players and neither
+    # end of it is fixed in advance, so the question a list has to answer is "could this
+    # achievement end up being yours", and with a Thief at the table it can: the Barkeep
+    # who already has Liquid Business is not the only player who might be the Barkeep by
+    # morning. Reaching it only from the Thief's own seat answered a narrower question than
+    # the post is for, and left the other fifteen players' lists missing rows that were
+    # genuinely on the table.
+    #
+    # Steal-immune both ways, which is the same list either way: the wolves, the cult and
+    # the serial killer cannot be robbed, and a player who *is* one cannot be robbed out of
+    # it either, so nothing is shuffled onto or off them. The Sorcerer and the Arsonist are
+    # fair game — only actual wolves are protected.
+    stealable = [role for role in composition.roles if not roles_registry.has_tag(role, roles_registry.STEAL_IMMUNE)]
+    if composition.present("thief") and any(role in stealable for role in candidates):
+        reachable.update(stealable)
 
     # The bar turns lowly villagers into drunks.
     if "villager" in candidates and composition.present("barkeep"):
@@ -216,9 +293,14 @@ def _functions(composition):
         "bad_count": lambda: composition.count_tag(roles_registry.BAD),
         "village_count": lambda: composition.count_team(roles_registry.VILLAGE),
         "visitor_count": lambda: composition.count_tag(roles_registry.VISITOR),
+        "night_killers": composition.night_killers,
         "distinct_roles": composition.distinct_roles,
         "distinct_bad_roles": lambda: composition.distinct_tagged_roles(roles_registry.BAD),
+        # "3 or more different visiting roles" is a count of roles, where "visited by 3
+        # people" is a count of players — two achievements a single helper would conflate.
+        "distinct_visiting_roles": lambda: composition.distinct_tagged_roles(roles_registry.VISITOR),
         "max_possible_wolves": composition.max_possible_wolves,
+        "max_live_wolves": composition.max_live_wolves,
         "max_possible_cultists": composition.max_possible_cultists,
         "max_possible_drunks": composition.max_possible_drunks,
         "cultable_count": composition.cultable_count,
@@ -274,12 +356,12 @@ def validate(expr):
 def passing_rules(composition, rules):
     """The rules whose expression holds for this composition: name -> rule.
 
-    Skipped rules are dropped here rather than filtered by every caller, so "in this dict"
-    means "listable".
+    Rules opted out of listing are dropped here rather than filtered by every caller, so
+    "in this dict" means "listable".
     """
     passing = {}
     for name, rule in rules.items():
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             continue
         if evaluate(rule["expr"], composition):
             passing[name] = rule
@@ -292,9 +374,9 @@ def feasible(player_roles, rules):
     `player_roles` maps a caller's own key (a Telegram user id, in practice) to that
     player's revealed role candidates. Returns `(per_player, universal)`:
 
-    * `per_player` — key -> list of {name, tier, swing} in the rules' own order, where
-      `swing` marks a row reachable only through a role change;
-    * `shared` — the achievements whose subject is *anyone*, as {name, tier}.
+    * `per_player` — key -> list of {name, swing} in the rules' own order, where `swing`
+      marks a row reachable only through a role change;
+    * `shared` — the achievements whose subject is *anyone*, as {name}.
 
     The split exists because "anyone can earn this" and "you can earn this" look identical
     once printed under a name. A rule like Sunday Bloody Sunday belongs to no role at all,
@@ -305,14 +387,9 @@ def feasible(player_roles, rules):
     composition = Composition(player_roles.values())
     passing = passing_rules(composition, rules)
 
-    # Subject "any" is the whole test for shared, which also covers every `always` rule —
-    # those are written with subject `any` too, because "no role gate" and "every role is
-    # a subject" are the same statement.
-    shared = [
-        {"name": name, "tier": rule["tier"]}
-        for name, rule in passing.items()
-        if rule["subject"].strip() == rulelist.ANY
-    ]
+    # Subject "any" is the whole test for shared: "no role gate" and "every role is a
+    # subject" are the same statement once the output is per player.
+    shared = [{"name": name} for name, rule in passing.items() if rule["subject"].strip() == rulelist.ANY]
     shared_names = {entry["name"] for entry in shared}
 
     per_player = {}
@@ -330,7 +407,6 @@ def feasible(player_roles, rules):
             entries.append(
                 {
                     "name": name,
-                    "tier": rule["tier"],
                     # True when only a role change gets them there, so the renderer can
                     # say "if you turn" rather than implying it is available now.
                     "swing": not subject.intersection(own),

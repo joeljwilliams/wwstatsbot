@@ -40,7 +40,6 @@ import db
 import feasibility
 import playerdata
 import roles
-import rulelist
 import session
 import templates as t
 from handlers.common import (
@@ -1503,17 +1502,13 @@ def _visible_len(msg):
     return len(html.unescape(_TAG.sub("", msg)))
 
 
-_ROW_TEMPLATES = {
-    rulelist.CHECK: t.STANDIN_LIST_ROW,
-    rulelist.MAYBE: t.STANDIN_LIST_ROW_MAYBE,
-}
-
-
 def _entry_sort_key(entry):
-    """Certain rows first, then the lucky ones, then the ones needing a role change."""
-    if entry["swing"]:
-        return 2
-    return 0 if entry["tier"] == rulelist.CHECK else 1
+    """The rows about who you are now, then the ones needing a role change.
+
+    A stable sort, so within each half the catalogue's own order survives — which is
+    /achievements order, and the order /roll and /info read back.
+    """
+    return 1 if entry["swing"] else 0
 
 
 def list_contents(session_data):
@@ -1524,8 +1519,9 @@ def list_contents(session_data):
     rendered text was exact only while the whole list fitted in one message, and a roll
     drawn from three of a player's nine rows is a wrong answer nobody can see.
 
-    `per_player` is [(user_id, name, [entry, ...])] in roster order, the certain entries
-    first; `groups` is [(achievement, tier, [(user_id, name), ...])] for the roleless ones.
+    `per_player` is [(user_id, name, [entry, ...])] in roster order, the rows a player can
+    reach as they are first; `groups` is [(achievement, [(user_id, name), ...])] for the
+    roleless ones.
     Both are already filtered — the dead, the alts, and anything a player has earned are
     gone — so a renderer decides only how much of this to show, never what is true.
     """
@@ -1552,7 +1548,7 @@ def list_contents(session_data):
     # role, so a player who has not said what they are is as able to earn one as anybody.
     # An achievement nobody is missing is left out rather than named with an empty list.
     groups = []
-    for entry in sorted(shared, key=lambda e: 0 if e["tier"] == rulelist.CHECK else 1):
+    for entry in shared:
         eligible = [
             (uid, player_entry["name"])
             for uid, player_entry in session.players_in_order(session_data)
@@ -1561,7 +1557,7 @@ def list_contents(session_data):
             and not session.already_has(session_data, uid, entry["name"])
         ]
         if eligible:
-            groups.append((entry["name"], entry["tier"], eligible))
+            groups.append((entry["name"], eligible))
 
     return per_player, groups
 
@@ -1586,14 +1582,19 @@ def reply_contents(chat_data, message):
     per_player, groups = list_contents(session_data)
     return (
         [(name, [entry["name"] for entry in entries]) for _uid, name, entries in per_player],
-        {name: [player for _uid, player in eligible] for name, _tier, eligible in groups},
+        {name: [player for _uid, player in eligible] for name, eligible in groups},
         {entry["name"]: uid for uid, entry in session.players_in_order(session_data)},
     )
 
 
-def _certain_only(entries):
-    """The rows nothing has still to go right for. The certain-only pass drops the rest."""
-    return [entry for entry in entries if entry["tier"] == rulelist.CHECK and not entry["swing"]]
+def _without_swing(entries):
+    """Only what a player can reach as the role they are. The last-resort pass drops the rest.
+
+    The rows behind a role change are what a post gives up first when even one row each
+    will not fit: "you could get this if the wolves eat you" is the least of what anybody
+    came to the post for.
+    """
+    return [entry for entry in entries if not entry["swing"]]
 
 
 def _player_block(uid, name, entries, cap):
@@ -1601,7 +1602,7 @@ def _player_block(uid, name, entries, cap):
     out = t.STANDIN_LIST_PLAYER.format(name=_mention(uid, name))
     shown = entries if cap is None else entries[:cap]
     for entry in shown:
-        template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else _ROW_TEMPLATES[entry["tier"]]
+        template = t.STANDIN_LIST_ROW_SWING if entry["swing"] else t.STANDIN_LIST_ROW
         out += template.format(name=html.escape(entry["name"]))
     if len(entries) > len(shown):
         out += t.STANDIN_LIST_MORE.format(count=len(entries) - len(shown))
@@ -1623,24 +1624,25 @@ def _group_block(name, eligible, cap):
     ) + t.STANDIN_LIST_GROUP_NAMES.format(names=names)
 
 
-def _build_list(session_data, contents, cap, include_uncertain):
+def _build_list(session_data, contents, cap, include_swing):
     """One rendering attempt. See _LIST_LIMIT for why there is more than one."""
     per_player, groups = contents
     msg = t.STANDIN_LIST_HEADER
     listed = 0
 
     for uid, name, entries in per_player:
-        if not include_uncertain:
-            entries = _certain_only(entries)
+        if not include_swing:
+            entries = _without_swing(entries)
         if not entries:
             continue
         listed += 1
         msg += _player_block(uid, name, entries, cap)
 
+    # The sections are never dropped, only capped: they belong to no role, so nothing in
+    # them can be reached "only by turning" and there is no half of them to give up.
     sections = ""
-    for name, tier, eligible in groups:
-        if include_uncertain or tier == rulelist.CHECK:
-            sections += _group_block(name, eligible, cap)
+    for name, eligible in groups:
+        sections += _group_block(name, eligible, cap)
 
     revealed, total = session.revealed_count(session_data)
     if not listed and not sections:
@@ -1648,7 +1650,7 @@ def _build_list(session_data, contents, cap, include_uncertain):
 
     msg += sections
     msg += t.STANDIN_LIST_FOOTER.format(revealed=revealed, total=total)
-    if not include_uncertain:
+    if not include_swing:
         msg += t.STANDIN_LIST_TRIMMED
     return msg
 
@@ -1667,12 +1669,12 @@ def render_list(session_data):
     contents = list_contents(session_data)
 
     for cap in _ROW_LADDER:
-        msg = _build_list(session_data, contents, cap, include_uncertain=True)
+        msg = _build_list(session_data, contents, cap, include_swing=True)
         if _visible_len(msg) <= _LIST_LIMIT:
             return msg, _full_list_keyboard(cap is not None)
-    # Still too long with one row each: drop everything uncertain and say so, rather than
-    # let Telegram reject the message and leave the list frozen at its last edit.
-    msg = _build_list(session_data, contents, 3, include_uncertain=False)
+    # Still too long with one row each: drop everything behind a role change and say so,
+    # rather than let Telegram reject the message and leave the list frozen at its last edit.
+    msg = _build_list(session_data, contents, 3, include_swing=False)
     if _visible_len(msg) > _LIST_LIMIT:
         msg = _truncate(msg)
     return msg, _full_list_keyboard(True)
@@ -1698,7 +1700,7 @@ def full_list_pages(session_data):
     """
     per_player, groups = list_contents(session_data)
     blocks = [_player_block(uid, name, entries, None) for uid, name, entries in per_player]
-    blocks += [_group_block(name, eligible, None) for name, _tier, eligible in groups]
+    blocks += [_group_block(name, eligible, None) for name, eligible in groups]
 
     revealed, total = session.revealed_count(session_data)
     if not blocks:

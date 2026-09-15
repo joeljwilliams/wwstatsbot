@@ -11,8 +11,8 @@ The earlier drafts of this catalogue missed five achievements and misspelled a s
 ("Demoted by Death" for "Demoted by the Death"). Nothing in the running bot would have
 noticed either.
 
-Skipped achievements count as covered — they carry tier `skip` and a reason — so opting one
-out is a visible decision in the catalogue rather than an omission.
+Skipped achievements count as covered — they carry an empty subject and a reason — so
+opting one out is a visible decision in the catalogue rather than an omission.
 """
 
 import pytest
@@ -57,7 +57,6 @@ def test_rules_are_in_achievement_order():
 
 @pytest.mark.parametrize("rule", RULES, ids=[r["name"] for r in RULES])
 def test_rule_fields_are_well_formed(rule):
-    assert rule["tier"] in rulelist.TIERS, rule["tier"]
     assert rule["expr"], "expr must never be empty; use 'True' for no gate"
     assert rule["note"], "every rule carries its reasoning"
     assert isinstance(rule["subject"], str)
@@ -80,19 +79,23 @@ def test_every_subject_names_something_real(rule):
             assert token in roles.ROLES, "unknown role id {!r}".format(token)
 
 
-def test_skipped_rules_are_inert():
-    """Tier and expression have to agree, or a skipped rule could still be evaluated."""
+def test_an_opted_out_rule_is_inert_both_ways():
+    """The subject is the switch, and the expression must not disagree with it.
+
+    An empty subject already stops a rule rendering, so `False` is belt and braces — but
+    a rule that opted out with an expression still able to pass would be one edit away
+    from being listed by accident.
+    """
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             assert rule["expr"] == "False", rule["name"]
             assert rule["subject"] == "", rule["name"]
 
 
-def test_listed_rules_have_a_subject():
-    """Anything that renders must say who it renders under."""
+def test_a_listed_rule_is_one_with_a_subject():
+    """`is_listed` reads the subject and nothing else; pin that, since it is the switch."""
     for rule in RULES:
-        if rule["tier"] != rulelist.SKIP:
-            assert rule["subject"], rule["name"]
+        assert rulelist.is_listed(rule) is bool(rule["subject"]), rule["name"]
 
 
 # --- Subject expansion -----------------------------------------------------
@@ -117,7 +120,7 @@ def test_empty_subject_expands_to_nothing():
 
 def test_every_listed_rule_has_at_least_one_subject_role():
     for rule in RULES:
-        if rule["tier"] == rulelist.SKIP:
+        if not rulelist.is_listed(rule):
             continue
         assert rulelist.subject_roles(rule["subject"], roles), rule["name"]
 
@@ -151,7 +154,17 @@ def test_trustworthy_needs_a_seer_to_do_the_checking():
 def test_population_achievements_use_reachable_ceilings():
     """A game is never dealt ten cultists or seven wolves; both are reached by converting."""
     assert _rule("Cultist Convention")["expr"] == "max_possible_cultists() >= 10"
-    assert _rule("Pack Hunter")["expr"] == "max_possible_wolves() >= 7"
+    assert "max_live_wolves()" in _rule("Pack Hunter")["expr"]
+
+
+def test_simultaneous_wolf_counts_do_not_use_the_whole_game_ceiling():
+    """ "Seven living wolves at one time" and "three wolves killed in a game" are different
+    questions, and only the second one may count the Traitor: they turn once every wolf is
+    dead, so they are the pack's replacement rather than another member of it."""
+    for name in ("Pack Hunter", "Three Little Wolves and a Big Bad Pig"):
+        assert "max_live_wolves()" in _rule(name)["expr"], name
+        assert "max_possible_wolves()" not in _rule(name)["expr"], name
+    assert "max_possible_wolves()" in _rule("Serial Samaritan")["expr"], "killed over a game, not at once"
 
 
 def test_drunk_achievements_count_the_barkeeps_drunks():
@@ -160,11 +173,17 @@ def test_drunk_achievements_count_the_barkeeps_drunks():
         assert "max_possible_drunks()" in _rule(name)["expr"], name
 
 
-def test_wolf_attack_achievements_use_the_pack_not_the_team():
-    """team_count('wolf') includes the Sorcerer, who cannot eat anybody."""
-    for name in ("Hey Man, Nice Shot", "Did you guard yourself?", "S-Tier Hunter"):
-        assert "pack_count()" in _rule(name)["expr"], name
+def test_wolf_attack_achievements_never_ask_the_team():
+    """team_count('wolf') includes the Sorcerer, who cannot eat anybody.
+
+    "Is there a wolf" is asked with `max_possible_wolves()`, which counts the ones a bite
+    or a Wild Child's turn could still make; `pack_count()` is for the questions that are
+    about the dealt pack itself, like being its only member.
+    """
+    for name in ("Hey Man, Nice Shot", "Did you guard yourself?", "S-Tier Hunter", "Forbidden Love"):
+        assert "max_possible_wolves()" in _rule(name)["expr"], name
         assert "team_count" not in _rule(name)["expr"], name
+    assert _rule("Lone Wolf")["expr"].startswith("pack_count() == 1"), "the only wolf is a pack count"
 
 
 def test_thanks_junior_excludes_the_cursed_and_the_traitor():
@@ -180,8 +199,8 @@ def test_liquid_business_counts_lowly_villagers_not_the_village_team():
 def test_mode_gated_achievements_are_skipped_except_lone_wolf():
     """This group always plays chaos, so Lone Wolf's role condition is its whole gate."""
     for name in ("Welcome to the Asylum", "Spy vs Spy", "Naughty!", "I Have No Idea What I'm Doing"):
-        assert _rule(name)["tier"] == rulelist.SKIP, name
-    assert _rule("Lone Wolf")["tier"] != rulelist.SKIP
+        assert not rulelist.is_listed(_rule(name)), name
+    assert rulelist.is_listed(_rule("Lone Wolf"))
 
 
 def test_the_five_achievements_earlier_drafts_missed_are_present():

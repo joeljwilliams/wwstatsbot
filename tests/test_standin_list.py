@@ -26,7 +26,6 @@ from test_standin_session import player_message, reveal, start_session
 import api
 import db
 import feasibility
-import rulelist
 import session
 from handlers import achievements as achv_handlers
 from handlers import gamesession
@@ -119,12 +118,17 @@ async def test_every_extracted_name_matches_a_real_achievement(context):
         assert name in catalogue, name
 
 
-async def test_uncertain_rows_are_marked(context):
+async def test_rows_carry_no_certainty_marker(context):
+    """The catalogue grades nothing, so neither does the post.
+
+    Masochist still needs the Tanner to *win*, and the ❓ that used to say so is gone: it
+    sat on most of the post and told the table something they judge better themselves.
+    """
     session_data = await start_session(context)
     await reveal(context, 1, "tanner")
     rendered = post_text(session_data)
-    # Masochist is a MAYBE — the Tanner still has to win.
-    assert " - \N{BLACK QUESTION MARK ORNAMENT} Masochist" in rendered
+    assert " - Masochist" in rendered
+    assert "\N{BLACK QUESTION MARK ORNAMENT}" not in rendered
 
 
 async def test_a_swing_reachable_row_is_marked_differently(context):
@@ -601,7 +605,7 @@ def _job_context(context, chat_id=-100):
 async def test_the_post_uses_the_database_rules_not_the_seed_list(context, monkeypatch):
     """Rules are editable at runtime, so a /setrule correction must reach the next post."""
     edited = {
-        "Cold as Ice": {"tier": rulelist.CHECK, "subject": "snow_wolf", "expr": "False", "note": ""},
+        "Cold as Ice": {"subject": "snow_wolf", "expr": "False", "note": ""},
     }
     monkeypatch.setattr(db, "get_rules", lambda: edited)
 
@@ -615,8 +619,8 @@ async def test_the_post_uses_the_database_rules_not_the_seed_list(context, monke
 async def test_a_broken_rule_does_not_take_the_post_down(context, monkeypatch):
     """One bad expression must cost one row, not the whole list."""
     broken = {
-        "Cold as Ice": {"tier": rulelist.CHECK, "subject": "snow_wolf", "expr": "count(", "note": ""},
-        "Welcome to Hell": {"tier": rulelist.ALWAYS, "subject": "any", "expr": "True", "note": ""},
+        "Cold as Ice": {"subject": "snow_wolf", "expr": "count(", "note": ""},
+        "Welcome to Hell": {"subject": "any", "expr": "True", "note": ""},
     }
     monkeypatch.setattr(db, "get_rules", lambda: broken)
 
