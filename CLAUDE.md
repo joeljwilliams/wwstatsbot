@@ -567,6 +567,21 @@ fingerprint advances only on an edit that landed**, so a failed one is retried r
 remembered as done. The exception is "message is not modified" — that is Telegram
 confirming the message already looks like this, which is worth recording.
 
+**Reveals are answered once, then collected.** A thirty-five player game opens with
+thirty-five people typing `/role` inside a minute, and a reply to each one buries the
+reveals underneath their own confirmations. The first is answered at once — a lone reveal
+in a quiet game reads exactly as it always did — and everything arriving inside the next
+`_ROLE_BURST_SECONDS` is buffered in the session and read back in one notice. The window is
+the publish debounce's, so the notice and the live list it describes land together rather
+than a few seconds apart saying the same thing. Three details are load-bearing: the buffer
+is keyed by **player**, so somebody correcting themselves twice inside one window is named
+once; each row is rendered from the session **when the notice fires**, never from what was
+typed, so a role corrected inside the window is read back as it stands; and a bot built
+with no job queue replies to everything, because there would otherwise be nothing to flush
+the buffer and every confirmation after the first would vanish. Flood control puts the
+whole burst back and retries past the window, for the same reason — a swallowed
+confirmation is what makes somebody type `/role` again.
+
 **Flood control postpones the publish; it does not lose it.** A `RetryAfter` used to leave
 the loop entirely — both live messages stayed at their last successful edit until somebody
 happened to reveal a role, and the exception reached the error handler as if the bot had

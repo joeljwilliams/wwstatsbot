@@ -466,6 +466,11 @@ STANDIN_STOPPED_BY = N_("{name} has considered the game stopped!")
 # Confirmations. "<name>'s role was set to: <Role>" is the manager's exact wording.
 STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
 STANDIN_ROLE_SET_AMBIGUOUS = N_("{name}'s role was set to: {role}\n<i>Both are being counted until you know which.</i>")
+STANDIN_ROLE_SET_MANY = N_("<b>Roles set:</b>\n")
+STANDIN_ROLE_SET_MANY_ROW = N_("{name}: {role}\n")
+STANDIN_ROLE_SET_MANY_AMBIGUOUS = N_(
+    "<i>Where two roles are listed, both are being counted until the player knows which.</i>"
+)
 STANDIN_ROLE_USAGE = N_("Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>.")
 STANDIN_ROLE_UNKNOWN = N_("I don't know a role called <b>{role}</b>.")
 STANDIN_ROLE_DID_YOU_MEAN = N_("\nDid you mean: {names}?")

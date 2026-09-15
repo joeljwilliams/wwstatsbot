@@ -27,6 +27,7 @@ import api
 import db
 import feasibility
 import session
+import templates as t
 from handlers import achievements as achv_handlers
 from handlers import gamesession
 from rulelist import RULES
@@ -68,6 +69,16 @@ def rules(monkeypatch):
 async def publish(context):
     """Fire whatever the debounce scheduled, as the scheduler would."""
     await context.job_queue.run_pending(context)
+
+
+def list_posts(context):
+    """The Possible Achievements posts among everything the bot sent.
+
+    A burst of reveals also schedules the collected role notice, which is sent by a job on
+    the same window — so counting sends outright would answer a different question from the
+    one this file asks, and would have gone on passing while the list was posted twice.
+    """
+    return [sent for sent in context.bot.sent if sent["text"].startswith(t.STANDIN_LIST_HEADER)]
 
 
 # --- The post ---------------------------------------------------------------
@@ -401,7 +412,7 @@ async def test_a_burst_of_reveals_costs_one_publish(context):
     assert len(publish_jobs) == 1, "the second and third reveals must not schedule again"
 
     await publish(context)
-    assert len(context.bot.sent) == 1, "one post, not three"
+    assert len(list_posts(context)) == 1, "one post, not three"
 
 
 async def test_the_publish_posts_the_list_then_edits_it(context):
@@ -410,12 +421,12 @@ async def test_the_publish_posts_the_list_then_edits_it(context):
 
     await reveal(context, 1, "villager")
     await publish(context)
-    assert len(context.bot.sent) == 1
+    assert len(list_posts(context)) == 1
     assert session_data["list_message_id"] is not None
 
     await reveal(context, 2, "seer")
     await publish(context)
-    assert len(context.bot.sent) == 1, "the second publish edits rather than reposting"
+    assert len(list_posts(context)) == 1, "the second publish edits rather than reposting"
     assert any(e["message_id"] == session_data["list_message_id"] for e in context.bot.edits)
 
 

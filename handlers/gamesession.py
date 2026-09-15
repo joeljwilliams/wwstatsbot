@@ -644,14 +644,9 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
-    entry = session.set_roles(session_data, target_id, resolved)
+    session.set_roles(session_data, target_id, resolved)
     await _changed(context, message.chat.id, session_data)
-
-    template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(resolved) > 1 else t.STANDIN_ROLE_SET
-    await message.reply_text(
-        template.format(name=_mention(target_id, entry["name"]), role=_role_label(entry)),
-        parse_mode=ParseMode.HTML,
-    )
+    await _confirm_role(context, message, session_data, target_id)
 
 
 async def _beholder_claim(update, context, session_data, typed):
@@ -1988,6 +1983,125 @@ async def _publish(context):
         text=msg,
         reply_markup=keyboard,
     )
+
+
+# A game of thirty-five opens with thirty-five people typing /role at each other inside a
+# minute, and a reply to every one of them is thirty-five messages in the stretch of chat
+# nobody can spare: the reveals scroll away underneath their own confirmations. So the
+# first is answered at once — a lone reveal in a quiet game reads exactly as it always did
+# — and anything arriving in its wake is collected and read back in one notice. Nothing is
+# dropped; a player who revealed always sees their role confirmed.
+#
+# The window is the publish debounce's, so the notice and the live list it describes land
+# in the same breath rather than a few seconds apart saying the same thing.
+_ROLE_BURST_SECONDS = _DEBOUNCE_SECONDS
+_ROLE_BURST_JOB = "standin_roles:{}"
+
+
+async def _confirm_role(context, message, session_data, target_id):
+    """Read a role back: now, or with whatever else the next few seconds bring."""
+    now = _now()
+    told_at = session_data.get("role_told_at", 0)
+    if now - told_at >= _ROLE_BURST_SECONDS or _job_queue(context) is None:
+        # No queue means nothing would ever flush a buffer, so an immediate reply is the
+        # only one that would arrive at all — a bot built without the job-queue extra says
+        # everything it always said.
+        session_data["role_told_at"] = now
+        await _say_role(message, session_data, target_id)
+        return
+
+    # Keyed by player rather than simply appended: somebody correcting themselves twice
+    # inside one window is named once, with the role they ended on.
+    pending = [uid for uid in session_data.get("role_pending", ()) if uid != str(target_id)]
+    pending.append(str(target_id))
+    session_data["role_pending"] = pending
+    _schedule_role_notice(context, message.chat.id, told_at + _ROLE_BURST_SECONDS - now)
+
+
+async def _say_role(message, session_data, target_id):
+    """The single-reveal confirmation, quoting the /role that asked for it."""
+    entry = session.player(session_data, target_id)
+    if entry is None:
+        return
+    template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(entry["roles"]) > 1 else t.STANDIN_ROLE_SET
+    await message.reply_text(
+        template.format(name=_mention(target_id, entry["name"]), role=_role_label(entry)),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+def _schedule_role_notice(context, chat_id, seconds):
+    """Ask for the collected notice when the window closes, unless one is already due."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _ROLE_BURST_JOB.format(chat_id)
+    if queue.get_jobs_by_name(name):
+        # Already pending, and it reads the buffer when it fires — re-scheduling would only
+        # push the whole burst later, which is the debounce's mistake to avoid as well.
+        return
+    queue.run_once(_role_notice, max(seconds, 0), chat_id=chat_id, name=name)
+
+
+def _postpone_role_notice(context, chat_id, seconds):
+    """Push the collected notice out past a flood-control window.
+
+    Replaces rather than skips, the way _postpone_publish does: this is called from inside
+    the notice job itself, and whether a job that is *running* still answers to its own name
+    is the scheduler's business, not something worth betting a lost confirmation on.
+    """
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _ROLE_BURST_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_role_notice, seconds, chat_id=chat_id, name=name)
+
+
+async def _role_notice(context):
+    """The window closed: name everybody who revealed inside it, in one message."""
+    chat_id = context.job.chat_id
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        # Ended between the schedule and the fire. Nothing to confirm to anybody.
+        return
+
+    pending = session_data.pop("role_pending", [])
+    rows = []
+    ambiguous = False
+    for uid in pending:
+        # Read now rather than at reveal time, so a role corrected inside the window is
+        # read back as it stands and never as the thing it briefly was.
+        entry = session.player(session_data, uid)
+        if entry is None or not entry["roles"]:
+            continue
+        ambiguous = ambiguous or len(entry["roles"]) > 1
+        rows.append(t.STANDIN_ROLE_SET_MANY_ROW.format(name=_mention(uid, entry["name"]), role=_role_label(entry)))
+    if not rows:
+        return
+
+    msg = t.STANDIN_ROLE_SET_MANY + "".join(rows)
+    if ambiguous:
+        msg += t.STANDIN_ROLE_SET_MANY_AMBIGUOUS
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
+    except RetryAfter as err:
+        # Put the burst back and try past the window. A confirmation is cosmetic, but one
+        # silently swallowed by flood control would leave a player believing their /role
+        # never landed — and retyping it is exactly what this is trying to stop.
+        seconds = _retry_seconds(err)
+        arrived = [uid for uid in session_data.get("role_pending", ()) if uid not in pending]
+        session_data["role_pending"] = pending + arrived
+        _postpone_role_notice(context, chat_id, seconds + 1)
+        logger.warning("standin_role_notice_failed", chat_id=chat_id, retry_after=seconds)
+        return
+    except (BadRequest, Forbidden) as err:
+        logger.warning("standin_role_notice_failed", chat_id=chat_id, error=str(err))
+        return
+    session_data["role_told_at"] = _now()
 
 
 async def _idle_warning(context):

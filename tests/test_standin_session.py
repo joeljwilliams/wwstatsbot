@@ -330,6 +330,106 @@ async def test_replying_to_a_non_player_is_reported_not_redirected(context):
     assert session_data["players"]["1"]["roles"] == []
 
 
+# --- Confirming reveals: one notice for a burst ------------------------------
+#
+# A game of thirty-five opens with everybody typing /role inside a minute. A reply to each
+# is thirty-five messages in exactly the stretch of chat the reveals themselves need, so
+# the first is answered on its own and the rest are collected — and *collected*, never
+# dropped: a player whose /role went unanswered types it again, which is the noise this is
+# supposed to remove.
+
+
+async def reveal_message(context, user_id, role_name):
+    """Reveal a role and hand back the message, to assert on what it was told."""
+    msg = player_message("/role " + role_name, user_id=user_id)
+    context.args = role_name.split()
+    await gamesession.role_cmd(FakeUpdate(message=msg), context)
+    return msg
+
+
+def role_notices(context):
+    """The collected notices among everything the bot sent — the list post is in there too."""
+    return [sent["text"] for sent in context.bot.sent if sent["text"].startswith("<b>Roles set:</b>")]
+
+
+async def test_only_the_first_of_a_burst_is_answered_on_its_own(context):
+    await start_session(context)
+    first = await reveal_message(context, 1, "gunner")
+    second = await reveal_message(context, 2, "seer")
+    third = await reveal_message(context, 3, "harlot")
+
+    assert first.last_reply == mention(1, "Ren") + "'s role was set to: Gunner \N{PISTOL}"
+    assert second.replies == [] and third.replies == []
+
+    await context.job_queue.run_pending(context)
+    notices = role_notices(context)
+    assert len(notices) == 1, "one notice for the burst, not one per reveal"
+    assert mention(2, "omu") in notices[0] and "Seer" in notices[0]
+    assert mention(3, "J J") in notices[0] and "Harlot" in notices[0]
+    assert mention(1, "Ren") not in notices[0], "already answered; saying it twice is the noise"
+
+
+async def test_a_correction_inside_the_window_is_named_once(context):
+    """Roles change all game, and the notice is read now — not at the moment of the /role."""
+    await start_session(context)
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "villager")
+    await reveal_message(context, 2, "werewolf")
+
+    await context.job_queue.run_pending(context)
+    notice = role_notices(context)[0]
+    assert notice.count(mention(2, "omu")) == 1
+    assert "Werewolf" in notice and "Villager" not in notice
+
+
+async def test_an_unresolved_seer_fool_keeps_its_note_in_the_notice(context):
+    """The "we are counting both" caveat is the whole reason /role sf has its own reply."""
+    await start_session(context)
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "sf")
+
+    await context.job_queue.run_pending(context)
+    notice = role_notices(context)[0]
+    assert "Seer" in notice and "Fool" in notice
+    assert "until the player knows which" in notice
+
+
+async def test_a_reveal_after_the_window_is_answered_on_its_own(context, monkeypatch):
+    """A quiet game is unchanged: one reveal, one quoted reply, no waiting."""
+    await start_session(context)
+    await reveal_message(context, 1, "gunner")
+
+    later = gamesession._now() + gamesession._ROLE_BURST_SECONDS + 1
+    monkeypatch.setattr(gamesession, "_now", lambda: later)
+    msg = await reveal_message(context, 2, "seer")
+
+    assert "Seer" in msg.last_reply
+    assert context.job_queue.pending(gamesession._ROLE_BURST_JOB.format(-100)) == []
+
+
+async def test_every_reveal_is_answered_when_there_is_no_job_queue(context):
+    """A bot built without the job-queue extra has nothing to flush a buffer with, so
+    buffering there would swallow every confirmation after the first."""
+    await start_session(context)
+    context.job_queue = None
+
+    first = await reveal_message(context, 1, "gunner")
+    second = await reveal_message(context, 2, "seer")
+    assert "Gunner" in first.last_reply
+    assert "Seer" in second.last_reply
+
+
+async def test_a_notice_for_an_ended_session_says_nothing(context):
+    """The session can end between the reveal and the window closing."""
+    await start_session(context)
+    await reveal_message(context, 1, "gunner")
+    await reveal_message(context, 2, "seer")
+    session.end(context.chat_data)
+
+    await context.job_queue.run_pending(context)
+    assert role_notices(context) == []
+
+
 # --- /rm: three forms, one validation ---------------------------------------
 
 
