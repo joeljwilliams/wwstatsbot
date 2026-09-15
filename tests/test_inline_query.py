@@ -38,7 +38,7 @@ async def test_empty_query_titles(stats_api):
 async def test_empty_query_cards_carry_the_rendered_message(stats_api):
     inline = await answer("")
     by_id = {r.id: r.input_message_content.message_text for r in inline.results}
-    assert "Alice the Villager" in by_id["stats"]
+    assert "Alice</a> the Villager" in by_id["stats"]
     assert "most killed:" in by_id["kills"]
     assert "who killed" in by_id["killedby"]
     assert "Types of deaths" in by_id["deaths"]

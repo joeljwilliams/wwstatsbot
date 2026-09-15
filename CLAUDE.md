@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1509 tests; the 67 Postgres ones skip by default
+uv run pytest                     # 1525 tests; the 74 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -239,8 +239,11 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
   command and an inline card render the *same* bytes. Escaping happens here, once; callers
   pass raw values.
 - **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `achievement_rules`,
-  `admins`, `player_alts`, `player_snapshots`), idempotent seeding, full-text search, and
-  the **in-memory caches** that are the read path for achievements, rules and alts.
+  `admins`, `player_alts`, `player_badges`, `player_snapshots`), idempotent seeding,
+  full-text search, and the **in-memory caches** that are the read path for achievements,
+  rules, alts and badges.
+- **`badges.py`** — the supporter badge: one emoji a contributor's name carries wherever
+  this bot prints it. Rendering only; the cache and the table are `db.py`'s.
 - **`playerdata.py`** — the only caller of `api.py`'s fetchers. Records every lookup,
   notices new achievements by diffing against the previous one, and answers from the record
   when the stats site is down.
@@ -818,6 +821,43 @@ inside a lookup, under builders that have no `context` and no business sending a
 unless `LOG_GROUP_ID` is also set, and a refused send is logged and swallowed — the log
 group is where problems are reported, so failing to reach it can only be logged.
 
+**A badge is attached at nine call sites, and there is no choke point.** `/setemoji`
+(superuser) gives a contributor an emoji their name then carries everywhere this bot prints
+it — but a name becomes a mention in nine different templates, so each carries a `{badge}`
+field filled with `badges.of(user_id)`: `_mention` in the stand-in (the roster, the
+achievements list, /dead, /love, the lynch order), the four stat builders, the /search
+header and every /schall row, the /roll names, the join announcement and the log group's
+achievement announcement. `badges.py` lists them, because a call site missed is one badge
+absent from one message — nothing fails, and nobody reports it.
+
+It reads through `db.badge()`, a dict lookup against a cache loaded at startup, for the same
+reason `is_alt_account` does: a sixteen-player roster asks sixteen times per edit and edits
+twice a phase. Every write reloads the cache. The emoji is escaped on the way out, because
+it comes from a table this bot does not revalidate and goes straight into HTML, and an empty
+badge renders every message byte-identically to the one before badges existed — which is
+every message about everybody who has not been given one.
+
+**The badge sits outside the `<a>`, and that is not cosmetic.** Telegram entities of these
+kinds **cannot contain one another**: a custom emoji inside a `text_link` is not rendered as
+one, it is silently dropped to the plain glyph the tag wraps. Rendered inside the mention, a
+premium butterfly reached a live group as a star-struck face and a premium penguin as a
+winking one — the fallback character each sticker happens to carry, the same in the roster
+and the stats card, with no error anywhere and nothing to say why. Only the `/setemoji`
+confirmation looked right, because that is the one message where the badge was never inside
+a link. So every mention template ends its `<a>` at the **name** and puts `{badge}` after
+the closing tag; on the stats card that also moved `the <role>` out of the link text, which
+is the visible half of the fix and why the goldens changed with it.
+
+**A premium emoji is two columns, and the confirmation is the test.** Telegram sends a
+custom emoji as `<tg-emoji emoji-id="…">X</tg-emoji>` — an animated sticker addressed by id,
+with `X` the plain emoji a client falls back to — and it arrives at `/setemoji` as *text
+plus an entity*, so reading the command's text alone silently stores the fallback and loses
+what somebody paid for. Only bots that bought a username on Fragment may send one at all,
+and a badge Telegram refuses would not fail at `/setemoji`: it would fail in **every message
+naming that player**, with nothing on screen to say why. So the badge is rendered into the
+confirmation *before* the row is written, and what gets stored is whichever form Telegram
+agreed to send — the plain one, with a note, when the custom one was refused.
+
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
 Stored state (e.g. `/schall` player names) is kept **unescaped** and escaped only at
@@ -835,7 +875,7 @@ dropped. Player names may themselves start with `-`, which is why `_ACHV_ROW` re
 a dash *plus* whitespace and prefers indented rows.
 
 **Permissions are two-tier.** `is_superuser()` is an env-var id comparison
-(`/addadmin`, `/deladmin`, `/admins`, `/db`); `is_admin_user()` also consults the
+(`/addadmin`, `/deladmin`, `/admins`, `/db`, `/setemoji`); `is_admin_user()` also consults the
 `admins` table (`/setnote`, `/clearnote`). `db.run_sql` executes arbitrary SQL and is
 safe *only* because of its superuser gate — never call it from a new handler without one.
 

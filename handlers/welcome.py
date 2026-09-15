@@ -13,7 +13,6 @@ admins — this is a decision about their room, not about the bot.
 
 import asyncio
 import html
-import re
 
 import structlog
 from telegram import Update
@@ -23,6 +22,7 @@ from telegram.ext import ContextTypes
 from unidecode import unidecode
 
 import api
+import badges
 import builders
 import playerdata
 import templates as t
@@ -40,11 +40,6 @@ _WELCOME_KEY = "welcome"
 _MAX_ANNOUNCED = 5
 
 _GROUP_CHATS = ("group", "supergroup")
-
-# <tg-emoji emoji-id="...">fallback</tg-emoji> -> fallback. The tag always carries an
-# ordinary glyph for clients that cannot render the custom one, so unwrapping it is a
-# complete fallback rather than a degraded one.
-_CUSTOM_EMOJI = re.compile(r"<tg-emoji[^>]*>(.*?)</tg-emoji>", re.DOTALL)
 
 
 def is_enabled(context):
@@ -101,10 +96,11 @@ async def _player_line(user):
     stats = (await playerdata.get_stats(user.id, user.first_name)).data
     name = html.escape(user.first_name)
     if not stats:
-        return t.WELCOME_NO_GAMES.format(user_id=user.id, name=name)
+        return t.WELCOME_NO_GAMES.format(user_id=user.id, name=name, badge=badges.of(user.id))
     achievements = (await playerdata.get_achievement_count(user.id, user.first_name)).data
     return t.WELCOME_PLAYER.format(
         name=name,
+        badge=badges.of(user.id),
         role=builders.role_label(stats["mostCommonRole"]),
         # Grouped here rather than in the template: a format spec in a translatable
         # string breaks the "every template formats with its own fields" guard, and
@@ -164,6 +160,4 @@ async def _post(message, text):
         await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except BadRequest as exc:
         logger.warning("welcome_custom_emoji_rejected", error=str(exc))
-        await message.reply_text(
-            _CUSTOM_EMOJI.sub(r"\1", text), parse_mode=ParseMode.HTML, disable_web_page_preview=True
-        )
+        await message.reply_text(badges.strip_custom(text), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
