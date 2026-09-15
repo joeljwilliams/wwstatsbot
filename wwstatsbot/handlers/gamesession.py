@@ -36,14 +36,9 @@ from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
-import badges
-import db
-import feasibility
-import playerdata
-import roles
-import session
-import templates as t
-from handlers.common import (
+from wwstatsbot.data import db, playerdata
+from wwstatsbot.game import feasibility, roles, session
+from wwstatsbot.handlers.common import (
     is_admin_user,
     is_chat_admin,
     mentioned_usernames,
@@ -52,6 +47,8 @@ from handlers.common import (
     utf16_piece,
     utf16_units,
 )
+from wwstatsbot.render import badges
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

@@ -29,9 +29,9 @@ from telegram.error import BadRequest, RetryAfter
 from test_standin_list import big_game, publish
 from test_standin_session import reveal, role_notices, start_session
 
-import db
-from handlers import gamesession
-from rulelist import RULES
+from wwstatsbot.data import db
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.handlers import gamesession
 
 PUBLISH_JOB = gamesession._PUBLISH_JOB.format(-100)
 ROLE_JOB = gamesession._ROLE_BURST_JOB.format(-100)

@@ -24,10 +24,10 @@ from conftest import FakeChat, FakeEntity, FakeMessage, FakeUpdate, FakeUser, bo
 from telegram.ext import ApplicationHandlerStop
 from test_standin_session import invoke, reveal, start_session
 
-import db
-import session
-import templates as t
-from handlers import gamesession
+from wwstatsbot.data import db
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
+from wwstatsbot.render import templates as t
 
 # conftest's bot_message always speaks as this one.
 GAME_BOT_ID = 42

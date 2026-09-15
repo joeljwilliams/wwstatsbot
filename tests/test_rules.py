@@ -17,10 +17,10 @@ opting one out is a visible decision in the catalogue rather than an omission.
 
 import pytest
 
-import roles
-import rulelist
-from achvlist import ACHV
-from rulelist import RULES
+from wwstatsbot.data import rulelist
+from wwstatsbot.data.achvlist import ACHV
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import roles
 
 ACHIEVEMENT_NAMES = [a["name"] for a in ACHV]
 RULE_NAMES = [r["name"] for r in RULES]

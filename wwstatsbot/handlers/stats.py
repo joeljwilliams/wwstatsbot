@@ -12,8 +12,8 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import builders
-from handlers.common import resolve_target
+from wwstatsbot.handlers.common import resolve_target
+from wwstatsbot.render import builders
 
 logger = structlog.get_logger(__name__)
 

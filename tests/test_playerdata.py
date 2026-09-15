@@ -28,13 +28,11 @@ from conftest import (
     message,
 )
 
-import api
-import builders
-import db
-import playerdata
-import settings
-import templates as t
-from handlers import search
+from wwstatsbot.data import api, db, playerdata
+from wwstatsbot.handlers import search
+from wwstatsbot.render import builders
+from wwstatsbot.render import templates as t
+from wwstatsbot.runtime import settings
 
 LOG_GROUP = -1009999
 
@@ -367,8 +365,9 @@ def test_nothing_outside_playerdata_calls_a_fetcher_directly():
     import pathlib
 
     repo = pathlib.Path(__file__).resolve().parent.parent
-    sources = [p for p in sorted(repo.glob("*.py")) if p.name not in {"playerdata.py", "api.py"}]
-    sources += sorted(repo.glob("handlers/*.py"))
+    # rglob over the whole package: a two-level glob would stop covering the tree the first
+    # time a sub-package was added, and would keep passing while checking less.
+    sources = [p for p in sorted((repo / "wwstatsbot").rglob("*.py")) if p.name not in {"playerdata.py", "api.py"}]
 
     offenders = [
         "{}:{}".format(path.relative_to(repo), i)

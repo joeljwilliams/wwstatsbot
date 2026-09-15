@@ -22,10 +22,10 @@ from conftest import FakeUpdate, FakeUser, bot_message, message
 from test_standin_list import big_game, post_text, visible
 from test_standin_session import reveal, start_session
 
-import db
-from handlers import achievements as achv_handlers
-from handlers import gamesession
-from rulelist import RULES
+from wwstatsbot.data import db
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import gamesession
 
 # Enough distinct roles to fill a twenty-four player table. The mix matters only in that
 # it produces a long list; which roles they are is the feasibility module's business.

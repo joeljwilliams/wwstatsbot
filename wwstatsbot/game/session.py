@@ -17,7 +17,7 @@ targeted, or die. Anyone else is not in the game, and a stand-in that let a pass
 into a live roster would be worse than one that ignored them.
 """
 
-import roles
+from wwstatsbot.game import roles
 
 KEY = "standin"
 

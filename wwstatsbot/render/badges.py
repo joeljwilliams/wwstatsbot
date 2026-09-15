@@ -33,8 +33,8 @@ message, which is why the list is here rather than left to be rediscovered.
 import html
 import re
 
-import db
-import templates as t
+from wwstatsbot.data import db
+from wwstatsbot.render import templates as t
 
 # <tg-emoji emoji-id="...">fallback</tg-emoji> -> fallback. The tag always carries an
 # ordinary glyph for clients that cannot render the custom one, so unwrapping it is a

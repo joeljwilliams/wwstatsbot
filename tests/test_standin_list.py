@@ -23,14 +23,12 @@ import pytest
 from conftest import FakeUpdate, FakeUser, message
 from test_standin_session import player_message, reveal, start_session
 
-import api
-import db
-import feasibility
-import session
-import templates as t
-from handlers import achievements as achv_handlers
-from handlers import gamesession
-from rulelist import RULES
+from wwstatsbot.data import api, db
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import feasibility, session
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import gamesession
+from wwstatsbot.render import templates as t
 
 
 class _Stripped(HTMLParser):

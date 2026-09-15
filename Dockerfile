@@ -19,8 +19,8 @@ WORKDIR /app
 # Only the lockfile and manifest, so this layer caches until dependencies change
 # (app code lands in the runtime stage below and doesn't bust it).
 COPY pyproject.toml uv.lock ./
-# --no-dev: no pytest/ruff in the image. --no-install-project: the bot is a flat set
-# of modules run as `python main.py`, not an installable package.
+# --no-dev: no pytest/ruff in the image. --no-install-project: the bot is a package that
+# is run (`python -m wwstatsbot`), never installed — there is no build backend.
 RUN uv sync --frozen --no-dev --no-install-project
 
 # ---- runtime: minimal image with only the venv + app code ----
@@ -51,11 +51,11 @@ ENV PYTHONUNBUFFERED=1 \
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-# The glob covers only top-level modules — it does NOT recurse, so every package needs
-# its own COPY. Missing one still builds a valid image; the bot then dies at startup with
-# ModuleNotFoundError. The docker CI job runs `python main.py` for exactly this reason.
-COPY *.py ./
-COPY handlers/ ./handlers/
+# One COPY for the whole application, and that is the point of it being one package. This
+# was `COPY *.py ./` plus a COPY per sub-directory, a glob that does not recurse: a package
+# added without its own line still built a valid image, and the bot then died at startup
+# with ModuleNotFoundError. The docker CI job still runs the module for that reason.
+COPY wwstatsbot/ ./wwstatsbot/
 
 # Run as an unprivileged user.
 RUN useradd --create-home --uid 10001 appuser
@@ -67,4 +67,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('HEALTH_PORT','8080'), timeout=2).status==200 else 1)"
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "wwstatsbot"]

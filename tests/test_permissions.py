@@ -15,9 +15,9 @@ dropped, so every gated command is covered.
 import pytest
 from conftest import SUPERUSER_ID, FakeContext, FakeUpdate, FakeUser, message
 
-import db
-import settings
-from handlers import admin
+from wwstatsbot.data import db
+from wwstatsbot.handlers import admin
+from wwstatsbot.runtime import settings
 
 
 class Tripwire:

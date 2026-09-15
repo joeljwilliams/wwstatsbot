@@ -21,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 from telegram.ext import ApplicationHandlerStop, TypeHandler
 
-import main
+from wwstatsbot import main
 
 
 def update(**kwargs):

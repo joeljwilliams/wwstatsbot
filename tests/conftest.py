@@ -42,8 +42,10 @@ os.environ.pop("REDIS_URL", None)
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
-import api  # noqa: E402
-import db  # noqa: E402
+from wwstatsbot.data import (
+    api,  # noqa: E402
+    db,  # noqa: E402
+)
 
 SUPERUSER_ID = 999
 

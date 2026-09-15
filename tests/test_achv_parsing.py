@@ -15,7 +15,7 @@ then get reported as unmatchable or, worse, fuzzy-match onto an unrelated achiev
 Both the indent and the space after the dash carry weight.
 """
 
-from handlers import achievements as achv_handlers
+from wwstatsbot.handlers import achievements as achv_handlers
 
 REAL_MESSAGE = """Possible Achievements:
 
@@ -140,7 +140,7 @@ def test_no_achievement_name_starts_with_punctuation():
     If an achievement is ever added whose name opens with punctuation, stripping a leading
     symbol run would eat part of it — so this fails here rather than in a live lookup.
     """
-    from achvlist import ACHV
+    from wwstatsbot.data.achvlist import ACHV
 
     for achievement in ACHV:
         first = achievement["name"][0]
