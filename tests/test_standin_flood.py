@@ -27,13 +27,14 @@ import pytest
 from structlog.testing import capture_logs
 from telegram.error import BadRequest, RetryAfter
 from test_standin_list import big_game, publish
-from test_standin_session import reveal, start_session
+from test_standin_session import reveal, role_notices, start_session
 
 import db
 from handlers import gamesession
 from rulelist import RULES
 
 PUBLISH_JOB = gamesession._PUBLISH_JOB.format(-100)
+ROLE_JOB = gamesession._ROLE_BURST_JOB.format(-100)
 
 
 @pytest.fixture(autouse=True)
@@ -205,6 +206,35 @@ async def test_flood_control_on_the_first_post_is_postponed_too(context):
     failures = [e for e in entries if e["event"] == "standin_list_post_failed"]
     assert failures and failures[0]["retry_after"] == 12
     assert context.job_queue.pending(PUBLISH_JOB)[0].when == 13
+
+
+async def test_flood_control_puts_the_collected_role_notice_back(context):
+    """A confirmation swallowed here would leave players believing their /role never landed,
+    and retyping it is exactly the noise the collected notice exists to remove."""
+    session_data = await settled(context)
+    # First reveals are silent, so the burst that reaches the notice is made of changes.
+    await reveal(context, 2, "harlot")
+    await reveal(context, 3, "seer")
+    await reveal(context, 1, "gunner")
+    await reveal(context, 2, "werewolf")
+    await reveal(context, 3, "fool")
+    context.bot._send_error = RetryAfter(20)
+
+    with capture_logs() as entries:
+        await gamesession._role_notice(_job(context))
+
+    failures = [e for e in entries if e["event"] == "standin_role_notice_failed"]
+    assert failures and failures[0]["retry_after"] == 20
+    assert session_data["role_pending"] == ["2", "3"], "nobody is dropped by the refusal"
+
+    pending = context.job_queue.pending(ROLE_JOB)
+    assert len(pending) == 1, "the one already pending is replaced, not added to"
+    assert pending[0].when == 21
+
+    context.bot._send_error = None
+    await context.job_queue.run_pending(context, elapsed=21)
+    notice = role_notices(context)[0]
+    assert "Werewolf" in notice and "Fool" in notice
 
 
 def _job(context):

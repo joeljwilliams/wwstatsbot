@@ -235,6 +235,43 @@ async def test_lo_when_everyone_is_dead_says_so(context):
     assert "nobody left" in (await show(context)).last_reply
 
 
+# --- Asking twice ----------------------------------------------------------------
+#
+# One order, and in a game of thirty-five several people asking for it inside a few
+# seconds. At thirty-five lines a piece, the third copy has scrolled the game itself out of
+# the chat — so an order already on screen, unchanged, is not sent again.
+
+
+async def test_a_second_lo_within_seconds_is_not_answered_again(context):
+    await start_session(context)
+    first = await show(context)
+    second = await show(context, user_id=2, name="omu")
+
+    assert first.last_reply.startswith("<b>Lynchorder:</b>")
+    assert second.replies == [], "the asker is looking at the one above"
+
+
+async def test_an_order_that_changed_is_sent_again_at_once(context):
+    """A death between the two asks makes the second a different answer, worth the room."""
+    await start_session(context)
+    await show(context)
+    session.set_alive(session.get(context.chat_data), 2, False)
+
+    reply = (await show(context, user_id=3, name="J J")).last_reply
+    assert reply.startswith("<b>Lynchorder:</b>")
+    assert "omu" not in reply
+
+
+async def test_the_same_order_is_sent_again_once_the_window_has_passed(context, monkeypatch):
+    """Suppression is for the duplicates of one moment, not for the rest of the game."""
+    await start_session(context)
+    first = await show(context)
+
+    later = gamesession._now() + gamesession._LYNCH_REPEAT_SECONDS + 1
+    monkeypatch.setattr(gamesession, "_now", lambda: later)
+    assert (await show(context, user_id=2, name="omu")).last_reply == first.last_reply
+
+
 # --- Addressing ------------------------------------------------------------------
 
 

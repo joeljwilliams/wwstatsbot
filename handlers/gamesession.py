@@ -604,6 +604,13 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Targets the player replied to when sent as a reply, otherwise the sender. Revealing
     again overwrites: roles change all game, so a second /role is how someone says "I am
     something else now", not a mistake to reject.
+
+    **A player revealing their own role for the first time is answered with silence**, and
+    only an unrecognised role is ever refused. Thirty-five people open a game by typing
+    /role at once; reading each one back buries the reveals under their own confirmations,
+    and the roster message is already about to say the same thing to everybody. What is
+    *news* still gets said — a role that **changed**, and a role set **for somebody else**
+    — because both are claims about the game the rest of the table has to see.
     """
     session_data = _session_for(update, context)
     if session_data is None:
@@ -640,18 +647,27 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if target_id is None:
         target_id = user.id
-    if session.player(session_data, target_id) is None:
+    entry = session.player(session_data, target_id)
+    if entry is None:
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
-    entry = session.set_roles(session_data, target_id, resolved)
+    # Read before the write, because the answer changes once it lands: whether this player
+    # had already revealed is the whole difference between a confirmation worth sending and
+    # the opening minute of a game.
+    revealed_before = bool(entry["roles"])
+
+    session.set_roles(session_data, target_id, resolved)
     await _changed(context, message.chat.id, session_data)
 
-    template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(resolved) > 1 else t.STANDIN_ROLE_SET
-    await message.reply_text(
-        template.format(name=_mention(target_id, entry["name"]), role=_role_label(entry)),
-        parse_mode=ParseMode.HTML,
-    )
+    # Three things are news; a player's own first reveal is not (see the docstring). A
+    # re-typed identical role counts as a change deliberately — somebody who saw no answer
+    # and typed it again is asking whether it landed, and that is the only way left to ask.
+    # And a claim the Beholder has already settled is recorded as something *other than
+    # what was typed*, so going quiet would leave a player believing they are the Seer.
+    settled = list(entry["roles"]) != list(resolved)
+    if revealed_before or target_id != user.id or settled:
+        await _confirm_role(context, message, session_data, target_id)
 
 
 async def _beholder_claim(update, context, session_data, typed):
@@ -1096,6 +1112,79 @@ def _transform_lines(session_data, changes):
             reason=reasons[change["reason"]],
         )
     return out
+
+
+def _unrevealed(session_data):
+    """Living players with no role recorded.
+
+    The dead are left out on purpose: the game bot's own death rows name the role a player
+    was, so _follow_roster has usually recorded it already — and asking somebody who is out
+    of the game to type /role is noise aimed at the one person it cannot help.
+    """
+    return [uid for uid, entry in session.players_in_order(session_data) if entry["alive"] and not entry["roles"]]
+
+
+def _without_model(session_data):
+    """Living Wild Children and Doppelgängers nobody has named a role model for.
+
+    The same gap one step further in, and a quieter one: the role *is* on the list, so
+    nothing looks wrong, while the transform their entire game turns on can never fire. A
+    Wild Child whose model dies becomes a wolf; one with no model recorded stays a Wild
+    Child on the list for the rest of the game and is offered the wrong achievements the
+    whole way — theirs, and never the pack's.
+    """
+    return [
+        uid
+        for uid, entry in session.players_in_order(session_data)
+        if entry["alive"] and entry["model"] is None and any(r in _ROLE_MODEL_ROLES for r in entry["roles"])
+    ]
+
+
+async def _nudge_missing(context, chat_id, session_data):
+    """Name whoever the list cannot answer for, once, when the first death lands.
+
+    Two gaps, one message: a player with no role at all, and a Wild Child or Doppelgänger
+    with no role model. The roster marks the first with a ❗ each, but a roster is a message
+    people stop reading after the first few rounds, and it has nothing to say about the
+    second at all.
+
+    The end of the first night is the moment, because that is when everybody has had their
+    role and nobody has an excuse left — and the game bot announces it in as many words.
+    Before then a missing role means the game has not started; after it, it means somebody
+    forgot. Said once: a second telling is nagging, and the ❗ is still there for anyone who
+    looks.
+
+    A death is emphatically *not* the signal, though it was at first. A night can end with
+    nobody killed at all, and the first death that does happen may be a day-one lynch —
+    hours of game later, or never.
+    """
+    if session_data.get("nudged"):
+        return
+    # Set before the send and whether or not anybody is missing: this is the *moment*
+    # passing, not the message succeeding, and a game where everybody revealed must not
+    # bank its turn for later.
+    session_data["nudged"] = True
+
+    def names(ids):
+        return ", ".join(_mention_player(session_data, uid) for uid in ids)
+
+    missing = _unrevealed(session_data)
+    modelless = _without_model(session_data)
+    if not missing and not modelless:
+        return
+
+    lines = []
+    if missing:
+        lines.append(t.STANDIN_NUDGE_NO_ROLE.format(names=names(missing)))
+    if modelless:
+        lines.append(t.STANDIN_NUDGE_NO_MODEL.format(names=names(modelless)))
+    logger.info("standin_nudge", chat_id=chat_id, no_role=len(missing), no_model=len(modelless))
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1990,6 +2079,126 @@ async def _publish(context):
     )
 
 
+# What reaches here is only what was worth saying at all — role_cmd answers a player's own
+# first reveal with silence, which is what the opening minute of a thirty-five player game
+# is made of. Changes and roles set for other people still arrive in bursts, though: a
+# night that turns the Wild Child and the Cursed at once, somebody recording the roles of
+# three players who just died. So the first is answered at once, quoted on the message that
+# made the claim, and anything arriving in its wake is collected into one notice. Nothing
+# is dropped — a change nobody was told about is a change somebody types again.
+#
+# The window is the publish debounce's, so the notice and the live list it describes land
+# in the same breath rather than a few seconds apart saying the same thing.
+_ROLE_BURST_SECONDS = _DEBOUNCE_SECONDS
+_ROLE_BURST_JOB = "standin_roles:{}"
+
+
+async def _confirm_role(context, message, session_data, target_id):
+    """Read a role back: now, or with whatever else the next few seconds bring."""
+    now = _now()
+    told_at = session_data.get("role_told_at", 0)
+    if now - told_at >= _ROLE_BURST_SECONDS or _job_queue(context) is None:
+        # No queue means nothing would ever flush a buffer, so an immediate reply is the
+        # only one that would arrive at all — a bot built without the job-queue extra says
+        # everything it always said.
+        session_data["role_told_at"] = now
+        await _say_role(message, session_data, target_id)
+        return
+
+    # Keyed by player rather than simply appended: somebody correcting themselves twice
+    # inside one window is named once, with the role they ended on.
+    pending = [uid for uid in session_data.get("role_pending", ()) if uid != str(target_id)]
+    pending.append(str(target_id))
+    session_data["role_pending"] = pending
+    _schedule_role_notice(context, message.chat.id, told_at + _ROLE_BURST_SECONDS - now)
+
+
+async def _say_role(message, session_data, target_id):
+    """The single-reveal confirmation, quoting the /role that asked for it."""
+    entry = session.player(session_data, target_id)
+    if entry is None:
+        return
+    template = t.STANDIN_ROLE_SET_AMBIGUOUS if len(entry["roles"]) > 1 else t.STANDIN_ROLE_SET
+    await message.reply_text(
+        template.format(name=_mention(target_id, entry["name"]), role=_role_label(entry)),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+def _schedule_role_notice(context, chat_id, seconds):
+    """Ask for the collected notice when the window closes, unless one is already due."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _ROLE_BURST_JOB.format(chat_id)
+    if queue.get_jobs_by_name(name):
+        # Already pending, and it reads the buffer when it fires — re-scheduling would only
+        # push the whole burst later, which is the debounce's mistake to avoid as well.
+        return
+    queue.run_once(_role_notice, max(seconds, 0), chat_id=chat_id, name=name)
+
+
+def _postpone_role_notice(context, chat_id, seconds):
+    """Push the collected notice out past a flood-control window.
+
+    Replaces rather than skips, the way _postpone_publish does: this is called from inside
+    the notice job itself, and whether a job that is *running* still answers to its own name
+    is the scheduler's business, not something worth betting a lost confirmation on.
+    """
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _ROLE_BURST_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_role_notice, seconds, chat_id=chat_id, name=name)
+
+
+async def _role_notice(context):
+    """The window closed: name everybody who revealed inside it, in one message."""
+    chat_id = context.job.chat_id
+    session_data = session.get(context.chat_data)
+    if session_data is None:
+        # Ended between the schedule and the fire. Nothing to confirm to anybody.
+        return
+
+    pending = session_data.pop("role_pending", [])
+    rows = []
+    ambiguous = False
+    for uid in pending:
+        # Read now rather than at reveal time, so a role corrected inside the window is
+        # read back as it stands and never as the thing it briefly was.
+        entry = session.player(session_data, uid)
+        if entry is None or not entry["roles"]:
+            continue
+        ambiguous = ambiguous or len(entry["roles"]) > 1
+        rows.append(t.STANDIN_ROLE_SET_MANY_ROW.format(name=_mention(uid, entry["name"]), role=_role_label(entry)))
+    if not rows:
+        return
+
+    msg = t.STANDIN_ROLE_SET_MANY + "".join(rows)
+    if ambiguous:
+        msg += t.STANDIN_ROLE_SET_MANY_AMBIGUOUS
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
+    except RetryAfter as err:
+        # Put the burst back and try past the window. A confirmation is cosmetic, but one
+        # silently swallowed by flood control would leave a player believing their /role
+        # never landed — and retyping it is exactly what this is trying to stop.
+        seconds = _retry_seconds(err)
+        arrived = [uid for uid in session_data.get("role_pending", ()) if uid not in pending]
+        session_data["role_pending"] = pending + arrived
+        _postpone_role_notice(context, chat_id, seconds + 1)
+        logger.warning("standin_role_notice_failed", chat_id=chat_id, retry_after=seconds)
+        return
+    except (BadRequest, Forbidden) as err:
+        logger.warning("standin_role_notice_failed", chat_id=chat_id, error=str(err))
+        return
+    session_data["role_told_at"] = _now()
+
+
 async def _idle_warning(context):
     """Ten minutes of silence: say the session is about to end, and set the grace timer."""
     chat_id = context.job.chat_id
@@ -2127,6 +2336,23 @@ async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 # language variants, while this one is a single string in a single place.
 _GAME_OVER = re.compile(r"Game\s+Length:\s*\d+:\d\d:\d\d")
 
+# The end of a night, as the game bot announces it: a line that is nothing but "Day 3". The
+# flavour above it is what a reader notices and is the wrong thing to match — it says
+# whether anybody died, it is different again for a murderer, a harlot or a quiet night, and
+# there is a translation of every variant. The day number is structural, printed once a day,
+# and the same in every one of them. Like _ROSTER_COUNTS and _GAME_OVER, it is read in
+# English only, and a group playing in another language simply never gets the nudge.
+#
+# Any day, not strictly Day 1: the nudge fires once per session anyway, so this reads as
+# "the first night that ended while we were watching" — which is Day 1 in an ordinary game
+# and still the right moment in a session that opened halfway through one.
+_DAY_BREAKS = re.compile(r"^\s*Day\s+\d+\s*$", re.MULTILINE)
+
+# The other end of the same day. "Night has fallen." opens the message the game bot posts
+# when the lynch phase is over — after a lynch, after a tie, and after a Pacifist talks the
+# village out of one, which is three different messages with that one line in common.
+_NIGHT_FALLS = re.compile(r"Night has fallen", re.IGNORECASE)
+
 # A game bot posts a player list every phase it changed in, so the expensive path is worth
 # a floor and the cheap ones are not: following a roster is local work plus an edit the
 # publish debounce already coalesces, while opening a session is one stats API call per
@@ -2209,6 +2435,16 @@ async def _drive_session(update, context):
             logger.info("standin_auto_ended", chat_id=message.chat.id)
         return
 
+    if session_data is not None and _DAY_BREAKS.search(body):
+        # Checked before the roster because it is cheaper and because this message is not
+        # one: falling through would only reach the "could not read it" log.
+        await _nudge_missing(context, message.chat.id, session_data)
+        return
+
+    if session_data is not None and _NIGHT_FALLS.search(body):
+        await _night_fell(context, message.chat.id, session_data)
+        return
+
     alive_ids, found, claimed, _ = _read_roster(message, session_data)
     if alive_ids is None:
         # Everything else the game bot says, which is most of what it says. Logged rather
@@ -2256,16 +2492,19 @@ async def _drive_session(update, context):
 _LYNCH_ORDER_MAX = 1000
 
 
-def _lynch_written(context, message, session_data):
+def _lynch_written(context, chat_id, session_data):
     """Record a lynch-order change as activity.
 
     Not _changed(): that also schedules a publish, and the lynch order appears in neither
     live message, so there would be nothing to publish. The idle timer does matter — a
     group setting the order is plainly still playing, and the session must not expire
     underneath them.
+
+    Takes a chat id rather than the message, because night falling writes the order too and
+    there is no message of ours in that.
     """
     session.touch(session_data, _now())
-    _schedule_idle(context, message.chat.id)
+    _schedule_idle(context, chat_id)
 
 
 def _named_somebody(message):
@@ -2342,6 +2581,38 @@ async def _lynch_session(update, context, command):
     return session_data
 
 
+# Thirty-five players means one lynch order and several people asking for it within a few
+# seconds of each other — and at thirty-five lines, the third copy has scrolled the game
+# itself out of the chat. An order already on screen, unchanged, is therefore not sent
+# again: whoever asked is looking at it. Fingerprinted rather than timed alone, because a
+# death or a /slo between the two asks makes the second answer a different one, and that
+# one is worth the room.
+_LYNCH_REPEAT_SECONDS = 5
+
+
+async def _night_fell(context, chat_id, session_data):
+    """The lynch phase is over, so the order somebody set for it is too.
+
+    A typed order answers "who do we point at *today*" — it is the one thing in the session
+    that is about a single day rather than about the game. Left standing it is read again
+    the next morning as though it still meant something, naming players who have died
+    overnight and a plan the village has already carried out. The rotating order it falls
+    back to is computed from the living roster on demand, so it is right every morning with
+    nobody retyping anything.
+
+    Silent unless there was something to clear, which is almost always: most games never
+    type an order at all, and a line announcing that nothing happened is the noise the rest
+    of this module spends its time avoiding. The chats that did set one get one line, in the
+    place where somebody would otherwise wonder where their order went.
+    """
+    if not session.lynch_order(session_data):
+        return
+    session.set_lynch_order(session_data, None)
+    _lynch_written(context, chat_id, session_data)
+    logger.info("standin_lynch_order_night_reset", chat_id=chat_id)
+    await context.bot.send_message(chat_id=chat_id, text=t.STANDIN_LYNCH_RESET_NIGHT, parse_mode=ParseMode.HTML)
+
+
 async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/lo@bot` — show the lynch order in force, typed or rotating."""
     session_data = await _lynch_session(update, context, "lo")
@@ -2349,6 +2620,17 @@ async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg, _ = _render_lynch_order(session_data)
+    fingerprint = _fingerprint(msg, None)
+    shown, at = session_data.get("lynch_shown") or (None, 0)
+    now = _now()
+    if shown == fingerprint and now - at < _LYNCH_REPEAT_SECONDS:
+        logger.info("standin_lynch_order_repeated", chat_id=update.message.chat.id)
+        return
+
+    # Recorded before the send rather than after, because the duplicates this is about
+    # arrive while that send is still in flight — a record written afterwards would let
+    # every one of them through.
+    session_data["lynch_shown"] = [fingerprint, now]
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
@@ -2379,7 +2661,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             await message.reply_text(t.STANDIN_LYNCH_ALL_DEAD, parse_mode=ParseMode.HTML)
             return
         session.set_lynch_order(session_data, [uid for uid, _ in living])
-        _lynch_written(context, message, session_data)
+        _lynch_written(context, message.chat.id, session_data)
         reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message))
         # A dead player named at set time is dropped, and saying so is the one addition
         # kept: an order silently one name short of what somebody typed is a wrong answer,
@@ -2409,7 +2691,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not wanted:
         session.set_lynch_order(session_data, None)
-        _lynch_written(context, message, session_data)
+        _lynch_written(context, message.chat.id, session_data)
         await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
         return
 
@@ -2421,7 +2703,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     session.set_lynch_order(session_data, wanted)
-    _lynch_written(context, message, session_data)
+    _lynch_written(context, message.chat.id, session_data)
     await message.reply_text(
         t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)),
         parse_mode=ParseMode.HTML,
@@ -2441,7 +2723,7 @@ async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     session.set_lynch_order(session_data, None)
-    _lynch_written(context, message, session_data)
+    _lynch_written(context, message.chat.id, session_data)
     await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
 
 
