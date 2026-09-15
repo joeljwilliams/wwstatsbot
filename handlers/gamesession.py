@@ -1148,11 +1148,15 @@ async def _nudge_missing(context, chat_id, session_data):
     people stop reading after the first few rounds, and it has nothing to say about the
     second at all.
 
-    The first death is the signal because it is the one moment both modes share — a
-    followed roster in /gm auto, a typed /dead otherwise — and by then the opening night is
-    over and anybody still missing is missing on purpose or by accident, not because the
-    game has not started. Said once: a second telling is nagging, and the ❗ is still there
-    for anyone who looks.
+    The end of the first night is the moment, because that is when everybody has had their
+    role and nobody has an excuse left — and the game bot announces it in as many words.
+    Before then a missing role means the game has not started; after it, it means somebody
+    forgot. Said once: a second telling is nagging, and the ❗ is still there for anyone who
+    looks.
+
+    A death is emphatically *not* the signal, though it was at first. A night can end with
+    nobody killed at all, and the first death that does happen may be a day-one lynch —
+    hours of game later, or never.
     """
     if session_data.get("nudged"):
         return
@@ -1222,7 +1226,6 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = t.STANDIN_DEAD_MARKED.format(name=_mention(target_id, entry["name"]))
     await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
-    await _nudge_missing(context, message.chat.id, session_data)
 
 
 def _dead_rows(text):
@@ -1439,11 +1442,6 @@ async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
     changes = session.apply_transforms(session_data)
     _remember_table(context, session_data)
     await _changed(context, chat_id, session_data)
-    if died:
-        # The first night is over the moment somebody is out of the game. Both modes reach
-        # this — a roster followed automatically, and /ad — and manual /dead reaches the
-        # same call of its own.
-        await _nudge_missing(context, chat_id, session_data)
     return died, revived, learned, changes
 
 
@@ -2338,6 +2336,18 @@ async def game_management_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 # language variants, while this one is a single string in a single place.
 _GAME_OVER = re.compile(r"Game\s+Length:\s*\d+:\d\d:\d\d")
 
+# The end of a night, as the game bot announces it: a line that is nothing but "Day 3". The
+# flavour above it is what a reader notices and is the wrong thing to match — it says
+# whether anybody died, it is different again for a murderer, a harlot or a quiet night, and
+# there is a translation of every variant. The day number is structural, printed once a day,
+# and the same in every one of them. Like _ROSTER_COUNTS and _GAME_OVER, it is read in
+# English only, and a group playing in another language simply never gets the nudge.
+#
+# Any day, not strictly Day 1: the nudge fires once per session anyway, so this reads as
+# "the first night that ended while we were watching" — which is Day 1 in an ordinary game
+# and still the right moment in a session that opened halfway through one.
+_DAY_BREAKS = re.compile(r"^\s*Day\s+\d+\s*$", re.MULTILINE)
+
 # A game bot posts a player list every phase it changed in, so the expensive path is worth
 # a floor and the cheap ones are not: following a roster is local work plus an edit the
 # publish debounce already coalesces, while opening a session is one stats API call per
@@ -2418,6 +2428,12 @@ async def _drive_session(update, context):
             session.end(context.chat_data)
             await _finish(context, message.chat.id, session_data)
             logger.info("standin_auto_ended", chat_id=message.chat.id)
+        return
+
+    if session_data is not None and _DAY_BREAKS.search(body):
+        # Checked before the roster because it is cheaper and because this message is not
+        # one: falling through would only reach the "could not read it" log.
+        await _nudge_missing(context, message.chat.id, session_data)
         return
 
     alive_ids, found, claimed, _ = _read_roster(message, session_data)

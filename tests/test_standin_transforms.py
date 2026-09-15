@@ -262,126 +262,22 @@ async def test_dead_with_something_that_names_nobody_still_says_so(context):
     assert session_data["players"]["1"]["alive"] is True
 
 
-# --- Naming whoever the list cannot answer for ------------------------------
-#
-# Two gaps, and the second is the quieter one. A player who never revealed costs the whole
-# table: the Possible Achievements list cannot say one thing about them, and they are the
-# likeliest person in the room not to know it. A Wild Child or Doppelgänger with no role
-# model looks fine — the role is right there on the list — while the transform their entire
-# game turns on can never fire.
-#
-# The roster marks the first with a ❗ each and has nothing to say about the second, and a
-# roster is a message people stop reading after the first few rounds. So the first death,
-# which is the end of the first night in every game, names both out loud. Once, in one
-# message: the point is to stop the chat scrolling, not to add to it.
+# --- A death is not the end of a night --------------------------------------
 
 
-def nudges(context):
-    return [sent["text"] for sent in context.bot.sent if "Still no role" in sent["text"]]
+async def test_a_death_says_nothing_about_anybody_who_never_revealed(context):
+    """Whoever never set a role is named when the *first night ends*, which the game bot
+    announces in as many words — see tests/test_standin_auto.py.
 
-
-async def test_the_first_death_names_everybody_with_no_role(context):
-    await start_session(context)
-    await reveal(context, 1, "villager")
-
-    await dead(context, "Ren")
-
-    assert len(nudges(context)) == 1
-    assert mention(2, "omu") in nudges(context)[0]
-    assert mention(3, "J J") in nudges(context)[0]
-
-
-async def test_the_player_who_just_died_is_not_asked_to_reveal(context):
-    """Their role arrives on the game bot's own death row, and they are out of the game."""
-    await start_session(context)
-
-    await dead(context, "omu")
-
-    assert mention(2, "omu") not in nudges(context)[0]
-
-
-async def test_it_is_said_once_and_not_again(context):
-    """A second telling is nagging, and the ❗ on the roster is still there for anyone
-    who looks."""
+    A death was the first attempt at that moment and is the wrong one: a night can end with
+    nobody killed at all, and the first death that does happen may be a day-one lynch, hours
+    of game later or never.
+    """
     await start_session(context)
 
     await dead(context, "Ren")
-    await dead(context, "omu")
 
-    assert len(nudges(context)) == 1
-
-
-async def test_a_table_that_all_revealed_is_not_told_anything(context):
-    await start_session(context)
-    for uid in (1, 2, 3, 4):
-        await reveal(context, uid, "villager")
-
-    await dead(context, "Ren")
-
-    assert nudges(context) == []
-
-
-async def test_the_moment_passes_even_when_nobody_was_missing(context):
-    """The turn is spent at the first death whether or not it had anything to say — a game
-    where everybody revealed must not bank it and fire three deaths later."""
-    await start_session(context)
-    for uid in (1, 2, 3, 4):
-        await reveal(context, uid, "villager")
-    await dead(context, "Ren")
-
-    session.set_roles(session.get(context.chat_data), 2, [])
-    await dead(context, "J J")
-
-    assert nudges(context) == []
-
-
-async def test_a_wild_child_with_no_rolemodel_is_named_too(context):
-    await start_session(context)
-    for uid in (1, 2, 3, 4):
-        await reveal(context, uid, "villager")
-    await reveal(context, 2, "wc")
-
-    await dead(context, "Ren")
-
-    assert "Still no rolemodel set" in nudges(context)[0]
-    assert mention(2, "omu") in nudges(context)[0]
-
-
-async def test_a_wild_child_who_named_a_rolemodel_is_left_alone(context):
-    await start_session(context)
-    for uid in (1, 2, 3, 4):
-        await reveal(context, uid, "villager")
-    await reveal(context, 2, "wc")
-    session.set_model(session.get(context.chat_data), 2, 3)
-
-    await dead(context, "Ren")
-
-    assert nudges(context) == []
-
-
-async def test_a_role_with_no_rolemodel_at_all_is_not_asked_for_one(context):
-    """Only the Wild Child and the Doppelgänger have one; /rm refuses everyone else, so
-    asking anybody else for one would be asking for a refusal."""
-    await start_session(context)
-    for uid in (1, 2, 3, 4):
-        await reveal(context, uid, "seer")
-
-    await dead(context, "Ren")
-
-    assert nudges(context) == []
-
-
-async def test_both_gaps_arrive_as_one_message(context):
-    await start_session(context)
-    await reveal(context, 2, "wc")
-
-    await dead(context, "Ren")
-
-    assert len(nudges(context)) == 1
-    body = nudges(context)[0]
-    assert "Still no role set" in body and "Still no rolemodel set" in body
-    assert mention(3, "J J") in body, "never revealed"
-    assert mention(2, "omu") in body, "revealed, but nobody is their rolemodel"
+    assert [sent for sent in context.bot.sent if "Still no role" in sent["text"]] == []
 
 
 # --- /ad --------------------------------------------------------------------
