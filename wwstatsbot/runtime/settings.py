@@ -128,7 +128,7 @@ def require():
     """Fail fast on missing required settings. Called from main(), not at import.
 
     Importing must stay side-effect-free enough to be safe from a test process, which has
-    neither a bot token nor a database: exiting at import time meant `import main` killed
+    neither a bot token nor a database: exiting at import time meant importing the app killed
     the interpreter, so nothing in the app could be tested.
     """
     if not BOT_TOKEN:

@@ -65,7 +65,8 @@ def main(ctx=None):
     # This was inert until 2.36.4, which is when the bot learned to stop talking: PTB's
     # persistence loop wrote bot_data to Redis every 60 seconds whether or not anything had
     # changed, and the asyncpg pool held a connection open besides, so the container never
-    # saw five idle minutes. Both are fixed in redis_persistence.py and db.py, and both are
+    # saw five idle minutes. Both are fixed in wwstatsbot/runtime/redis_persistence.py and
+    # wwstatsbot/data/db.py, and both are
     # pinned by tests — an idle bot that chatters looks exactly like one that does not.
     sleep_databases = not prod
 
@@ -137,7 +138,7 @@ def main(ctx=None):
         # the image was only ever built from the Dockerfile because railway.json overrode
         # that at deploy time. Dropping that file without stating the builder here would
         # silently switch production to Railpack, which knows nothing about the uv-built
-        # venv at /opt/venv, the non-root user, or the handlers/ package.
+        # venv at /opt/venv, the non-root user, or the wwstatsbot/ package.
         build={"builder": "DOCKERFILE", "dockerfilePath": "/Dockerfile", "buildEnvironment": "V3"},
         healthcheck="/healthz",
         replicas={REGION: 1},

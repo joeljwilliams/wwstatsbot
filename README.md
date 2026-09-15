@@ -10,7 +10,13 @@ interpreter itself, so no system Python setup is needed.
 3. `cp configEXAMPLE.py config.py`, then set your bot token from
    [@botfather](https://t.me/botfather) and your `DATABASE_URL` (Postgres) in `config.py`.
    Environment variables of the same names take precedence and are what production uses.
-4. `uv run python main.py`
+4. `uv run python -m wwstatsbot` — from the repo root, which is where `config.py` is
+   found.
+
+The application is the `wwstatsbot/` package: `data/` (the stats API client, Postgres and
+the record of every lookup), `game/` (the session, roles, feasibility), `render/`
+(templates, builders, badges), `runtime/` (settings, health, webhook, logging,
+persistence) and `handlers/`, one module per command family.
 
 ## Development
 
