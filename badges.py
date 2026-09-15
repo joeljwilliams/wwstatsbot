@@ -15,7 +15,8 @@ escaping: `decorate()` takes an **already-escaped** name and returns an escaped 
 caller that was correct before stays correct with a badge in it.
 
 Attached wherever this bot renders a person's name as a link, which is nine places and no
-single choke point — the name is interpolated into a different template each time:
+single choke point — each one fills a `{badge}` field of its own, and every one of those
+sits **outside** the `<a>`:
 
 * `handlers/gamesession.py::_mention` — the whole stand-in manager goes through this one:
   the roster, the Possible Achievements list, /dead, /love, the lynch order;
@@ -67,15 +68,11 @@ def of(user_id):
     `db.badge()` is a dict lookup against a cache loaded at startup, which matters because
     this is called once per name per render: a sixteen-player roster edits twice a phase and
     asks sixteen times each.
+
+    What comes back goes in a template's `{badge}` field, which every mention template puts
+    **outside** its `<a>` tag — see the note above those templates. An empty string renders
+    the message byte-identically to the one before badges existed, which is every message
+    about everybody who has not been given one.
     """
     stored = db.badge(user_id)
     return markup(*stored) if stored else ""
-
-
-def decorate(user_id, name):
-    """`name` with its owner's badge on it. The escaping contract is the module's.
-
-    Takes the name already escaped and returns it unchanged when there is no badge, so
-    every call site can wrap its existing value with nothing else to think about.
-    """
-    return "{}{}".format(name, of(user_id))

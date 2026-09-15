@@ -28,6 +28,12 @@ def N_(message):
 
 
 # --- The supporter badge (badges.py) ---------------------------------------
+#
+# Every template that mentions a player carries a {badge} field, and it is always **outside**
+# the <a> tag. Telegram entities of these kinds cannot contain one another: a custom emoji
+# inside a text_link is silently dropped to the plain glyph it wraps, so a premium badge
+# rendered inside the mention came out as whatever ordinary emoji the sticker falls back to
+# — the same for everybody who set one, and with nothing anywhere to say why.
 
 # One emoji, hung off the end of a name, with the space that separates it. Two shapes: a
 # plain character, and a premium emoji, which is an animated sticker addressed by id with
@@ -38,15 +44,15 @@ BADGE_CUSTOM = N_(' <tg-emoji emoji-id="{custom_id}">{emoji}</tg-emoji>')
 
 # --- HTML: stat builders (builders.py) -------------------------------------
 
-KILLS_HEADER = N_("Players <a href='tg://user?id={user_id}'>{name}</a> most killed:\n")
-KILLED_BY_HEADER = N_("Players who killed <a href='tg://user?id={user_id}'>{name}</a> most:\n")
-DEATHS_HEADER = N_("Types of deaths that <a href='tg://user?id={user_id}'>{name}</a> most had:\n")
+KILLS_HEADER = N_("Players <a href='tg://user?id={user_id}'>{name}</a>{badge} most killed:\n")
+KILLED_BY_HEADER = N_("Players who killed <a href='tg://user?id={user_id}'>{name}</a>{badge} most:\n")
+DEATHS_HEADER = N_("Types of deaths that <a href='tg://user?id={user_id}'>{name}</a>{badge} most had:\n")
 
 # One "<count> <label>" row, used by kills and killed-by.
 COUNT_ROW = N_("<code>{count:<5}</code> <b>{label}</b>\n")
 DEATH_ROW = N_("<code>{percent}%</code>   <b>{method}</b>   <code>(approx. {total})</code>\n")
 
-STATS_NAME = N_("<a href='tg://user?id={user_id}'>{name} the {role}</a>\n")
+STATS_NAME = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge} the {role}\n")
 # /stats <id>. Three variants rather than a conditional inside one string, the same split
 # STATS_NAME already uses.
 #
@@ -55,8 +61,8 @@ STATS_NAME = N_("<a href='tg://user?id={user_id}'>{name} the {role}</a>\n")
 # have not. A t.me link has no such condition, so a player who has set a username is tappable
 # from a card about a stranger — which is what the plain variant could never be. It stays for
 # the players who have no username.
-STATS_NAME_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name} the {role}</a>\n")
-STATS_NAME_BY_ID = N_("{name} the {role}\n")
+STATS_NAME_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name}</a>{badge} the {role}\n")
+STATS_NAME_BY_ID = N_("{name}{badge} the {role}\n")
 STATS_ACHIEVEMENTS = N_("<code>{count:<5}</code> Achievements Unlocked!\n")
 STATS_WON = N_("<code>{total:<5}</code> Games Won <code>({percent}%)</code>\n")
 STATS_LOST = N_("<code>{total:<5}</code> Games Lost <code>({percent}%)</code>\n")
@@ -64,11 +70,11 @@ STATS_SURVIVED = N_("<code>{total:<5}</code> Games Survived <code>({percent}%)</
 STATS_TOTAL = N_("<code>{total:<5}</code> Total Games\n")
 STATS_MOST_KILLED = N_("<code>{times:<5}</code> times I've gleefully killed {name}\n")
 STATS_MOST_KILLED_BY = N_("<code>{times:<5}</code> times I've been slaughtered by {name}\n\n")
-NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not played any games.")
+NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge} has not played any games.")
 # The same card in its empty state, so it links the same way. Somebody with no games is
 # exactly who you would want to tap through to.
-NO_GAMES_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name}</a> has not played any games.")
-NO_GAMES_BY_ID = N_("{name} has not played any games.")
+NO_GAMES_BY_USERNAME = N_("<a href='https://t.me/{username}'>{name}</a>{badge} has not played any games.")
+NO_GAMES_BY_ID = N_("{name}{badge} has not played any games.")
 
 # --- HTML: achievement info card (builders.py) -----------------------------
 
@@ -95,7 +101,7 @@ VERSION_INFO_PLAIN = N_(
 # --- HTML: /search achievement match list (handlers/search.py) -------------
 
 # Each matching achievement is tagged with whether the target user has it.
-SEARCH_HEADER = N_("Achievements matching <b>{query}</b> for <a href='tg://user?id={user_id}'>{name}</a>:\n\n")
+SEARCH_HEADER = N_("Achievements matching <b>{query}</b> for <a href='tg://user?id={user_id}'>{name}</a>{badge}:\n\n")
 SEARCH_ROW = N_("{mark} <code>{name}</code>\n")
 SEARCH_ATTAINED = N_("✅")
 SEARCH_NOT_ATTAINED = N_("☑️")
@@ -111,7 +117,7 @@ SCHALL_HEADER = N_("Achievement: <b>{name}</b>\n<i>{desc}</i>\n\nChecked {count}
 # the button below swaps them (marks mirror /search: ☑️ not attained, ✅ attained).
 SCHALL_MISSING_HEADER = N_("\n☑️ <b>Not obtained ({count})</b>\n")
 SCHALL_HAVE_HEADER = N_("\n✅ <b>Obtained ({count})</b>\n")
-SCHALL_USER_ROW = N_("<a href='tg://user?id={user_id}'>{name}</a>\n")
+SCHALL_USER_ROW = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge}\n")
 SCHALL_NONE_ROW = N_("<i>none</i>\n")
 # Toggle button labels — each names the list you'd switch *to*, with its size so
 # the count is visible without tapping.
@@ -185,10 +191,10 @@ AGE_DAYS = N_("{count}d ago")
 # have not necessarily met, and a tg://user mention resolves for nobody in that position — so
 # it is the fallback, kept because it does work for a player somebody in the room has seen.
 LOG_ACHIEVEMENT_HEADER_LINKED = N_(
-    "\N{TROPHY} <a href='https://t.me/{username}'>{name}</a> unlocked {count} new achievement{plural}:\n"
+    "\N{TROPHY} <a href='https://t.me/{username}'>{name}</a>{badge} unlocked {count} new achievement{plural}:\n"
 )
 LOG_ACHIEVEMENT_HEADER = N_(
-    "\N{TROPHY} <a href='tg://user?id={user_id}'>{name}</a> unlocked {count} new achievement{plural}:\n"
+    "\N{TROPHY} <a href='tg://user?id={user_id}'>{name}</a>{badge} unlocked {count} new achievement{plural}:\n"
 )
 LOG_ACHIEVEMENT_ROW = N_("• <b>{name}</b>\n")
 # A player nobody has looked up in months can have earned a great many at once. Bounded, and
@@ -216,7 +222,7 @@ ALLINFO_SEND_ALL = N_("📄 Send all {count}")
 # --- HTML: /roll — pick who gets a once-only achievement --------------------
 
 # A rolled player's name, linked when the post it was read from mentioned them.
-ROLL_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>")
+ROLL_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge}")
 
 ROLL_USAGE = N_(
     "Reply to a <b>Possible Achievements</b> message with <code>/roll &lt;achievement&gt;</code> "
@@ -358,13 +364,13 @@ ABOUT = N_(
 # page, so the whole of "Alice the Chemist 🧪" is tappable rather than a word at the end
 # of the sentence — which is also why there is no second link: it went to the same place.
 WELCOME_PLAYER = N_(
-    "<a href='{url}'>{name} the {role}</a> has "
+    "<a href='{url}'>{name}</a>{badge} the {role} has "
     "<b>{games}</b> games played and <b>{achievements}</b> achievements unlocked.\n"
 )
 # Somebody with no games at all. Greeted anyway rather than passed over in silence: the
 # group asked for joins to be announced, and "who is this" is answered either way. Their
 # name stays a Telegram mention: there is no record to send anyone to.
-WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a> has not played any games yet.\n")
+WELCOME_NO_GAMES = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge} has not played any games yet.\n")
 # A mass add is bounded rather than turned into a wall of text. What was left out is
 # always said — a silent cap reads as "these are everyone who joined".
 WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
@@ -436,7 +442,7 @@ CMD_START = N_("Start the bot in a private chat")
 
 # One place builds a tappable player name, so the link markup lives here with the rest of
 # the presentation rather than being concatenated in the handler.
-STANDIN_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>")
+STANDIN_MENTION = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge}")
 
 STANDIN_HEADER = N_("<b>GAME RUNNING!</b>\n\n")
 # The roster message outlives the session — it stays in the chat as the record of the game

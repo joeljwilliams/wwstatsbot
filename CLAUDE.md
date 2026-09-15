@@ -823,19 +823,30 @@ group is where problems are reported, so failing to reach it can only be logged.
 
 **A badge is attached at nine call sites, and there is no choke point.** `/setemoji`
 (superuser) gives a contributor an emoji their name then carries everywhere this bot prints
-it — but a name becomes a mention in nine different templates, so `badges.decorate()` is
-called at each: `_mention` in the stand-in (the roster, the achievements list, /dead, /love,
-the lynch order), the four stat builders, the /search header and every /schall row, the
-/roll names, the join announcement and the log group's achievement announcement.
-`badges.py` lists them, because a call site missed is one badge absent from one message —
-nothing fails, and nobody reports it.
+it — but a name becomes a mention in nine different templates, so each carries a `{badge}`
+field filled with `badges.of(user_id)`: `_mention` in the stand-in (the roster, the
+achievements list, /dead, /love, the lynch order), the four stat builders, the /search
+header and every /schall row, the /roll names, the join announcement and the log group's
+achievement announcement. `badges.py` lists them, because a call site missed is one badge
+absent from one message — nothing fails, and nobody reports it.
 
 It reads through `db.badge()`, a dict lookup against a cache loaded at startup, for the same
 reason `is_alt_account` does: a sixteen-player roster asks sixteen times per edit and edits
-twice a phase. Every write reloads the cache. And `decorate()` takes an **already-escaped**
-name and returns an escaped string, so a caller that was correct before stays correct — the
-emoji itself is escaped on the way out, because it comes from a table this bot does not
-revalidate and goes straight into HTML.
+twice a phase. Every write reloads the cache. The emoji is escaped on the way out, because
+it comes from a table this bot does not revalidate and goes straight into HTML, and an empty
+badge renders every message byte-identically to the one before badges existed — which is
+every message about everybody who has not been given one.
+
+**The badge sits outside the `<a>`, and that is not cosmetic.** Telegram entities of these
+kinds **cannot contain one another**: a custom emoji inside a `text_link` is not rendered as
+one, it is silently dropped to the plain glyph the tag wraps. Rendered inside the mention, a
+premium butterfly reached a live group as a star-struck face and a premium penguin as a
+winking one — the fallback character each sticker happens to carry, the same in the roster
+and the stats card, with no error anywhere and nothing to say why. Only the `/setemoji`
+confirmation looked right, because that is the one message where the badge was never inside
+a link. So every mention template ends its `<a>` at the **name** and puts `{badge}` after
+the closing tag; on the stats card that also moved `the <role>` out of the link text, which
+is the visible half of the fix and why the goldens changed with it.
 
 **A premium emoji is two columns, and the confirmation is the test.** Telegram sends a
 custom emoji as `<tg-emoji emoji-id="…">X</tg-emoji>` — an animated sticker addressed by id,

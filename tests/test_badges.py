@@ -173,47 +173,58 @@ async def test_clearing_a_badge_nobody_had_says_so(no_database):
 # --- What it renders as ------------------------------------------------------
 
 
-def test_a_name_with_no_badge_is_returned_untouched():
-    """Which is every name in the bot, for everybody who is not a contributor — so the
-    decorated call has to be byte-identical to the bare one it replaced."""
-    assert badges.decorate(7, "Ren") == "Ren"
+def test_a_player_with_no_badge_renders_nothing_at_all():
+    """Which is everybody who is not a contributor, in every message — so the field has to
+    be empty rather than a space, or every rendered name gains a trailing one."""
+    assert badges.of(7) == ""
 
 
-def test_a_plain_badge_hangs_off_the_end_of_the_name(no_database):
+def test_a_plain_badge_is_the_emoji_with_its_leading_space(no_database):
     db._BADGES[7] = ("\N{SPARKLES}", None)
-    assert badges.decorate(7, "Ren") == "Ren \N{SPARKLES}"
+    assert badges.of(7) == " \N{SPARKLES}"
 
 
 def test_a_premium_badge_carries_the_fallback_inside_the_tag(no_database):
     db._BADGES[7] = ("\N{SPARKLES}", PREMIUM_ID)
-    assert badges.decorate(7, "Ren") == 'Ren <tg-emoji emoji-id="{}">\N{SPARKLES}</tg-emoji>'.format(PREMIUM_ID)
+    assert badges.of(7) == ' <tg-emoji emoji-id="{}">\N{SPARKLES}</tg-emoji>'.format(PREMIUM_ID)
 
 
 def test_an_emoji_that_is_markup_is_escaped(no_database):
     """It arrives from a database this module does not own and goes straight into HTML."""
     db._BADGES[7] = ("<b>", None)
-    assert badges.decorate(7, "Ren") == "Ren &lt;b&gt;"
+    assert badges.of(7) == " &lt;b&gt;"
 
 
-# --- It follows the name around ----------------------------------------------
+def test_a_custom_emoji_can_be_unwrapped_to_its_glyph(no_database):
+    """What makes retrying a refused send safe. handlers/welcome.py uses it on the custom
+    emoji in its house-rules line, which is where this lived before there were two."""
+    db._BADGES[7] = ("\N{SPARKLES}", PREMIUM_ID)
+    assert badges.strip_custom("Ren" + badges.of(7)) == "Ren \N{SPARKLES}"
+
+
+# --- It follows the name around, and sits outside the link -------------------
 #
-# There is no single place a name becomes a mention — each of the nine call sites
-# interpolates it into a different template — so these go through two real renderers rather
-# than the helper, and badges.py lists the rest.
+# **Inside the <a> it does not work.** Telegram entities of these kinds cannot contain one
+# another, so a custom emoji inside a text_link is silently dropped to the plain glyph it
+# wraps — which is how a premium butterfly reached a live group as a star-struck face, the
+# same for everybody who had one, with nothing anywhere to say why. Every mention template
+# carries its {badge} field after the closing tag, and these two assert the shape on real
+# renderers because there is no single place to assert it.
 
 
-def test_the_standin_puts_it_on_every_name_it_mentions(no_database):
-    """One helper behind the roster, the achievements list, /dead, /love and the lynch
-    order, so this is the widest call site in the bot."""
-    db._BADGES[1] = ("\N{SPARKLES}", None)
+def test_the_badge_sits_outside_the_mention(no_database):
+    """_mention is the widest of the nine call sites: the roster, the achievements list,
+    /dead, /love and the lynch order all go through it."""
+    db._BADGES[1] = ("\N{SPARKLES}", PREMIUM_ID)
 
-    assert gamesession._mention(1, "Ren") == "<a href='tg://user?id=1'>Ren \N{SPARKLES}</a>"
+    assert gamesession._mention(1, "Ren") == (
+        "<a href='tg://user?id=1'>Ren</a> <tg-emoji emoji-id=\"{}\">\N{SPARKLES}</tg-emoji>".format(PREMIUM_ID)
+    )
     assert gamesession._mention(2, "omu") == "<a href='tg://user?id=2'>omu</a>"
 
 
 def test_a_schall_row_carries_it(no_database):
-    """A real rendered message, whole-string: the badge lands inside the mention, after the
-    name, and nobody else's row changes."""
+    """A real rendered message, whole-string: outside the tag, and nobody else's row moves."""
     db._BADGES[3] = ("\N{SPARKLES}", None)
     payload = {"name": "X", "desc": "d", "missing": [(1, "Alice")], "have": [(3, "Carol")], "unresolved": []}
 
@@ -223,5 +234,5 @@ def test_a_schall_row_carries_it(no_database):
         "Achievement: <b>X</b>\n<i>d</i>\n\n"
         "Checked 2 players for it:\n\n"
         "\N{WHITE HEAVY CHECK MARK} <b>Obtained (1)</b>\n"
-        "<a href='tg://user?id=3'>Carol \N{SPARKLES}</a>\n"
+        "<a href='tg://user?id=3'>Carol</a> \N{SPARKLES}\n"
     )

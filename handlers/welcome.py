@@ -96,10 +96,11 @@ async def _player_line(user):
     stats = (await playerdata.get_stats(user.id, user.first_name)).data
     name = html.escape(user.first_name)
     if not stats:
-        return t.WELCOME_NO_GAMES.format(user_id=user.id, name=badges.decorate(user.id, name))
+        return t.WELCOME_NO_GAMES.format(user_id=user.id, name=name, badge=badges.of(user.id))
     achievements = (await playerdata.get_achievement_count(user.id, user.first_name)).data
     return t.WELCOME_PLAYER.format(
-        name=badges.decorate(user.id, name),
+        name=name,
+        badge=badges.of(user.id),
         role=builders.role_label(stats["mostCommonRole"]),
         # Grouped here rather than in the template: a format spec in a translatable
         # string breaks the "every template formats with its own fields" guard, and

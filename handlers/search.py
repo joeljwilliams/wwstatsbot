@@ -72,7 +72,7 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = t.NO_MATCHES
         else:
             msg = t.SEARCH_HEADER.format(
-                query=html.escape(search), user_id=user_id, name=badges.decorate(user_id, name)
+                query=html.escape(search), user_id=user_id, name=name, badge=badges.of(user_id)
             )
             for m in matches[:_SEARCH_MAX_RESULTS]:
                 mark = t.SEARCH_ATTAINED if m["name"] in attained_names else t.SEARCH_NOT_ATTAINED
@@ -163,7 +163,7 @@ def _render_schall(payload, token, show_have):
     msg += section.format(count=len(shown))
     msg += (
         "".join(
-            t.SCHALL_USER_ROW.format(user_id=uid, name=badges.decorate(uid, html.escape(uname))) for uid, uname in shown
+            t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname), badge=badges.of(uid)) for uid, uname in shown
         )
         or t.SCHALL_NONE_ROW
     )

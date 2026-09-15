@@ -306,7 +306,7 @@ def _mention(user_id, name):
     tap through to anybody, and two players with similar display names are impossible to
     tell apart. Escaping happens here, once, on the way in.
     """
-    return t.STANDIN_MENTION.format(user_id=user_id, name=badges.decorate(user_id, html.escape(name or "")))
+    return t.STANDIN_MENTION.format(user_id=user_id, name=html.escape(name or ""), badge=badges.of(user_id))
 
 
 def _mention_player(session_data, user_id):
