@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-15 11:34+0200\n"
+"POT-Creation-Date: 2026-09-15 12:06+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -427,7 +427,7 @@ msgstr ""
 msgid "Those achievements are no longer available."
 msgstr ""
 
-#: templates.py:235 templates.py:732
+#: templates.py:235 templates.py:735
 msgid ""
 "I can't message you yet. Start a private chat with me first (tap my name,"
 " then Start), then tap the button again."
@@ -1113,7 +1113,7 @@ msgstr ""
 msgid "<b>Lynchorder:</b>\n"
 msgstr ""
 
-#: templates.py:600 templates.py:667
+#: templates.py:600 templates.py:670
 #, python-brace-format
 msgid "{name}\n"
 msgstr ""
@@ -1143,35 +1143,39 @@ msgstr ""
 msgid "The lynchorder was reset by {name}\n"
 msgstr ""
 
-#: templates.py:614
+#: templates.py:615
+msgid "The lynchorder was reset as night fell"
+msgstr ""
+
+#: templates.py:617
 msgid "There is nobody left to lynch."
 msgstr ""
 
-#: templates.py:618
+#: templates.py:621
 #, python-brace-format
 msgid ""
 "No game is running here. Reply to the game bot's player list with "
 "<code>/gs@{username}</code> to start one."
 msgstr ""
 
-#: templates.py:620
+#: templates.py:623
 msgid ""
 "Only this game's players and the group's admins can change the lynch "
 "order."
 msgstr ""
 
-#: templates.py:623
+#: templates.py:626
 #, python-brace-format
 msgid "That's too long for a lynch order ({count} characters, limit {limit})."
 msgstr ""
 
-#: templates.py:625
+#: templates.py:628
 msgid ""
 "Reply to the game bot's player list with <code>/ad</code> and I'll follow"
 " it."
 msgstr ""
 
-#: templates.py:630
+#: templates.py:633
 #, python-brace-format
 msgid ""
 "That roster says {claimed} of {total} alive, but I can only see {found} "
@@ -1179,168 +1183,168 @@ msgid ""
 "game, or it didn't mention everyone directly."
 msgstr ""
 
-#: templates.py:633
+#: templates.py:636
 msgid "Roster matches what I have — nobody's status changed."
 msgstr ""
 
-#: templates.py:634
+#: templates.py:637
 msgid "Roster followed.\n"
 msgstr ""
 
-#: templates.py:635
+#: templates.py:638
 #, python-brace-format
 msgid "💀 Now dead: {names}\n"
 msgstr ""
 
-#: templates.py:636
+#: templates.py:639
 #, python-brace-format
 msgid "🙂 Back among the living: {names}\n"
 msgstr ""
 
-#: templates.py:637
+#: templates.py:640
 #, python-brace-format
 msgid "Learned from the death notices: {names}\n"
 msgstr ""
 
-#: templates.py:640
+#: templates.py:643
 msgid "\n"
 msgstr ""
 
-#: templates.py:642
+#: templates.py:645
 #, python-brace-format
 msgid "🔁 {name} is now {role} ({reason})\n"
 msgstr ""
 
-#: templates.py:644
+#: templates.py:647
 #, python-brace-format
 msgid "💔 {name} dies of sorrow.\n"
 msgstr ""
 
-#: templates.py:645
+#: templates.py:648
 msgid "their rolemodel died"
 msgstr ""
 
-#: templates.py:646
+#: templates.py:649
 msgid "the seer is gone"
 msgstr ""
 
-#: templates.py:647
+#: templates.py:650
 msgid "the wolves are gone"
 msgstr ""
 
-#: templates.py:649
+#: templates.py:652
 msgid "Usage: <code>/steal @player</code>, or reply to them."
 msgstr ""
 
-#: templates.py:650
+#: templates.py:653
 msgid "Only the Thief 😈 can steal a role."
 msgstr ""
 
-#: templates.py:653
+#: templates.py:656
 #, python-brace-format
 msgid "The Thief can't steal from {name} — {role} is out of reach."
 msgstr ""
 
-#: templates.py:654
+#: templates.py:657
 #, python-brace-format
 msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
 msgstr ""
 
-#: templates.py:664
+#: templates.py:667
 msgid ""
 "Possible Achievements:\n"
 "\n"
 msgstr ""
 
-#: templates.py:673
+#: templates.py:676
 #, python-brace-format
 msgid " - {name}\n"
 msgstr ""
 
-#: templates.py:674
+#: templates.py:677
 #, python-brace-format
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: templates.py:678
+#: templates.py:681
 #, python-brace-format
 msgid "   <i>…and {count} more</i>\n"
 msgstr ""
 
-#: templates.py:679
+#: templates.py:682
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: templates.py:683
+#: templates.py:686
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: templates.py:692
+#: templates.py:695
 #, python-brace-format
 msgid "<b>{name}</b> ({count}):\n"
 msgstr ""
 
-#: templates.py:693
+#: templates.py:696
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: templates.py:696
+#: templates.py:699
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · 🔁 if your role changes\n"
 msgstr ""
 
-#: templates.py:702
+#: templates.py:705
 #, python-brace-format
 msgid " <i>and {count} more</i>"
 msgstr ""
 
-#: templates.py:707
+#: templates.py:710
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: templates.py:711
+#: templates.py:714
 msgid "<i>Too long to show in full.</i>\n"
 msgstr ""
 
-#: templates.py:722
+#: templates.py:725
 msgid "📄 Show me the full list"
 msgstr ""
 
-#: templates.py:723
+#: templates.py:726
 msgid "⏪️ Prev"
 msgstr ""
 
-#: templates.py:724
+#: templates.py:727
 msgid "Next ⏩️"
 msgstr ""
 
-#: templates.py:725
+#: templates.py:728
 #, python-brace-format
 msgid "<i>Page {index} of {total}</i>\n"
 msgstr ""
 
-#: templates.py:726
+#: templates.py:729
 msgid "Sent the full list to your PM ✅"
 msgstr ""
 
-#: templates.py:730
+#: templates.py:733
 msgid "That game has ended, so there is no list to page through."
 msgstr ""
 
-#: templates.py:735
+#: templates.py:738
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: templates.py:736
+#: templates.py:739
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: templates.py:739
+#: templates.py:742
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1348,7 +1352,7 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive."
 msgstr ""
 
-#: templates.py:742
+#: templates.py:745
 msgid "Stand-in session ended — nothing happened for a while."
 msgstr ""
 

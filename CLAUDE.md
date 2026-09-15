@@ -412,8 +412,9 @@ arrives at the start of a game and after every death with nobody asking. The **e
 matched on `Game Length: hh:mm:ss`, which the engine appends exactly once, at game end. The
 win messages are the obvious alternative and are the wrong one — they are GIF captions, and
 they differ in every one of the game's hundred-odd language variants. Everything read here
-is English, like `_ROSTER_COUNTS`, `_DEAD_ROW`, `_DOUSED_LINE` and `_DAY_BREAKS` beside it; a
-group playing in another language keeps typing `/gs` — and never gets the nudge below.
+is English, like `_ROSTER_COUNTS`, `_DEAD_ROW`, `_DOUSED_LINE`, `_DAY_BREAKS` and
+`_NIGHT_FALLS` beside it; a group playing in another language keeps typing `/gs` — and gets
+neither the nudge below nor the nightly lynch-order reset.
 
 **Which bot is the game bot is learned, never guessed.** A group has several bots in it and
 a roster-shaped message is not proof of anything, so the answer is whichever bot a human ran
@@ -491,6 +492,17 @@ no order appended. There is deliberately **no marker** distinguishing a set orde
 rotating one, because the incumbent has none — decoration meant to be helpful still reads
 as a different tool. The one addition is a note naming a dead player dropped at set time,
 which is a wrong answer avoided rather than decoration.
+
+**Night falling clears a typed order**, under `/gm auto`. It is the one thing in the session
+that is about a single *day* rather than about the game — "who do we point at today" — and
+read again the next morning it names players who died overnight and a plan the village has
+already carried out. `_NIGHT_FALLS` matches the line the game bot opens that message with,
+which is the same after a lynch, after a tie and after a Pacifist talks the village out of
+one; the rotating order it falls back to is computed on demand, so the next morning has an
+order with nobody retyping anything. It is announced **only when there was something to
+clear**, which most games never have: a line saying nothing happened, every night, is the
+noise the rest of this module exists to avoid — but a chat that did set one is owed the one
+line, in the place where somebody would otherwise go looking for their order.
 
 **Commands overload themselves based on the reply target.** `/sch` routes to the
 multi-player `display_search_all` when it replies to a bot message that mentions players;

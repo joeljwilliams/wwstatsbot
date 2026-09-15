@@ -610,6 +610,9 @@ STANDIN_LYNCH_UNKNOWN = N_(
     "\N{EM DASH} they have to be in this game's roster."
 )
 STANDIN_LYNCH_RESET = N_("The lynchorder was reset by {name}\n")
+# The same reset, done by the clock rather than by a person: a typed order is an
+# instruction for one day's lynching, and the day it was about is over.
+STANDIN_LYNCH_RESET_NIGHT = N_("The lynchorder was reset as night fell")
 # Nobody alive to order. A session exists but the roster is empty or everyone is dead.
 STANDIN_LYNCH_NOBODY = N_("There is nobody left to lynch.")
 # These commands answer only when addressed (<code>/lo@{username}</code>), so a session-less

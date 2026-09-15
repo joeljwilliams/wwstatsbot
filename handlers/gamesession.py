@@ -2348,6 +2348,11 @@ _GAME_OVER = re.compile(r"Game\s+Length:\s*\d+:\d\d:\d\d")
 # and still the right moment in a session that opened halfway through one.
 _DAY_BREAKS = re.compile(r"^\s*Day\s+\d+\s*$", re.MULTILINE)
 
+# The other end of the same day. "Night has fallen." opens the message the game bot posts
+# when the lynch phase is over — after a lynch, after a tie, and after a Pacifist talks the
+# village out of one, which is three different messages with that one line in common.
+_NIGHT_FALLS = re.compile(r"Night has fallen", re.IGNORECASE)
+
 # A game bot posts a player list every phase it changed in, so the expensive path is worth
 # a floor and the cheap ones are not: following a roster is local work plus an edit the
 # publish debounce already coalesces, while opening a session is one stats API call per
@@ -2436,6 +2441,10 @@ async def _drive_session(update, context):
         await _nudge_missing(context, message.chat.id, session_data)
         return
 
+    if session_data is not None and _NIGHT_FALLS.search(body):
+        await _night_fell(context, message.chat.id, session_data)
+        return
+
     alive_ids, found, claimed, _ = _read_roster(message, session_data)
     if alive_ids is None:
         # Everything else the game bot says, which is most of what it says. Logged rather
@@ -2483,16 +2492,19 @@ async def _drive_session(update, context):
 _LYNCH_ORDER_MAX = 1000
 
 
-def _lynch_written(context, message, session_data):
+def _lynch_written(context, chat_id, session_data):
     """Record a lynch-order change as activity.
 
     Not _changed(): that also schedules a publish, and the lynch order appears in neither
     live message, so there would be nothing to publish. The idle timer does matter — a
     group setting the order is plainly still playing, and the session must not expire
     underneath them.
+
+    Takes a chat id rather than the message, because night falling writes the order too and
+    there is no message of ours in that.
     """
     session.touch(session_data, _now())
-    _schedule_idle(context, message.chat.id)
+    _schedule_idle(context, chat_id)
 
 
 def _named_somebody(message):
@@ -2578,6 +2590,29 @@ async def _lynch_session(update, context, command):
 _LYNCH_REPEAT_SECONDS = 5
 
 
+async def _night_fell(context, chat_id, session_data):
+    """The lynch phase is over, so the order somebody set for it is too.
+
+    A typed order answers "who do we point at *today*" — it is the one thing in the session
+    that is about a single day rather than about the game. Left standing it is read again
+    the next morning as though it still meant something, naming players who have died
+    overnight and a plan the village has already carried out. The rotating order it falls
+    back to is computed from the living roster on demand, so it is right every morning with
+    nobody retyping anything.
+
+    Silent unless there was something to clear, which is almost always: most games never
+    type an order at all, and a line announcing that nothing happened is the noise the rest
+    of this module spends its time avoiding. The chats that did set one get one line, in the
+    place where somebody would otherwise wonder where their order went.
+    """
+    if not session.lynch_order(session_data):
+        return
+    session.set_lynch_order(session_data, None)
+    _lynch_written(context, chat_id, session_data)
+    logger.info("standin_lynch_order_night_reset", chat_id=chat_id)
+    await context.bot.send_message(chat_id=chat_id, text=t.STANDIN_LYNCH_RESET_NIGHT, parse_mode=ParseMode.HTML)
+
+
 async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/lo@bot` — show the lynch order in force, typed or rotating."""
     session_data = await _lynch_session(update, context, "lo")
@@ -2626,7 +2661,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             await message.reply_text(t.STANDIN_LYNCH_ALL_DEAD, parse_mode=ParseMode.HTML)
             return
         session.set_lynch_order(session_data, [uid for uid, _ in living])
-        _lynch_written(context, message, session_data)
+        _lynch_written(context, message.chat.id, session_data)
         reply = t.STANDIN_LYNCH_SET.format(name=_sender_mention(message))
         # A dead player named at set time is dropped, and saying so is the one addition
         # kept: an order silently one name short of what somebody typed is a wrong answer,
@@ -2656,7 +2691,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not wanted:
         session.set_lynch_order(session_data, None)
-        _lynch_written(context, message, session_data)
+        _lynch_written(context, message.chat.id, session_data)
         await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
         return
 
@@ -2668,7 +2703,7 @@ async def set_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     session.set_lynch_order(session_data, wanted)
-    _lynch_written(context, message, session_data)
+    _lynch_written(context, message.chat.id, session_data)
     await message.reply_text(
         t.STANDIN_LYNCH_SET.format(name=_sender_mention(message)),
         parse_mode=ParseMode.HTML,
@@ -2688,7 +2723,7 @@ async def reset_lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     session.set_lynch_order(session_data, None)
-    _lynch_written(context, message, session_data)
+    _lynch_written(context, message.chat.id, session_data)
     await message.reply_text(t.STANDIN_LYNCH_RESET.format(name=_sender_mention(message)), parse_mode=ParseMode.HTML)
 
 

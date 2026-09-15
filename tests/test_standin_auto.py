@@ -541,6 +541,109 @@ async def test_a_day_announcement_with_no_session_is_ignored(context):
     assert nudges(context) == []
 
 
+# --- Night falling ends the day's lynch order ---------------------------------
+#
+# A typed order answers "who do we point at *today*", and is the one thing in the session
+# about a single day rather than about the game. Read again the next morning it names
+# players who died overnight and a plan the village has already carried out, so night
+# falling clears it and the rotating order — computed from the living roster on demand — is
+# what comes back.
+
+
+NIGHTFALL = (
+    "Night has fallen. Everyone heads to bed, weary after another stressful day. "
+    "Night players: you have 60 seconds use your actions!"
+)
+PACIFIST = (
+    "The Pacifist \N{PEACE SYMBOL}\N{VARIATION SELECTOR-16}, Zoe., is making a heartfelt speech of friendship "
+    "and trust in front of the village. Moved by their speech, there will be no lynching today!\n\n"
+    "Because of the Pacifist's \N{PEACE SYMBOL}\N{VARIATION SELECTOR-16} heartfelt speech, the lynch phase will "
+    "be skipped today!\n\n" + NIGHTFALL
+)
+
+
+def nightfall(body=NIGHTFALL, message_id=20, sender_id=GAME_BOT_ID):
+    """The game bot's "the lynch phase is over" message, in the shapes it comes in."""
+    msg = bot_message(body, message_id=message_id)
+    msg.from_user = FakeUser(user_id=sender_id, first_name="WerewolfBot", is_bot=True)
+    return msg
+
+
+def resets(context):
+    return [sent["text"] for sent in context.bot.sent if "reset as night fell" in sent["text"]]
+
+
+async def test_night_falling_clears_a_typed_order(context):
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall())
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+    assert len(resets(context)) == 1
+
+
+async def test_a_named_order_goes_the_same_way(context):
+    """Stored as ids rather than text, and just as much about one day only."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), [2, 3, 1])
+
+    await seen(context, nightfall())
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+
+
+async def test_a_skipped_lynch_ends_the_day_too(context):
+    """The Pacifist talks the village out of lynching, and the same line closes it."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall(body=PACIFIST))
+
+    assert session.lynch_order(session.get(context.chat_data)) is None
+
+
+async def test_nothing_is_said_when_there_was_no_order(context):
+    """Which is most games: a line announcing that nothing happened, every single night, is
+    exactly the noise the rest of this module spends its time avoiding."""
+    await opened(context)
+
+    await seen(context, nightfall())
+
+    assert resets(context) == []
+
+
+async def test_the_rotating_order_is_what_comes_back(context):
+    """Clearing it is not the same as having none — the fallback is computed from whoever
+    is still alive, so the next morning has an order without anybody retyping one."""
+    await opened(context)
+    session.set_lynch_order(session.get(context.chat_data), "omu then Ren")
+
+    await seen(context, nightfall())
+
+    current = session.get(context.chat_data)
+    assert [uid for uid, _ in session.rotating_lynch_order(current)] == [1, 2, 3, 1]
+
+
+async def test_night_falling_changes_nothing_else(context):
+    """It carries no player list either, and must never be read as one."""
+    await opened(context)
+    before = dict(session.get(context.chat_data)["players"])
+
+    await seen(context, nightfall())
+
+    assert session.get(context.chat_data)["players"] == before
+
+
+async def test_night_falling_with_no_session_is_ignored(context):
+    auto(context)
+
+    await seen(context, nightfall())
+
+    assert session.get(context.chat_data) is None
+    assert resets(context) == []
+
+
 # --- Closing it out ----------------------------------------------------------
 
 
