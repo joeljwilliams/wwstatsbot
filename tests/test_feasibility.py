@@ -12,10 +12,9 @@ Three things are being pinned, in rising order of how badly they fail:
    them would have surfaced as an achievement silently missing from a live game.
 """
 
-import feasibility
-import roles
-import rulelist
-from rulelist import RULES
+from wwstatsbot.data import rulelist
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import feasibility, roles
 
 # db.get_rules() shape: name -> rule. The rulelist entries carry an extra "name" key, which
 # nothing reads, so the catalogue can be used directly as the rule source here.

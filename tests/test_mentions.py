@@ -8,7 +8,7 @@ pinning here.
 
 from conftest import FakeEntity, FakeUser, bot_message, message
 
-from handlers import common, search
+from wwstatsbot.handlers import common, search
 
 TEXT_MENTION = "text_mention"
 MENTION = "mention"

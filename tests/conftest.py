@@ -4,8 +4,8 @@ Two things happen here before anything else can work:
 
 1. **Config env is stubbed at module scope, before any application import.** pytest
    imports conftest before every test module, so this runs first — which matters because
-   `settings.py` reads the environment at *its* import, and a test module importing
-   `main` pulls `settings` in with it. It matters for more than CI: a developer's
+   `runtime/settings.py` reads the environment at *its* import, and a test module
+   importing anything under `wwstatsbot` pulls it in with it. It matters for more than CI: a developer's
    checkout has a real `config.py` holding a live bot token, and env wins over
    `config.py`, so this is what guarantees the suite can never pick up (or send anything
    with) the real credentials.
@@ -29,7 +29,8 @@ import re
 from types import SimpleNamespace
 
 # --- 1. Stub config BEFORE importing the app ------------------------------------
-# Must precede `import main` (and anything that imports it). Values are inert
+# Must precede any `wwstatsbot` import (settings reads the environment at its own
+# import, and importing a handler pulls it in). Values are inert
 # placeholders; nothing in the suite opens a socket to Telegram or Postgres.
 os.environ["BOT_TOKEN"] = "12345:TEST-TOKEN-NOT-REAL"
 os.environ["DATABASE_URL"] = "postgresql://test:test@localhost:5432/test"
@@ -42,8 +43,10 @@ os.environ.pop("REDIS_URL", None)
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
-import api  # noqa: E402
-import db  # noqa: E402
+from wwstatsbot.data import (
+    api,  # noqa: E402
+    db,  # noqa: E402
+)
 
 SUPERUSER_ID = 999
 

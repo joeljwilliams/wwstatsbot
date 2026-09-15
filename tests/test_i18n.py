@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-import i18n
+from wwstatsbot import i18n
 
 FA_PO = """
 msgid ""

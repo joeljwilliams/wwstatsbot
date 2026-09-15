@@ -18,7 +18,7 @@ the templates are split rather than conditional.
 
 from conftest import FakeContext, FakeUpdate, FakeUser, message
 
-from handlers import stats
+from wwstatsbot.handlers import stats
 
 
 async def run(msg, args=None):

@@ -18,10 +18,8 @@ from email.message import Message
 
 import pytest
 
-import health
-import main
-import settings
-import webhook
+from wwstatsbot import main
+from wwstatsbot.runtime import health, settings, webhook
 
 TOKEN = "s3cret-token"
 PATH = "/telegram"

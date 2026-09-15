@@ -13,7 +13,7 @@ the private resolvers directly rather than re-importing the module, which would 
 the assertions depend on the checkout's own git state.
 """
 
-import version
+from wwstatsbot import version
 
 
 def test_short_commit_truncates_to_seven():
@@ -171,7 +171,7 @@ def test_get_version_info_includes_every_field_the_templates_need():
     """/version formats a template with **info, so a missing key is a KeyError in a handler."""
     import string
 
-    import templates as t
+    from wwstatsbot.render import templates as t
 
     info = version.get_version_info()
     for template in (t.VERSION_INFO_LINKED, t.VERSION_INFO_PLAIN):

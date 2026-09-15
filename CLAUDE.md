@@ -65,17 +65,18 @@ match the Dockerfile.
 # Local dev
 uv sync                           # creates .venv from uv.lock
 cp configEXAMPLE.py config.py     # then fill in BOT_TOKEN / DATABASE_URL (config.py is gitignored)
-uv run python main.py             # env vars override config.py values
+uv run python -m wwstatsbot       # env vars override config.py values
 
-LOG_FORMAT=console LOG_LEVEL=DEBUG uv run python main.py   # human-readable logs (auto on a TTY)
+LOG_FORMAT=console LOG_LEVEL=DEBUG uv run python -m wwstatsbot   # human-readable logs (auto on a TTY)
 
-# Translations (Babel is a dev-only tool; the runtime uses stdlib gettext)
-uv run pybabel extract -F babel.cfg -o locales/messages.pot .   # after editing templates.py
-uv run pybabel update -i locales/messages.pot -d locales        # merge into existing .po
-uv run pybabel compile -d locales                               # .po -> .mo (not committed)
+# Translations (Babel is a dev-only tool; the runtime uses stdlib gettext). The catalogs
+# live inside the package, beside the i18n.py that resolves them.
+uv run pybabel extract -F babel.cfg -o wwstatsbot/locales/messages.pot .   # after editing templates.py
+uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
+uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1525 tests; the 74 Postgres ones skip by default
+uv run pytest                     # 1600 tests; the 74 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -99,7 +100,7 @@ curl localhost:8080/readyz    # readiness — 503 until DB init + set_my_command
 
 # Webhook mode. Needs the URL to be reachable from Telegram, so locally that means a
 # tunnel; the path is served on HEALTH_PORT next to the probes.
-WEBHOOK_URL=https://bot.example.com uv run python main.py
+WEBHOOK_URL=https://bot.example.com uv run python -m wwstatsbot
 ```
 
 A running instance can be inspected live: `/version` reports the release version, branch
@@ -108,9 +109,9 @@ and short commit, and
 
 ## Testing
 
-`tests/conftest.py` stubs `BOT_TOKEN`/`DATABASE_URL` **at module scope, above
-`import main`** — pytest loads conftest first, and env beats `config.py`, which is what
-stops the suite picking up a developer's real token. Handlers are driven with hand-rolled
+`tests/conftest.py` stubs `BOT_TOKEN`/`DATABASE_URL` **at module scope, above the first
+`wwstatsbot` import** — pytest loads conftest first, and env beats `config.py`, which is
+what stops the suite picking up a developer's real token. Handlers are driven with hand-rolled
 `SimpleNamespace`-style fakes (`FakeMessage`, `FakeContext`, …) that record
 `reply_text`/`answer` calls; the stats API is an `httpx.MockTransport`, so nothing
 touches the network.
@@ -127,7 +128,8 @@ differently.
 
 Other things the suite is deliberately guarding, all of which a refactor could silently
 break: `test_templates.py` cross-checks every `t.NAME` reference against `templates.py`
-in both directions (drift here fails at runtime, in a handler, in production);
+in both directions — `rglob`-ing the whole package, so a new sub-package is covered the
+day it appears rather than silently unscanned (drift here fails at runtime, in a handler, in production);
 `test_routing.py` pins the self-overloading commands; `test_permissions.py` asserts
 gated functions are *never reached* unauthorised, not merely that a refusal is printed;
 `test_db.py` pins the FTS stemming contract.
@@ -148,8 +150,8 @@ Coverage is reported, never gated.
 
 ## Configuration
 
-Every setting lives in **`settings.py`**, read from the environment with a `config.py`
-fallback for development — **env wins over `config.py`**. Required: `BOT_TOKEN`,
+Every setting lives in **`runtime/settings.py`**, read from the environment with a
+`config.py` fallback for development — **env wins over `config.py`**. Required: `BOT_TOKEN`,
 `DATABASE_URL`; `settings.require()` fails fast from `main()` rather than at import, so the
 module stays safe to import in a test process that has neither. Optional: `SUPERUSER_ID`,
 `LOG_GROUP_ID`, `REDIS_URL`, `HEALTH_PORT`, `LOG_LEVEL`, `LOG_FORMAT`, `GITHUB_REPO`,
@@ -219,7 +221,34 @@ working guide — the three things most likely to bite are:
 
 ## Architecture
 
-Flat module layout, one concern per file — no packages, no ORM, no framework beyond PTB.
+One package, `wwstatsbot/`, grouped by concern — no ORM, no framework beyond PTB, one file
+per concern inside each group. The repo root holds project furniture only (`pyproject.toml`,
+`Dockerfile`, the gitignored dev-only `config.py`); the application is not importable from
+there except through the package.
+
+```
+wwstatsbot/
+  main.py version.py i18n.py locales/   the wiring, the release metadata, the catalogs
+  data/      api.py db.py playerdata.py notes.py achvlist.py rulelist.py
+  game/      session.py roles.py feasibility.py
+  render/    templates.py builders.py badges.py wwstats.py
+  runtime/   settings.py health.py webhook.py logging_config.py redis_persistence.py
+  handlers/  one module per command family
+```
+
+It is run as `python -m wwstatsbot`; `__main__.py` is four lines over `main.main()`, and
+`main.py` keeps its name because everything — this file, the test suite, the registration
+table — refers to it by that name.
+
+**Every `__init__.py` is docstring-only, and must stay that way.** The release job in CI
+reads the version with `python3 -c 'import wwstatsbot.version'` on a runner that has
+installed nothing, so an import of `telegram` or `asyncpg` from any package `__init__`
+fails at exactly the moment a release is being cut.
+
+**Imports are absolute and bind the module**, never a name out of it:
+`from wwstatsbot.data import db`, and `from wwstatsbot.render import templates as t`. This
+is the rule `settings.py` has always had, generalised — see *Configuration* for why a
+`from` import of a *value* both defeats monkeypatching and lets two modules disagree.
 
 - **`main.py`** (~290 lines) — the wiring, and now almost nothing else: `PUBLIC_COMMANDS`,
   the handler table, `_post_init`/`_post_shutdown`, and the polling-or-webhook lifecycle. It
@@ -227,7 +256,7 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
   a command word, and the one place a new one is registered — including the two ordering
   decisions that matter, `_drop_edited_messages` in group `-2` and `game_bot_message` in
   group `-1`.
-- **`settings.py`** — every setting, resolved once (see *Configuration*).
+- **`runtime/settings.py`** — every setting, resolved once (see *Configuration*).
 - **`handlers/`** — one module per command family, and where new user-facing behaviour
   lands: `stats.py` (/stats, /kills, /killedby, /deaths), `search.py` (/search, /sch,
   /schall), `achievements.py` (/achievements, /info, /getachv, /roll and the card pager),
@@ -235,51 +264,59 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
   (the privileged commands), `welcome.py`, `inline.py`, `misc.py` (/start, /about,
   /version), `errors.py` (the global error handler) and `common.py` (helpers shared by more
   than one family, including the permission predicates and the remembered player list).
-- **`builders.py`** — the stat messages themselves, apart from the handlers because a slash
-  command and an inline card render the *same* bytes. Escaping happens here, once; callers
-  pass raw values.
-- **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `achievement_rules`,
-  `admins`, `player_alts`, `player_badges`, `player_snapshots`), idempotent seeding,
-  full-text search, and the **in-memory caches** that are the read path for achievements,
-  rules, alts and badges.
-- **`badges.py`** — the supporter badge: one emoji a contributor's name carries wherever
-  this bot prints it. Rendering only; the cache and the table are `db.py`'s.
-- **`playerdata.py`** — the only caller of `api.py`'s fetchers. Records every lookup,
+- **`render/builders.py`** — the stat messages themselves, apart from the handlers because a
+  slash command and an inline card render the *same* bytes. Escaping happens here, once;
+  callers pass raw values.
+- **`data/db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`,
+  `achievement_rules`, `admins`, `player_alts`, `player_badges`, `player_snapshots`),
+  idempotent seeding, full-text search, and the **in-memory caches** that are the read path
+  for achievements, rules, alts and badges.
+- **`render/badges.py`** — the supporter badge: one emoji a contributor's name carries
+  wherever this bot prints it. Rendering only; the cache and the table are `db.py`'s.
+- **`data/playerdata.py`** — the only caller of `api.py`'s fetchers. Records every lookup,
   notices new achievements by diffing against the previous one, and answers from the record
   when the stats site is down.
-- **`api.py`** — the tgwerewolf.com client: read-only, unauthenticated, keyed by Telegram
-  user id. Nothing outside `playerdata.py` may call its fetchers, and a test asserts it.
-- **`session.py`** — the stand-in game session as pure state: the roster, what everyone
+- **`data/api.py`** — the tgwerewolf.com client: read-only, unauthenticated, keyed by
+  Telegram user id. Nothing outside `playerdata.py` may call its fetchers, and a test
+  asserts it.
+- **`game/session.py`** — the stand-in game session as pure state: the roster, what everyone
   revealed, who is alive. Touches no Telegram and renders nothing, which is what makes the
   rules of a game testable without a bot. Lives in `chat_data`, so every value must survive
   a JSON round-trip.
-- **`roles.py`** — the game's role registry: teams, tags, emoji, and every spelling a player
-  might type. The bot's own vocabulary for roles, which arrive from the stats API as free
-  text.
-- **`feasibility.py`** + **`rulelist.py`** — which achievements a revealed composition can
-  still produce, and for whom. `rulelist.py` is the seed source for `achievement_rules`
-  exactly as `achvlist.py` is for `achievements`: a fresh database is populated from it, and
-  a running bot reads the table.
-- **`templates.py`** — every user-visible string, as `str.format` templates grouped by
+- **`game/roles.py`** — the game's role registry: teams, tags, emoji, and every spelling a
+  player might type. The bot's own vocabulary for roles, which arrive from the stats API as
+  free text.
+- **`game/feasibility.py`** + **`data/rulelist.py`** — which achievements a revealed
+  composition can still produce, and for whom. `rulelist.py` is the seed source for
+  `achievement_rules` exactly as `achvlist.py` is for `achievements`: a fresh database is
+  populated from it, and a running bot reads the table. Both seed lists live in `data/`
+  beside the module that seeds from them, so the data layer never points at the game layer.
+- **`render/templates.py`** — every user-visible string, as `str.format` templates grouped by
   parse mode. Handler code must not contain new prose; add a template. `N_()` marks each one
   for extraction, and `i18n.py` resolves the catalog at render time (stdlib `gettext`;
-  Babel is a dev-only tool).
-- **`wwstats.py`** — the `/achievements` Markdown report (attained / missing /
+  Babel is a dev-only tool). `i18n.py` and `locales/` sit together at the package root
+  because `LOCALE_DIR` is resolved from `i18n.py`'s own `__file__` — moving one without the
+  other silently loses every catalog.
+- **`render/wwstats.py`** — the `/achievements` Markdown report (attained / missing /
   not-via-playing / inactive), chunked 30 items per message. Takes the attained list; it
   does not fetch.
-- **`achvlist.py`** — the original hardcoded `ACHV` list, now only a **seed source** for
+- **`data/achvlist.py`** — the original hardcoded `ACHV` list, now only a **seed source** for
   the database. Editing it will not change a deployed bot's data (seeding is
   `ON CONFLICT DO NOTHING`); edit rows via `/setnote` or `/db` instead.
-- **`notes.py`** — the one encoder for the two sub-fields an achievement's notes column
+- **`data/notes.py`** — the one encoder for the two sub-fields an achievement's notes column
   holds (memo, probability), delimited by marker emoji.
-- **`redis_persistence.py`** — durable `DictPersistence` subclass for PTB (whole state
-  blob under one Redis key).
-- **`health.py`**, **`logging_config.py`**, **`version.py`** — stdlib health server on a
-  daemon thread (and, in webhook mode, the update POST route); structlog-over-stdlib setup;
-  release version plus git/Railway commit resolution for `/version`.
-- **`webhook.py`** — webhook intake: authenticate the request, parse an `Update`, put it on
-  PTB's queue. Deliberately knows nothing about HTTP serving, and `health.py` deliberately
-  knows nothing about Telegram — they meet at a callable returning a status code.
+- **`runtime/redis_persistence.py`** — durable `DictPersistence` subclass for PTB (whole
+  state blob under one Redis key).
+- **`runtime/health.py`**, **`runtime/logging_config.py`**, **`version.py`** — stdlib health
+  server on a daemon thread (and, in webhook mode, the update POST route);
+  structlog-over-stdlib setup; release version plus git/Railway commit resolution for
+  `/version`. `version.py` is at the package root rather than in `runtime/` because CI
+  imports it with nothing installed, so the shorter the chain of `__init__` files it drags
+  in, the fewer places can break a release.
+- **`runtime/webhook.py`** — webhook intake: authenticate the request, parse an `Update`, put
+  it on PTB's queue. Deliberately knows nothing about HTTP serving, and `health.py`
+  deliberately knows nothing about Telegram — they meet at a callable returning a status
+  code.
 
 **`handlers/gamesession.py` is the biggest module in the repo** (~2750 lines) and most of
 *Things that will bite you* below is about it. It is the stand-in achievement manager: it
@@ -297,7 +334,7 @@ rewrite. So `2.22.0` is the 22nd feature release of the rewrite, not a fresh sta
 
 | File | What |
 |---|---|
-| `version.py` | `VERSION = "X.Y.Z"` — the single source of truth, and the only one that exists at runtime |
+| `wwstatsbot/version.py` | `VERSION = "X.Y.Z"` — the single source of truth, and the only one that exists at runtime |
 | `pyproject.toml` | `version = "X.Y.Z"` — a mirror, for uv |
 
 `test_pyproject_version_matches` fails if they drift, so a half-bump turns CI red rather
@@ -892,10 +929,12 @@ safe *only* because of its superuser gate — never call it from a new handler w
   code (`.format()` throughout) — stay consistent with the surrounding file.
 - Concurrent API fan-out uses `asyncio.gather(..., return_exceptions=True)` so one failed
   player lookup degrades to "couldn't check" rather than failing the command.
+- Imports inside the package are absolute and bind the *module*
+  (`from wwstatsbot.data import db`), never a name out of it — see **Architecture**.
 - Conventional commits — see **Workflow** below for the prefixes in use.
 - Ruff config selects `E`/`F`/`W`/`B`/`I` but **deliberately not `UP`** — pyupgrade would
   rewrite this codebase's consistent `.format()` style into f-strings. `E501` is off
   (111 lines already exceed 100 chars; the longest is 348).
-- History contains one whole-repo `ruff format` commit. Run
+- History contains one whole-repo `ruff format` commit and the package move. Run
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` reads
-  through it.
+  through both.

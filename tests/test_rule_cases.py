@@ -24,10 +24,9 @@ Three tables:
 
 import pytest
 
-import feasibility
-import roles
-import rulelist
-from rulelist import RULES
+from wwstatsbot.data import rulelist
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import feasibility, roles
 
 CATALOGUE = {r["name"]: r for r in RULES}
 LISTED = [r for r in RULES if rulelist.is_listed(r)]

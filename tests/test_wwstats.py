@@ -7,8 +7,8 @@ MISSING total line repeated on every chunk so a message never loses its context.
 
 from conftest import ACHIEVEMENTS, ACHIEVEMENTS_JSON
 
-import db
-import wwstats
+from wwstatsbot.data import db
+from wwstatsbot.render import wwstats
 
 
 def test_chunks_splits_evenly():

@@ -28,8 +28,8 @@ import os
 
 import pytest
 
-import db
-from achvlist import ACHV
+from wwstatsbot.data import db
+from wwstatsbot.data.achvlist import ACHV
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -499,7 +499,7 @@ async def ruled(seeded):
 
 
 async def test_seed_rules_populates_every_achievement(ruled):
-    from rulelist import RULES
+    from wwstatsbot.data.rulelist import RULES
 
     assert len(db.get_rules()) == len(RULES) == len(ACHV)
 

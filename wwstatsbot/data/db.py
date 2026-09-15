@@ -12,8 +12,8 @@ import re
 import asyncpg
 import structlog
 
-from achvlist import ACHV
-from rulelist import RULES
+from wwstatsbot.data.achvlist import ACHV
+from wwstatsbot.data.rulelist import RULES
 
 logger = structlog.get_logger(__name__)
 

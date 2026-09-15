@@ -22,11 +22,11 @@ tests/test_db.py holds the Postgres-gated test that the two agree.
 
 from conftest import FakeContext, FakeInlineQuery, FakeUpdate, FakeUser, message
 
-import builders
-import db
-from handlers import achievements as achv_handlers
-from handlers import inline as inline_handlers
-from handlers import search as search_handlers
+from wwstatsbot.data import db
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import inline as inline_handlers
+from wwstatsbot.handlers import search as search_handlers
+from wwstatsbot.render import builders
 
 # --- The initialism itself -------------------------------------------------------
 

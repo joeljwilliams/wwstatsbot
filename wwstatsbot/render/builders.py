@@ -16,12 +16,10 @@ is a change to what users see.
 
 import html
 
-import badges
-import db
-import notes
-import playerdata
-import roles
-import templates as t
+from wwstatsbot.data import db, notes, playerdata
+from wwstatsbot.game import roles
+from wwstatsbot.render import badges
+from wwstatsbot.render import templates as t
 
 
 def role_label(api_role):

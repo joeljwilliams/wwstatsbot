@@ -14,8 +14,8 @@ otherwise reads as a mention the bot failed to see.
 
 from conftest import FakeContext, FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
-import db
-from handlers import common, search
+from wwstatsbot.data import db
+from wwstatsbot.handlers import common, search
 
 
 def player_list(*users):

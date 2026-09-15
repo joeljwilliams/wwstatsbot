@@ -14,8 +14,8 @@ Three things shape this feature, and each is tested below:
 import pytest
 from conftest import FakeBot, FakeChat, FakeContext, FakeUpdate, FakeUser, message
 
-import db
-from handlers import welcome
+from wwstatsbot.data import db
+from wwstatsbot.handlers import welcome
 
 
 @pytest.fixture(autouse=True)

@@ -18,8 +18,8 @@ into both. Two things make it more than a string split, and each is tested below
 
 from conftest import FakeContext, FakeEntity, FakeUpdate, FakeUser, message
 
-import session
-from handlers import gamesession
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
 
 DOUSED = "You have already doused the house of: {}"
 PREAMBLE = "Do you want to douse another house or do you want to see all doused houses burn?\n\n"

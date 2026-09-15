@@ -16,13 +16,11 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-import badges
-import builders
-import db
-import notes
-import templates as t
-from handlers.achievements import _achv_from_reply
-from handlers.common import is_admin_user, is_superuser, utf16_piece, utf16_units
+from wwstatsbot.data import db, notes
+from wwstatsbot.handlers.achievements import _achv_from_reply
+from wwstatsbot.handlers.common import is_admin_user, is_superuser, utf16_piece, utf16_units
+from wwstatsbot.render import badges, builders
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

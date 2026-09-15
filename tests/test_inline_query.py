@@ -10,9 +10,9 @@ four stat cards, and typed text becomes an achievement search identical to /info
 
 from conftest import FakeContext, FakeInlineQuery, FakeUpdate, FakeUser
 
-import builders
-import db
-from handlers import inline as inline_handlers
+from wwstatsbot.data import db
+from wwstatsbot.handlers import inline as inline_handlers
+from wwstatsbot.render import builders
 
 
 async def answer(query="", user=None):

@@ -1,5 +1,5 @@
-import db
-import templates as t
+from wwstatsbot.data import db
+from wwstatsbot.render import templates as t
 
 
 def chunks(items, n):
