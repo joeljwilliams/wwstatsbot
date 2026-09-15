@@ -47,6 +47,9 @@ UNADVERTISED = [
     "setnote",
     "clearnote",
     "db",
+    # The supporter badge. Superuser-only and about a handful of people ever, so the menu
+    # would advertise it to everybody who cannot use it.
+    "setemoji",
     "gs",
     "role",
     "rm",
@@ -152,6 +155,7 @@ def test_commands_are_wired_to_the_expected_callbacks():
         "setnote": admin.set_note_cmd,
         "clearnote": admin.clear_note_cmd,
         "db": admin.db_console_cmd,
+        "setemoji": admin.set_emoji_cmd,
         "lo": gamesession.lynch_order_cmd,
         "slo": gamesession.set_lynch_order_cmd,
         "rslo": gamesession.reset_lynch_order_cmd,
@@ -174,7 +178,7 @@ def test_no_command_is_registered_twice_to_different_handlers():
 
 def test_the_menu_lists_no_privileged_command():
     """Admin/superuser commands are intentionally kept out of the "/" list."""
-    privileged = {"addadmin", "deladmin", "admins", "setnote", "clearnote", "db"}
+    privileged = {"addadmin", "deladmin", "admins", "setnote", "clearnote", "db", "setemoji"}
     assert not (set(ADVERTISED) & privileged)
 
 

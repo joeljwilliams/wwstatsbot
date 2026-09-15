@@ -1,6 +1,6 @@
 """Privileged commands, in two tiers.
 
-* **Superuser** (an env-var id comparison): /addadmin, /deladmin, /admins, /db.
+* **Superuser** (an env-var id comparison): /addadmin, /deladmin, /admins, /db, /setemoji.
 * **Admin** (superuser or a row in the admins table): /setnote, /clearnote.
 
 db.run_sql executes whatever SQL it is handed, so /db is safe *only* because of its
@@ -11,16 +11,18 @@ reached unauthorised, not merely that a refusal is printed.
 import html
 
 import structlog
-from telegram import Update
+from telegram import MessageEntity, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+import badges
 import builders
 import db
 import notes
 import templates as t
 from handlers.achievements import _achv_from_reply
-from handlers.common import is_admin_user, is_superuser
+from handlers.common import is_admin_user, is_superuser, utf16_piece, utf16_units
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +85,109 @@ async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uname = " @{}".format(html.escape(r["username"])) if r["username"] else ""
         lines.append(t.ADMIN_LIST_ROW.format(user_id=r["user_id"], name=name, username=uname))
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+# A badge is one emoji, and the cap is on what a *name* can carry rather than on what
+# Telegram would accept: these are printed beside sixteen names in one roster message, and
+# something longer than a couple of glyphs stops being a badge and starts being a rename.
+# Generous enough for a ZWJ sequence — a family or a flag is a dozen code points.
+_BADGE_MAX = 24
+
+
+def _premium_badge(message):
+    """The first premium emoji in the command, as (fallback character, custom emoji id).
+
+    A premium emoji arrives as *text plus an entity*: the plain emoji sits in the message
+    like any other character, and the entity beside it carries the id of the animated one.
+    Reading the text alone would silently store the fallback and lose the thing somebody
+    actually paid for.
+
+    Offsets are UTF-16 units, as everywhere else Telegram counts characters — an emoji is
+    two of them, which is exactly what makes slicing the str wrong.
+    """
+    for entity in message.entities or ():
+        if entity.type == MessageEntity.CUSTOM_EMOJI:
+            fallback = utf16_piece(utf16_units(message.text or ""), entity.offset, entity.length)
+            return fallback, entity.custom_emoji_id
+    return None
+
+
+def _badge_target(update, context):
+    """(user_id, name, emoji) for /setemoji. None when it named nobody.
+
+    The target is resolved the way /addadmin resolves one — a reply, or an id as the first
+    argument — so the two privileged commands that act on a person agree about how a person
+    is named. What is left of the text is the badge, and nothing left means "take it away".
+    """
+    target = _resolve_admin_target(update, context)
+    if target is None:
+        return None
+    user_id, _, first_name = target
+    # A reply spends no argument on the id, so every argument is the badge; an id typed as
+    # the first argument spends one.
+    words = context.args if update.message.reply_to_message is not None else context.args[1:]
+    return user_id, first_name, " ".join(words).strip()
+
+
+async def set_emoji_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/setemoji <user id> <emoji>` — give a contributor a badge, or take it away.
+
+    Superuser only, and deliberately not advertised in PUBLIC_COMMANDS.
+
+    The confirmation is also the **test**. A premium emoji can only be sent by a bot that
+    bought a username on Fragment; Telegram refuses it outright otherwise, and a badge it
+    refuses would not fail here — it would fail later, in every roster, stats card and
+    announcement naming that player, with nothing to say why. So the badge is rendered into
+    a message *before* the row is written, and what gets stored is whichever form Telegram
+    agreed to send.
+    """
+    message = update.message
+    user = message.from_user
+    if not is_superuser(user.id):
+        await message.reply_text(t.EMOJI_ONLY_SUPERUSER)
+        return
+
+    logger.info("command", command="setemoji", user_id=user.id, args=context.args)
+
+    target = _badge_target(update, context)
+    if target is None:
+        await message.reply_text(t.EMOJI_USAGE, parse_mode=ParseMode.HTML)
+        return
+    target_id, target_name, typed = target
+    label = html.escape(target_name) if target_name else str(target_id)
+
+    if not typed:
+        cleared = await db.clear_badge(target_id)
+        template = t.EMOJI_CLEARED if cleared else t.EMOJI_NOT_SET
+        await message.reply_text(
+            template.format(user_id=target_id, name=label), parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
+        return
+
+    premium = _premium_badge(message)
+    emoji, custom_id = premium if premium else (typed, None)
+    if len(emoji) > _BADGE_MAX:
+        await message.reply_text(t.EMOJI_TOO_LONG.format(count=len(emoji), limit=_BADGE_MAX))
+        return
+
+    reply = t.EMOJI_SET.format(user_id=target_id, name=label, badge=badges.markup(emoji, custom_id))
+    try:
+        await message.reply_text(reply, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except BadRequest as err:
+        if custom_id is None:
+            # Nothing to do with the badge, and not ours to swallow.
+            raise
+        logger.warning("badge_custom_emoji_refused", user_id=target_id, error=str(err))
+        custom_id = None
+        await message.reply_text(
+            t.EMOJI_SET.format(user_id=target_id, name=label, badge=badges.markup(emoji, None)) + t.EMOJI_NOT_PREMIUM,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+
+    # Written only once Telegram has agreed to render it.
+    await db.set_badge(target_id, emoji, custom_id, target_name, user.id)
+    logger.info("badge_set", user_id=target_id, premium=custom_id is not None, set_by=user.id)
 
 
 async def set_note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

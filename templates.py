@@ -27,6 +27,15 @@ def N_(message):
     return message
 
 
+# --- The supporter badge (badges.py) ---------------------------------------
+
+# One emoji, hung off the end of a name, with the space that separates it. Two shapes: a
+# plain character, and a premium emoji, which is an animated sticker addressed by id with
+# the plain one as the fallback a client shows when it cannot render the sticker.
+BADGE = N_(" {emoji}")
+BADGE_CUSTOM = N_(' <tg-emoji emoji-id="{custom_id}">{emoji}</tg-emoji>')
+
+
 # --- HTML: stat builders (builders.py) -------------------------------------
 
 KILLS_HEADER = N_("Players <a href='tg://user?id={user_id}'>{name}</a> most killed:\n")
@@ -260,6 +269,19 @@ ADMIN_ONLY_NOTES = N_("Only admins can edit notes.")
 ADMIN_ADD_USAGE = N_("Usage: reply to a user with /addadmin, or /addadmin <user_id>.")
 ADMIN_DEL_USAGE = N_("Usage: reply to a user with /deladmin, or /deladmin <user_id>.")
 ADMIN_ADDED = N_("Added <a href='tg://user?id={user_id}'>{name}</a> as an admin.")
+EMOJI_ONLY_SUPERUSER = N_("Only the superuser can hand out badges.")
+EMOJI_USAGE = N_(
+    "Usage: <code>/setemoji &lt;user id&gt; &lt;emoji&gt;</code>, or the same in reply to somebody.\n"
+    "<i>With no emoji it takes the badge away.</i>"
+)
+EMOJI_SET = N_("<a href='tg://user?id={user_id}'>{name}</a> now carries {badge}")
+EMOJI_CLEARED = N_("<a href='tg://user?id={user_id}'>{name}</a> has no badge any more.")
+EMOJI_NOT_SET = N_("<a href='tg://user?id={user_id}'>{name}</a> had no badge to take away.")
+EMOJI_TOO_LONG = N_("That is {count} characters. A badge is one emoji, up to {limit}.")
+# A premium emoji is only sendable by a bot that bought a username on Fragment. Telegram
+# refuses it outright otherwise, which would break every message naming that player — so it
+# is tried once, here, and downgraded to the plain fallback rather than stored unusable.
+EMOJI_NOT_PREMIUM = N_("\n<i>This bot may not send premium emoji, so the plain one was kept instead.</i>")
 ADMIN_REMOVED = N_("Removed admin {user_id}.")
 ADMIN_NOT_AN_ADMIN = N_("That user is not an admin.")
 ADMIN_LIST_EMPTY = N_("No admins yet.")

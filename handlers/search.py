@@ -18,6 +18,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
+import badges
 import builders
 import db
 import playerdata
@@ -70,7 +71,9 @@ async def display_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not matches:
             msg = t.NO_MATCHES
         else:
-            msg = t.SEARCH_HEADER.format(query=html.escape(search), user_id=user_id, name=name)
+            msg = t.SEARCH_HEADER.format(
+                query=html.escape(search), user_id=user_id, name=badges.decorate(user_id, name)
+            )
             for m in matches[:_SEARCH_MAX_RESULTS]:
                 mark = t.SEARCH_ATTAINED if m["name"] in attained_names else t.SEARCH_NOT_ATTAINED
                 msg += t.SEARCH_ROW.format(mark=mark, name=html.escape(m["name"]))
@@ -159,7 +162,9 @@ def _render_schall(payload, token, show_have):
     section = t.SCHALL_HAVE_HEADER if show_have else t.SCHALL_MISSING_HEADER
     msg += section.format(count=len(shown))
     msg += (
-        "".join(t.SCHALL_USER_ROW.format(user_id=uid, name=html.escape(uname)) for uid, uname in shown)
+        "".join(
+            t.SCHALL_USER_ROW.format(user_id=uid, name=badges.decorate(uid, html.escape(uname))) for uid, uname in shown
+        )
         or t.SCHALL_NONE_ROW
     )
     if payload["unresolved"]:

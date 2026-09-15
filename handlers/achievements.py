@@ -21,6 +21,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
+import badges
 import builders
 import db
 import playerdata
@@ -421,7 +422,7 @@ def _as_mention(name, mentions):
     """
     user_id = mentions.get(name)
     escaped = html.escape(name)
-    return t.ROLL_MENTION.format(user_id=user_id, name=escaped) if user_id else escaped
+    return t.ROLL_MENTION.format(user_id=user_id, name=badges.decorate(user_id, escaped)) if user_id else escaped
 
 
 def _pick(candidates):

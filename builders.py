@@ -16,6 +16,7 @@ is a change to what users see.
 
 import html
 
+import badges
 import db
 import notes
 import playerdata
@@ -57,7 +58,7 @@ def role_label(api_role):
 
 async def build_kills_msg(user_id, name):
     kills = await playerdata.get_kills(user_id)
-    msg = t.KILLS_HEADER.format(user_id=user_id, name=name)
+    msg = t.KILLS_HEADER.format(user_id=user_id, name=badges.decorate(user_id, name))
     for k in kills.data:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
     return msg + playerdata.stale_notice(kills.age)
@@ -65,7 +66,7 @@ async def build_kills_msg(user_id, name):
 
 async def build_killed_by_msg(user_id, name):
     killedby = await playerdata.get_killed_by(user_id)
-    msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=name)
+    msg = t.KILLED_BY_HEADER.format(user_id=user_id, name=badges.decorate(user_id, name))
     for k in killedby.data:
         msg += t.COUNT_ROW.format(count=k["times"], label=html.escape(k["name"]))
     return msg + playerdata.stale_notice(killedby.age)
@@ -74,7 +75,7 @@ async def build_killed_by_msg(user_id, name):
 async def build_deaths_msg(user_id, name):
     deaths = await playerdata.get_deaths(user_id)
     stats = await playerdata.get_stats(user_id)
-    msg = t.DEATHS_HEADER.format(user_id=user_id, name=name)
+    msg = t.DEATHS_HEADER.format(user_id=user_id, name=badges.decorate(user_id, name))
     for d in deaths.data:
         # The total per kill method is derived from the percentage in the JSON,
         # so the value is approximate rather than exact.
@@ -109,12 +110,17 @@ async def build_stats_msg(user_id, name, by_id=False):
         template = t.NO_GAMES
         if by_id:
             template = t.NO_GAMES_BY_USERNAME if username else t.NO_GAMES_BY_ID
-        return template.format(user_id=user_id, name=name, username=username)
+        return template.format(user_id=user_id, name=badges.decorate(user_id, name), username=username)
 
     name_template = t.STATS_NAME
     if by_id:
         name_template = t.STATS_NAME_BY_USERNAME if username else t.STATS_NAME_BY_ID
-    msg = name_template.format(user_id=user_id, name=name, username=username, role=role_label(stats["mostCommonRole"]))
+    msg = name_template.format(
+        user_id=user_id,
+        name=badges.decorate(user_id, name),
+        username=username,
+        role=role_label(stats["mostCommonRole"]),
+    )
     msg += t.STATS_ACHIEVEMENTS.format(count=achievements)
     msg += t.STATS_WON.format(total=stats["won"]["total"], percent=stats["won"]["percent"])
     msg += t.STATS_LOST.format(total=stats["lost"]["total"], percent=stats["lost"]["percent"])

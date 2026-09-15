@@ -42,6 +42,7 @@ import structlog
 from telegram.constants import ParseMode
 
 import api
+import badges
 import db
 import settings
 import templates as t
@@ -330,8 +331,8 @@ async def _who(user_id, name):
     profile = await player_profile(user_id)
     shown = html.escape(profile.name or name or str(user_id))
     if profile.username:
-        return t.LOG_ACHIEVEMENT_HEADER_LINKED, {"username": profile.username, "name": shown}
-    return t.LOG_ACHIEVEMENT_HEADER, {"user_id": user_id, "name": shown}
+        return t.LOG_ACHIEVEMENT_HEADER_LINKED, {"username": profile.username, "name": badges.decorate(user_id, shown)}
+    return t.LOG_ACHIEVEMENT_HEADER, {"user_id": user_id, "name": badges.decorate(user_id, shown)}
 
 
 # --- Reporting an age -------------------------------------------------------

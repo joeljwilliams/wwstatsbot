@@ -36,6 +36,7 @@ from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
+import badges
 import db
 import feasibility
 import playerdata
@@ -305,7 +306,7 @@ def _mention(user_id, name):
     tap through to anybody, and two players with similar display names are impossible to
     tell apart. Escaping happens here, once, on the way in.
     """
-    return t.STANDIN_MENTION.format(user_id=user_id, name=html.escape(name or ""))
+    return t.STANDIN_MENTION.format(user_id=user_id, name=badges.decorate(user_id, html.escape(name or "")))
 
 
 def _mention_player(session_data, user_id):
