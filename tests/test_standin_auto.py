@@ -354,9 +354,11 @@ async def test_the_same_message_is_acted_on_once(context):
     message id is acted on once however many times it arrives."""
     auto(context)
     await seen(context, roster(message_id=1))
-    sent = len(context.bot.sent)
 
     await seen(context, roster(alive=ROSTER[:2], message_id=2))
+    # After the first delivery, not before: that first death is also what names anybody
+    # who never set a role, and it is the delivery *after* it that must cost nothing.
+    sent = len(context.bot.sent)
     await seen(context, roster(alive=ROSTER[:2], message_id=2))
 
     assert len(context.bot.sent) == sent
@@ -382,9 +384,13 @@ async def test_a_transform_is_announced(context):
     visible as part of /ad's reply."""
     current = await start_session(context, players=ROSTER)
     auto(context)
+    await reveal(context, 1, "villager")
+    await reveal(context, 2, "villager")
     await reveal(context, 3, "wc")
     session.set_model(current, 3, 2)
 
+    # Everybody has a role, so the first death names nobody and the transform is the only
+    # thing this follow has to say.
     sent = len(context.bot.sent)
 
     await seen(context, roster(alive=[ROSTER[0], ROSTER[2]], dead_rows=[("omu", "the Villager")], message_id=2))
@@ -401,11 +407,30 @@ async def test_deaths_alone_are_not_announced(context):
     that starts a game every few minutes, is what a stand-in must not be."""
     auto(context)
     await seen(context, roster(message_id=1))
+    for uid, _ in ROSTER:
+        # With a role each, the first death has nobody to name and deaths are on their own
+        # again — which is what this test is about.
+        await reveal(context, uid, "villager")
     sent = len(context.bot.sent)
 
     await seen(context, roster(alive=ROSTER[:2], dead_rows=[("J J", "the Villager")], message_id=2))
 
     assert len(context.bot.sent) == sent
+
+
+async def test_the_first_followed_death_names_who_never_set_a_role(context):
+    """The nudge reaches the automatic path through the same door /ad uses."""
+    auto(context)
+    await seen(context, roster(message_id=1))
+    await reveal(context, 1, "villager")
+
+    await seen(context, roster(alive=ROSTER[:2], dead_rows=[("J J", "the Villager")], message_id=2))
+
+    nudges = [m["text"] for m in context.bot.sent if "Still no role set" in m["text"]]
+    assert len(nudges) == 1
+    assert "omu" in nudges[0]
+    assert "Ren" not in nudges[0], "already set one"
+    assert "J J" not in nudges[0], "dead, and the roster named their role for us"
 
 
 # --- Closing it out ----------------------------------------------------------

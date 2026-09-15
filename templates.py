@@ -432,7 +432,7 @@ STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
 # why nothing here escapes it: a bare display name would be plain text where every other
 # mention in the chat is tappable.
 STANDIN_PLAYER_ROW = N_("{name}: {role}\n")
-STANDIN_PLAYER_UNREVEALED = N_("{name}: <i>not revealed</i>\n")
+STANDIN_PLAYER_UNREVEALED = N_("{name}: \N{HEAVY EXCLAMATION MARK SYMBOL} <i>not revealed</i>\n")
 # The role model rides inline in parentheses, the way the manager renders it:
 #   J J: Wild Child 👶 (omu)
 STANDIN_MODEL = N_(" ({name})")
@@ -466,6 +466,10 @@ STANDIN_STOPPED_BY = N_("{name} has considered the game stopped!")
 # Confirmations. "<name>'s role was set to: <Role>" is the manager's exact wording.
 STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
 STANDIN_ROLE_SET_AMBIGUOUS = N_("{name}'s role was set to: {role}\n<i>Both are being counted until you know which.</i>")
+STANDIN_UNREVEALED_NUDGE = N_(
+    "\N{HEAVY EXCLAMATION MARK SYMBOL} <b>Still no role set:</b> {names}\n"
+    "<i>Send <code>/role &lt;your role&gt;</code> — until you do, the list cannot say what you can earn.</i>"
+)
 STANDIN_ROLE_SET_MANY = N_("<b>Roles set:</b>\n")
 STANDIN_ROLE_SET_MANY_ROW = N_("{name}: {role}\n")
 STANDIN_ROLE_SET_MANY_AMBIGUOUS = N_(

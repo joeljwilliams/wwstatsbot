@@ -595,6 +595,23 @@ bot built with no job queue answers everything, because nothing would flush the 
 every confirmation after the first would vanish. Flood control puts the whole burst back and
 retries past the window, for the same reason.
 
+**A player who never set a role is marked, then named once.** Silence on a first reveal
+(above) costs something: nobody is told their `/role` landed, and a player who never sent
+one is invisible until somebody counts the roster. So the roster row carries a ❗ rather
+than only the italic "not revealed" it had — that row is the one thing in the message
+somebody has to act on — and the **first death** in the session names everybody still
+missing, with mentions.
+
+The first death is the trigger because it is the one moment both modes share: a followed
+roster under `/gm auto`, a typed `/dead` otherwise, and `_follow_roster` and `dead_cmd` each
+call `_nudge_unrevealed` for that reason. By then the opening night is over, so anybody
+still missing is missing by accident rather than because the game has not started. Three
+rules inside it: the **dead are left out**, since the game bot's death rows name their role
+already and the one person a nudge cannot help is the one who is out; it is said **once**,
+because a second telling is nagging and the ❗ stays on the roster for anyone who looks; and
+the flag is set **whether or not anybody was missing**, so a table that all revealed spends
+the moment there rather than banking it for a death three rounds later.
+
 **An unchanged lynch order is not sent twice in five seconds.** `/lo` is thirty-five lines
 in a thirty-five player game, and several people ask for it within seconds of each other;
 the third copy has scrolled the game itself out of the chat. The rendering is fingerprinted

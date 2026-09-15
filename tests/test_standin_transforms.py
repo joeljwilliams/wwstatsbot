@@ -262,6 +262,74 @@ async def test_dead_with_something_that_names_nobody_still_says_so(context):
     assert session_data["players"]["1"]["alive"] is True
 
 
+# --- Naming whoever never set a role ----------------------------------------
+#
+# A player who never revealed costs the whole table: the Possible Achievements list cannot
+# say one thing about them, and they are the likeliest person in the room not to know it.
+# The roster marks them with a ❗ each, but a roster is a message people stop reading after
+# the first few rounds — so the first death, which is the end of the first night in every
+# game, names them out loud. Once.
+
+
+def nudges(context):
+    return [sent["text"] for sent in context.bot.sent if "Still no role set" in sent["text"]]
+
+
+async def test_the_first_death_names_everybody_with_no_role(context):
+    await start_session(context)
+    await reveal(context, 1, "villager")
+
+    await dead(context, "Ren")
+
+    assert len(nudges(context)) == 1
+    assert mention(2, "omu") in nudges(context)[0]
+    assert mention(3, "J J") in nudges(context)[0]
+
+
+async def test_the_player_who_just_died_is_not_asked_to_reveal(context):
+    """Their role arrives on the game bot's own death row, and they are out of the game."""
+    await start_session(context)
+
+    await dead(context, "omu")
+
+    assert mention(2, "omu") not in nudges(context)[0]
+
+
+async def test_it_is_said_once_and_not_again(context):
+    """A second telling is nagging, and the ❗ on the roster is still there for anyone
+    who looks."""
+    await start_session(context)
+
+    await dead(context, "Ren")
+    await dead(context, "omu")
+
+    assert len(nudges(context)) == 1
+
+
+async def test_a_table_that_all_revealed_is_not_told_anything(context):
+    await start_session(context)
+    for uid in (1, 2, 3, 4):
+        await reveal(context, uid, "villager")
+
+    await dead(context, "Ren")
+
+    assert nudges(context) == []
+
+
+async def test_the_moment_passes_even_when_nobody_was_missing(context):
+    """The turn is spent at the first death whether or not it had anything to say — a game
+    where everybody revealed must not bank it and fire three deaths later."""
+    await start_session(context)
+    for uid in (1, 2, 3, 4):
+        await reveal(context, uid, "villager")
+    await dead(context, "Ren")
+
+    session.set_roles(session.get(context.chat_data), 2, [])
+    await dead(context, "J J")
+
+    assert nudges(context) == []
+
+
 # --- /ad --------------------------------------------------------------------
 
 

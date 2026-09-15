@@ -717,9 +717,11 @@ async def test_the_roster_mirrors_the_managers_layout(context):
 
 
 async def test_an_unrevealed_player_is_shown_as_such(context):
+    """Marked, not merely worded: a player with no role recorded is the one thing in this
+    message somebody has to act on, and italic grey text reads as a footnote."""
     session_data = await start_session(context)
     rendered, _ = gamesession.render_state(session_data)
-    assert mention(2, "omu") + ": <i>not revealed</i>" in rendered
+    assert mention(2, "omu") + ": \N{HEAVY EXCLAMATION MARK SYMBOL} <i>not revealed</i>" in rendered
 
 
 async def test_a_rolemodel_renders_inline_in_parentheses(context):

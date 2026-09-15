@@ -1114,6 +1114,49 @@ def _transform_lines(session_data, changes):
     return out
 
 
+def _unrevealed(session_data):
+    """Living players with no role recorded.
+
+    The dead are left out on purpose: the game bot's own death rows name the role a player
+    was, so _follow_roster has usually recorded it already — and asking somebody who is out
+    of the game to type /role is noise aimed at the one person it cannot help.
+    """
+    return [uid for uid, entry in session.players_in_order(session_data) if entry["alive"] and not entry["roles"]]
+
+
+async def _nudge_unrevealed(context, chat_id, session_data):
+    """Name whoever still has no role, once, when the first death lands.
+
+    The roster marks them with a ❗ each, but a roster is a message people stop reading
+    after the first few rounds, and a player who never revealed costs everybody: the
+    Possible Achievements list cannot say a single thing about them, and they are the most
+    likely person in the room not to know that.
+
+    The first death is the signal because it is the one moment both modes share — a
+    followed roster in /gm auto, a typed /dead otherwise — and by then the opening night is
+    over and anybody still missing is missing on purpose or by accident, not because the
+    game has not started. Said once: a second telling is nagging, and the ❗ is still there
+    for anyone who looks.
+    """
+    if session_data.get("nudged"):
+        return
+    # Set before the send and whether or not anybody is missing: this is the *moment*
+    # passing, not the message succeeding, and a game where everybody revealed must not
+    # bank its turn for later.
+    session_data["nudged"] = True
+
+    missing = _unrevealed(session_data)
+    if not missing:
+        return
+    logger.info("standin_unrevealed_nudge", chat_id=chat_id, count=len(missing))
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t.STANDIN_UNREVEALED_NUDGE.format(names=", ".join(_mention_player(session_data, uid) for uid in missing)),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
 async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/dead <player>` or a reply — mark one player dead and run what that triggers."""
     session_data = _session_for(update, context)
@@ -1153,6 +1196,7 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = t.STANDIN_DEAD_MARKED.format(name=_mention(target_id, entry["name"]))
     await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
+    await _nudge_unrevealed(context, message.chat.id, session_data)
 
 
 def _dead_rows(text):
@@ -1369,6 +1413,11 @@ async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
     changes = session.apply_transforms(session_data)
     _remember_table(context, session_data)
     await _changed(context, chat_id, session_data)
+    if died:
+        # The first night is over the moment somebody is out of the game. Both modes reach
+        # this — a roster followed automatically, and /ad — and manual /dead reaches the
+        # same call of its own.
+        await _nudge_unrevealed(context, chat_id, session_data)
     return died, revived, learned, changes
 
 
