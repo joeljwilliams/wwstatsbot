@@ -604,6 +604,13 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Targets the player replied to when sent as a reply, otherwise the sender. Revealing
     again overwrites: roles change all game, so a second /role is how someone says "I am
     something else now", not a mistake to reject.
+
+    **A player revealing their own role for the first time is answered with silence**, and
+    only an unrecognised role is ever refused. Thirty-five people open a game by typing
+    /role at once; reading each one back buries the reveals under their own confirmations,
+    and the roster message is already about to say the same thing to everybody. What is
+    *news* still gets said — a role that **changed**, and a role set **for somebody else**
+    — because both are claims about the game the rest of the table has to see.
     """
     session_data = _session_for(update, context)
     if session_data is None:
@@ -640,13 +647,27 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if target_id is None:
         target_id = user.id
-    if session.player(session_data, target_id) is None:
+    entry = session.player(session_data, target_id)
+    if entry is None:
         await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
         return
 
+    # Read before the write, because the answer changes once it lands: whether this player
+    # had already revealed is the whole difference between a confirmation worth sending and
+    # the opening minute of a game.
+    revealed_before = bool(entry["roles"])
+
     session.set_roles(session_data, target_id, resolved)
     await _changed(context, message.chat.id, session_data)
-    await _confirm_role(context, message, session_data, target_id)
+
+    # Three things are news; a player's own first reveal is not (see the docstring). A
+    # re-typed identical role counts as a change deliberately — somebody who saw no answer
+    # and typed it again is asking whether it landed, and that is the only way left to ask.
+    # And a claim the Beholder has already settled is recorded as something *other than
+    # what was typed*, so going quiet would leave a player believing they are the Seer.
+    settled = list(entry["roles"]) != list(resolved)
+    if revealed_before or target_id != user.id or settled:
+        await _confirm_role(context, message, session_data, target_id)
 
 
 async def _beholder_claim(update, context, session_data, typed):
@@ -1985,12 +2006,13 @@ async def _publish(context):
     )
 
 
-# A game of thirty-five opens with thirty-five people typing /role at each other inside a
-# minute, and a reply to every one of them is thirty-five messages in the stretch of chat
-# nobody can spare: the reveals scroll away underneath their own confirmations. So the
-# first is answered at once — a lone reveal in a quiet game reads exactly as it always did
-# — and anything arriving in its wake is collected and read back in one notice. Nothing is
-# dropped; a player who revealed always sees their role confirmed.
+# What reaches here is only what was worth saying at all — role_cmd answers a player's own
+# first reveal with silence, which is what the opening minute of a thirty-five player game
+# is made of. Changes and roles set for other people still arrive in bursts, though: a
+# night that turns the Wild Child and the Cursed at once, somebody recording the roles of
+# three players who just died. So the first is answered at once, quoted on the message that
+# made the claim, and anything arriving in its wake is collected into one notice. Nothing
+# is dropped — a change nobody was told about is a change somebody types again.
 #
 # The window is the publish debounce's, so the notice and the live list it describes land
 # in the same breath rather than a few seconds apart saying the same thing.

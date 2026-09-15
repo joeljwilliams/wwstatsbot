@@ -510,9 +510,15 @@ async def test_a_first_post_that_failed_is_reported_and_left_unrecorded(context)
 
 
 async def test_everything_still_works_without_a_job_queue(context):
-    """A bot built without the job-queue extra must degrade, not crash."""
+    """A bot built without the job-queue extra must degrade, not crash.
+
+    A *change* rather than a first reveal, because a first reveal is answered with silence
+    everywhere and would prove nothing here.
+    """
     context.job_queue = None
     await start_session(context)
+    await reveal(context, 1, "villager")
+
     msg = player_message("/role seer")
     context.args = ["seer"]
     await gamesession.role_cmd(FakeUpdate(message=msg), context)

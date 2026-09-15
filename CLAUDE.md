@@ -567,20 +567,33 @@ fingerprint advances only on an edit that landed**, so a failed one is retried r
 remembered as done. The exception is "message is not modified" — that is Telegram
 confirming the message already looks like this, which is worth recording.
 
-**Reveals are answered once, then collected.** A thirty-five player game opens with
-thirty-five people typing `/role` inside a minute, and a reply to each one buries the
-reveals underneath their own confirmations. The first is answered at once — a lone reveal
-in a quiet game reads exactly as it always did — and everything arriving inside the next
-`_ROLE_BURST_SECONDS` is buffered in the session and read back in one notice. The window is
-the publish debounce's, so the notice and the live list it describes land together rather
-than a few seconds apart saying the same thing. Three details are load-bearing: the buffer
-is keyed by **player**, so somebody correcting themselves twice inside one window is named
-once; each row is rendered from the session **when the notice fires**, never from what was
-typed, so a role corrected inside the window is read back as it stands; and a bot built
-with no job queue replies to everything, because there would otherwise be nothing to flush
-the buffer and every confirmation after the first would vanish. Flood control puts the
-whole burst back and retries past the window, for the same reason — a swallowed
-confirmation is what makes somebody type `/role` again.
+**A first reveal is answered with silence; what is news is not.** A thirty-five player
+game opens with thirty-five people typing `/role` inside a minute, and reading each one
+back buries the reveals underneath their own confirmations — in the one stretch of chat
+they are needed in. So `/role` records a player's own first reveal and says nothing: the
+roster message is already about to say the same thing to the whole table. Only an
+unrecognised role is refused, because nothing was recorded and there is no roster row to
+read instead.
+
+Three things are still said out loud, and `tests/test_standin_session.py` is what keeps
+them said: a role that **changed** (the Thief steals, the Cursed turns), a role set **for
+somebody else** (a claim the table has to see, not something its subject quietly accepts),
+and a claim the **Beholder has already settled** — `session.set_roles` collapses a `sf`
+pair to one role when the Beholder has answered, so going quiet there would leave a player
+believing they are the Seer. Re-typing an identical role counts as a change deliberately:
+somebody who saw no answer and typed it again is asking whether it landed, and with the
+first reveal silent that is the only way left to ask.
+
+Those still arrive in bursts — a night that turns two players at once, three roles recorded
+after a wave of deaths — so the first is answered at once, quoted on the message that made
+the claim, and anything inside the next `_ROLE_BURST_SECONDS` is buffered in the session and
+read back in one notice. The window is the publish debounce's, so the notice and the live
+list it describes land together. Three details are load-bearing: the buffer is keyed by
+**player**, so somebody correcting themselves twice inside one window is named once; each
+row is rendered from the session **when the notice fires**, never from what was typed; and a
+bot built with no job queue answers everything, because nothing would flush the buffer and
+every confirmation after the first would vanish. Flood control puts the whole burst back and
+retries past the window, for the same reason.
 
 **An unchanged lynch order is not sent twice in five seconds.** `/lo` is thirty-five lines
 in a thirty-five player game, and several people ask for it within seconds of each other;

@@ -212,8 +212,12 @@ async def test_flood_control_puts_the_collected_role_notice_back(context):
     """A confirmation swallowed here would leave players believing their /role never landed,
     and retyping it is exactly the noise the collected notice exists to remove."""
     session_data = await settled(context)
+    # First reveals are silent, so the burst that reaches the notice is made of changes.
     await reveal(context, 2, "harlot")
     await reveal(context, 3, "seer")
+    await reveal(context, 1, "gunner")
+    await reveal(context, 2, "werewolf")
+    await reveal(context, 3, "fool")
     context.bot._send_error = RetryAfter(20)
 
     with capture_logs() as entries:
@@ -230,7 +234,7 @@ async def test_flood_control_puts_the_collected_role_notice_back(context):
     context.bot._send_error = None
     await context.job_queue.run_pending(context, elapsed=21)
     notice = role_notices(context)[0]
-    assert "Harlot" in notice and "Seer" in notice
+    assert "Werewolf" in notice and "Fool" in notice
 
 
 def _job(context):
