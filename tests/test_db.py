@@ -68,13 +68,13 @@ async def pool():
         # achievement_rules holds a foreign key onto achievements, so it has to be named
         # here too: dropping achievements alone fails while a dependent table exists.
         await conn.execute(
-            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_snapshots"
+            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_badges, player_snapshots"
         )
     await db.ensure_schema()
     yield db._pool
     async with db._pool.acquire() as conn:
         await conn.execute(
-            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_snapshots"
+            "DROP TABLE IF EXISTS achievement_rules, achievements, admins, player_alts, player_badges, player_snapshots"
         )
     await db.close_pool()
 
@@ -619,6 +619,75 @@ async def test_the_cache_is_rebuilt_from_the_table(pool):
 
     await db.load_alts_cache()
     assert db.is_alt_account(7)
+
+
+# --- Supporter badges ------------------------------------------------------------
+#
+# Like an alt marking, a badge is a fact about the person rather than about a game, and the
+# cache is the read path: db.badge() is synchronous and called once per name per rendered
+# message, so every write has to be followed by a reload or a roster goes on printing the
+# old one until the next restart.
+
+
+async def test_a_badge_survives_and_is_read_back(pool):
+    await db.load_badges_cache()
+    await db.set_badge(7, "\N{SPARKLES}", None, "Someone", 1)
+
+    assert db.badge(7) == ("\N{SPARKLES}", None)
+    rows = await db.list_badges()
+    assert [(r["user_id"], r["emoji"], r["name"]) for r in rows] == [(7, "\N{SPARKLES}", "Someone")]
+
+
+async def test_a_premium_badge_keeps_both_halves(pool):
+    """The fallback character and the sticker id are two columns because they are two
+    things: the id alone cannot be rendered by a client that will not show it."""
+    await db.load_badges_cache()
+    await db.set_badge(7, "\N{SPARKLES}", "536832417", "Someone", 1)
+
+    assert db.badge(7) == ("\N{SPARKLES}", "536832417")
+
+
+async def test_setting_a_badge_again_replaces_it(pool):
+    await db.load_badges_cache()
+    await db.set_badge(7, "\N{SPARKLES}", "536832417", "Someone", 1)
+    await db.set_badge(7, "\N{TROPHY}", None, "Someone", 1)
+
+    assert db.badge(7) == ("\N{TROPHY}", None), "including dropping a custom emoji id"
+
+
+async def test_a_later_set_without_a_name_keeps_the_one_on_record(pool):
+    """/setemoji by id has no name to pass, and blanking it would make /db unreadable for
+    the sake of a command that was only changing the emoji."""
+    await db.load_badges_cache()
+    await db.set_badge(7, "\N{SPARKLES}", None, "Someone", 1)
+    await db.set_badge(7, "\N{TROPHY}", None, None, 1)
+
+    rows = await db.list_badges()
+    assert rows[0]["name"] == "Someone"
+
+
+async def test_clearing_a_badge_reports_whether_there_was_one(pool):
+    await db.load_badges_cache()
+    await db.set_badge(7, "\N{SPARKLES}", None, "Someone", 1)
+
+    assert await db.clear_badge(7) is True
+    assert db.badge(7) is None
+    assert await db.clear_badge(7) is False
+
+
+async def test_a_player_with_no_badge_has_none(pool):
+    await db.load_badges_cache()
+    assert db.badge(7) is None
+
+
+async def test_the_badge_cache_is_rebuilt_from_the_table(pool):
+    """Written straight to the table — a /db edit, or another replica's write."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("INSERT INTO player_badges (user_id, emoji) VALUES (7, '\N{SPARKLES}')")
+    assert db.badge(7) is None, "not until the cache is loaded"
+
+    await db.load_badges_cache()
+    assert db.badge(7) == ("\N{SPARKLES}", None)
 
 
 # --- Player snapshots ------------------------------------------------------------

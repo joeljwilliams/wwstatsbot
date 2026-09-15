@@ -143,7 +143,7 @@ async def test_a_join_announces_games_and_achievements(stats_api):
     msg = await joins(welcome_ctx(enabled=True))
     stats_url = "https://www.tgwerewolf.com/Stats/Player/7?referer=wwstatsbot"
     assert msg.last_reply == (
-        "<a href='{url}'>Alice the Villager 👱</a> has "
+        "<a href='{url}'>Alice</a> the Villager 👱 has "
         "<b>100</b> games played and <b>2</b> achievements unlocked.\n"
         "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
         "<i>Please read /rules and answer the #quiz before playing</i>\n".format(url=stats_url)
@@ -232,7 +232,7 @@ async def test_a_refused_custom_emoji_falls_back_to_the_plain_glyph(stats_api):
     assert "<tg-emoji" not in msg.last_reply
     assert "\N{WARNING SIGN} <i>Please read /rules" in msg.last_reply
     # Everything else about the message is untouched by the retry.
-    assert "Alice the Villager" in msg.last_reply
+    assert "Alice</a> the Villager" in msg.last_reply
 
 
 async def test_the_house_rules_line_comes_after_the_capped_note(stats_api):

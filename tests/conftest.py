@@ -49,18 +49,25 @@ SUPERUSER_ID = 999
 
 
 @pytest.fixture(autouse=True)
-def clean_alt_cache():
-    """Empty db's alt-account cache around every test.
+def clean_player_caches():
+    """Empty db's per-player caches around every test: alt accounts, and badges.
 
-    It is a module-level set, so without this a Postgres test that marks an alt leaks into
+    They are module-level, so without this a Postgres test that marks an alt leaks into
     every later test in the run — and the symptom is bizarre: a player silently missing
     from a rendered list because their *id* happened to match one marked several files ago.
-    Diagnosed exactly once, from that symptom, which is reason enough to make it
-    impossible rather than remember it.
+    Diagnosed exactly once, from that symptom, which is reason enough to make it impossible
+    rather than remember it.
+
+    The badge cache arrived later and reproduced it immediately: `/setemoji` tests put an
+    emoji on user 7, and thirty-three golden assertions in four other files render a user 7
+    of their own. Same shape, same fix, and the fixture covers both so the next cache is
+    added here rather than diagnosed again.
     """
     db._ALTS = set()
+    db._BADGES = {}
     yield
     db._ALTS = set()
+    db._BADGES = {}
 
 
 # --- Achievement fixtures --------------------------------------------------------
@@ -279,7 +286,7 @@ class FakeChat:
 class FakeEntity:
     """Stands in for telegram.MessageEntity (compared by .type string)."""
 
-    def __init__(self, entity_type, offset=0, length=0, user=None, url=None):
+    def __init__(self, entity_type, offset=0, length=0, user=None, url=None, custom_emoji_id=None):
         self.type = entity_type
         self.offset = offset
         self.length = length
@@ -287,6 +294,9 @@ class FakeEntity:
         # A text_link's target. An HTML mention is a text_link to tg://user?id=…, which is
         # how the game bot's doused list carries its player ids.
         self.url = url
+        # A premium emoji's sticker id. The emoji itself is in the text; this entity beside
+        # it is the only place the animated one is named.
+        self.custom_emoji_id = custom_emoji_id
 
 
 class FakeMessage:

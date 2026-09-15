@@ -199,7 +199,7 @@ def test_sql_result_escapes_html_in_values():
 
 async def test_stats_msg(stats_api):
     assert await builders.build_stats_msg(7, "Alice") == (
-        "<a href='tg://user?id=7'>Alice the Villager 👱</a>\n"
+        "<a href='tg://user?id=7'>Alice</a> the Villager 👱\n"
         "<code>2    </code> Achievements Unlocked!\n"
         "<code>60   </code> Games Won <code>(60%)</code>\n"
         "<code>40   </code> Games Lost <code>(40%)</code>\n"
@@ -216,7 +216,7 @@ async def test_stats_msg_by_id_titles_the_card_with_the_sites_name(stats_api):
     the username that is the only usable link: a tg://user mention resolves only in a client
     that has already met the user, which looking somebody up by id means you have not."""
     msg = await builders.build_stats_msg(7, "7", by_id=True)
-    assert msg.startswith("<a href='https://t.me/alice'>Alice the Villager 👱</a>\n")
+    assert msg.startswith("<a href='https://t.me/alice'>Alice</a> the Villager 👱\n")
     assert "tg://user" not in msg
 
 
@@ -238,7 +238,7 @@ async def test_stats_msg_carries_the_role_emoji(stats_api):
     """The API sends a bare role name; roles.py holds the emoji for it."""
     stats_api.routes["/Stats/PlayerStats/"] = dict(stats_api.routes["/Stats/PlayerStats/"], mostCommonRole="Chemist")
     assert (await builders.build_stats_msg(7, "Alice")).startswith(
-        "<a href='tg://user?id=7'>Alice the Chemist 👨‍🔬</a>\n"
+        "<a href='tg://user?id=7'>Alice</a> the Chemist 👨‍🔬\n"
     )
 
 
@@ -259,7 +259,7 @@ async def test_an_unknown_role_is_passed_through_escaped(stats_api):
         stats_api.routes["/Stats/PlayerStats/"], mostCommonRole="Fish & Chips"
     )
     msg = await builders.build_stats_msg(7, "Alice")
-    assert msg.startswith("<a href='tg://user?id=7'>Alice the Fish &amp; Chips</a>\n")
+    assert msg.startswith("<a href='tg://user?id=7'>Alice</a> the Fish &amp; Chips\n")
 
 
 async def test_stats_msg_no_games(stats_api):

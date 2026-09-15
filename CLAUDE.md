@@ -75,7 +75,7 @@ uv run pybabel update -i locales/messages.pot -d locales        # merge into exi
 uv run pybabel compile -d locales                               # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1221 tests; the 67 Postgres ones skip by default
+uv run pytest                     # 1525 tests; the 74 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -116,12 +116,14 @@ stops the suite picking up a developer's real token. Handlers are driven with ha
 touches the network.
 
 **`tests/test_render_golden.py` is the load-bearing file.** It asserts whole-string
-equality on every rendered message. `main.py` is being split into modules, and that is
-almost pure code motion over HTML built by concatenation with manual `html.escape()` — so
-if a golden fails, the refactor changed user-visible output and *that* is the bug. Only
-edit an expectation when the change to what users see is intentional — and keep that edit
-in its own commit, never mixed with a refactor, since the golden diff is the review
-artifact showing precisely which bytes users will see differently.
+equality on every rendered message. It was written to guard the split of `main.py` into
+`handlers/` — almost pure code motion over HTML built by concatenation with manual
+`html.escape()`, where a golden failure meant the move had changed user-visible output —
+and it goes on earning its place now that the split is done, because the same is true of
+every refactor since. Only edit an expectation when the change to what users see is
+intentional — and keep that edit in its own commit, never mixed with a refactor, since the
+golden diff is the review artifact showing precisely which bytes users will see
+differently.
 
 Other things the suite is deliberately guarding, all of which a refactor could silently
 break: `test_templates.py` cross-checks every `t.NAME` reference against `templates.py`
@@ -130,6 +132,15 @@ in both directions (drift here fails at runtime, in a handler, in production);
 gated functions are *never reached* unauthorised, not merely that a refusal is printed;
 `test_db.py` pins the FTS stemming contract.
 
+The stand-in manager has a suite per concern, and which file a behaviour belongs in is not
+obvious from its name: `test_standin_session.py` (the commands, and the **silence** around
+them — most assertions are that nothing was said), `test_standin_list.py` (the Possible
+Achievements post and the publish debounce), `test_standin_transforms.py` (deaths, /ad and
+the role changes a death sets off), `test_standin_auto.py` (everything read off the game
+bot's own messages under `/gm auto`), `test_standin_flood.py` (RetryAfter, and not sending
+an edit that would change nothing), `test_standin_replies.py`, `test_standin_full_list.py`,
+`test_standin_pin.py` and `test_lynch_order.py`.
+
 `REQUIRE_POSTGRES=1` turns a missing database from a skip into a failure — CI sets it so
 a broken service container can't leave the data layer silently unexercised.
 
@@ -137,11 +148,17 @@ Coverage is reported, never gated.
 
 ## Configuration
 
-Every setting is read as `os.environ.get("NAME", <config.py fallback>)` at the top of
-`main.py` — **env wins over `config.py`**. Required: `BOT_TOKEN`, `DATABASE_URL` (the
-process exits at import if either is missing). Optional: `SUPERUSER_ID`, `LOG_GROUP_ID`,
-`REDIS_URL`, `HEALTH_PORT`, `LOG_LEVEL`, `LOG_FORMAT`, `GITHUB_REPO`, `WEBHOOK_URL`,
-`WEBHOOK_PATH`, `WEBHOOK_SECRET`.
+Every setting lives in **`settings.py`**, read from the environment with a `config.py`
+fallback for development — **env wins over `config.py`**. Required: `BOT_TOKEN`,
+`DATABASE_URL`; `settings.require()` fails fast from `main()` rather than at import, so the
+module stays safe to import in a test process that has neither. Optional: `SUPERUSER_ID`,
+`LOG_GROUP_ID`, `REDIS_URL`, `HEALTH_PORT`, `LOG_LEVEL`, `LOG_FORMAT`, `GITHUB_REPO`,
+`WEBHOOK_URL`, `WEBHOOK_PATH`, `WEBHOOK_SECRET`.
+
+Reach them **through the module** — `settings.SUPERUSER_ID`, never
+`from settings import SUPERUSER_ID`. A `from` import copies the value at import time, which
+defeats the monkeypatching every permission test depends on and lets two modules disagree
+about the same setting.
 
 **Polling vs webhook.** `WEBHOOK_URL` is the switch and nothing else: unset, the bot polls
 exactly as it always has. Set, `main.start()` drives the lifecycle by hand — `initialize()`,
@@ -204,24 +221,57 @@ working guide — the three things most likely to bite are:
 
 Flat module layout, one concern per file — no packages, no ORM, no framework beyond PTB.
 
-- **`main.py`** (~1250 lines) — everything Telegram: config resolution, stats-API
-  fetchers, message builders, command/callback/inline handlers, `PUBLIC_COMMANDS`,
-  and `main()` wiring handlers onto the `Application`. New user-facing behaviour lands
-  here.
-- **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `admins`,
-  `player_snapshots`), idempotent seeding, full-text search, and an **in-memory achievement
-  cache**.
+- **`main.py`** (~290 lines) — the wiring, and now almost nothing else: `PUBLIC_COMMANDS`,
+  the handler table, `_post_init`/`_post_shutdown`, and the polling-or-webhook lifecycle. It
+  once held the whole bot. What is left is the one place to look up *which* handler answers
+  a command word, and the one place a new one is registered — including the two ordering
+  decisions that matter, `_drop_edited_messages` in group `-2` and `game_bot_message` in
+  group `-1`.
+- **`settings.py`** — every setting, resolved once (see *Configuration*).
+- **`handlers/`** — one module per command family, and where new user-facing behaviour
+  lands: `stats.py` (/stats, /kills, /killedby, /deaths), `search.py` (/search, /sch,
+  /schall), `achievements.py` (/achievements, /info, /getachv, /roll and the card pager),
+  `gamesession.py` (the stand-in game manager — the largest by far, see below), `admin.py`
+  (the privileged commands), `welcome.py`, `inline.py`, `misc.py` (/start, /about,
+  /version), `errors.py` (the global error handler) and `common.py` (helpers shared by more
+  than one family, including the permission predicates and the remembered player list).
+- **`builders.py`** — the stat messages themselves, apart from the handlers because a slash
+  command and an inline card render the *same* bytes. Escaping happens here, once; callers
+  pass raw values.
+- **`db.py`** — asyncpg pool + raw SQL. Owns the schema (`achievements`, `achievement_rules`,
+  `admins`, `player_alts`, `player_badges`, `player_snapshots`), idempotent seeding,
+  full-text search, and the **in-memory caches** that are the read path for achievements,
+  rules, alts and badges.
+- **`badges.py`** — the supporter badge: one emoji a contributor's name carries wherever
+  this bot prints it. Rendering only; the cache and the table are `db.py`'s.
 - **`playerdata.py`** — the only caller of `api.py`'s fetchers. Records every lookup,
   notices new achievements by diffing against the previous one, and answers from the record
   when the stats site is down.
+- **`api.py`** — the tgwerewolf.com client: read-only, unauthenticated, keyed by Telegram
+  user id. Nothing outside `playerdata.py` may call its fetchers, and a test asserts it.
+- **`session.py`** — the stand-in game session as pure state: the roster, what everyone
+  revealed, who is alive. Touches no Telegram and renders nothing, which is what makes the
+  rules of a game testable without a bot. Lives in `chat_data`, so every value must survive
+  a JSON round-trip.
+- **`roles.py`** — the game's role registry: teams, tags, emoji, and every spelling a player
+  might type. The bot's own vocabulary for roles, which arrive from the stats API as free
+  text.
+- **`feasibility.py`** + **`rulelist.py`** — which achievements a revealed composition can
+  still produce, and for whom. `rulelist.py` is the seed source for `achievement_rules`
+  exactly as `achvlist.py` is for `achievements`: a fresh database is populated from it, and
+  a running bot reads the table.
 - **`templates.py`** — every user-visible string, as `str.format` templates grouped by
-  parse mode. Handler code must not contain new prose; add a template.
+  parse mode. Handler code must not contain new prose; add a template. `N_()` marks each one
+  for extraction, and `i18n.py` resolves the catalog at render time (stdlib `gettext`;
+  Babel is a dev-only tool).
 - **`wwstats.py`** — the `/achievements` Markdown report (attained / missing /
   not-via-playing / inactive), chunked 30 items per message. Takes the attained list; it
   does not fetch.
 - **`achvlist.py`** — the original hardcoded `ACHV` list, now only a **seed source** for
   the database. Editing it will not change a deployed bot's data (seeding is
   `ON CONFLICT DO NOTHING`); edit rows via `/setnote` or `/db` instead.
+- **`notes.py`** — the one encoder for the two sub-fields an achievement's notes column
+  holds (memo, probability), delimited by marker emoji.
 - **`redis_persistence.py`** — durable `DictPersistence` subclass for PTB (whole state
   blob under one Redis key).
 - **`health.py`**, **`logging_config.py`**, **`version.py`** — stdlib health server on a
@@ -230,6 +280,12 @@ Flat module layout, one concern per file — no packages, no ORM, no framework b
 - **`webhook.py`** — webhook intake: authenticate the request, parse an `Update`, put it on
   PTB's queue. Deliberately knows nothing about HTTP serving, and `health.py` deliberately
   knows nothing about Telegram — they meet at a callable returning a status code.
+
+**`handlers/gamesession.py` is the biggest module in the repo** (~2750 lines) and most of
+*Things that will bite you* below is about it. It is the stand-in achievement manager: it
+runs a game's roster when the real manager is offline, keeps two live messages up to date,
+reads the game bot's own posts under `/gm auto`, and owns the lynch order. Nothing in it
+speaks unless the chat has a session.
 
 ### Releasing
 
@@ -765,6 +821,43 @@ inside a lookup, under builders that have no `context` and no business sending a
 unless `LOG_GROUP_ID` is also set, and a refused send is logged and swallowed — the log
 group is where problems are reported, so failing to reach it can only be logged.
 
+**A badge is attached at nine call sites, and there is no choke point.** `/setemoji`
+(superuser) gives a contributor an emoji their name then carries everywhere this bot prints
+it — but a name becomes a mention in nine different templates, so each carries a `{badge}`
+field filled with `badges.of(user_id)`: `_mention` in the stand-in (the roster, the
+achievements list, /dead, /love, the lynch order), the four stat builders, the /search
+header and every /schall row, the /roll names, the join announcement and the log group's
+achievement announcement. `badges.py` lists them, because a call site missed is one badge
+absent from one message — nothing fails, and nobody reports it.
+
+It reads through `db.badge()`, a dict lookup against a cache loaded at startup, for the same
+reason `is_alt_account` does: a sixteen-player roster asks sixteen times per edit and edits
+twice a phase. Every write reloads the cache. The emoji is escaped on the way out, because
+it comes from a table this bot does not revalidate and goes straight into HTML, and an empty
+badge renders every message byte-identically to the one before badges existed — which is
+every message about everybody who has not been given one.
+
+**The badge sits outside the `<a>`, and that is not cosmetic.** Telegram entities of these
+kinds **cannot contain one another**: a custom emoji inside a `text_link` is not rendered as
+one, it is silently dropped to the plain glyph the tag wraps. Rendered inside the mention, a
+premium butterfly reached a live group as a star-struck face and a premium penguin as a
+winking one — the fallback character each sticker happens to carry, the same in the roster
+and the stats card, with no error anywhere and nothing to say why. Only the `/setemoji`
+confirmation looked right, because that is the one message where the badge was never inside
+a link. So every mention template ends its `<a>` at the **name** and puts `{badge}` after
+the closing tag; on the stats card that also moved `the <role>` out of the link text, which
+is the visible half of the fix and why the goldens changed with it.
+
+**A premium emoji is two columns, and the confirmation is the test.** Telegram sends a
+custom emoji as `<tg-emoji emoji-id="…">X</tg-emoji>` — an animated sticker addressed by id,
+with `X` the plain emoji a client falls back to — and it arrives at `/setemoji` as *text
+plus an entity*, so reading the command's text alone silently stores the fallback and loses
+what somebody paid for. Only bots that bought a username on Fragment may send one at all,
+and a badge Telegram refuses would not fail at `/setemoji`: it would fail in **every message
+naming that player**, with nothing on screen to say why. So the badge is rendered into the
+confirmation *before* the row is written, and what gets stored is whichever form Telegram
+agreed to send — the plain one, with a note, when the custom one was refused.
+
 **HTML escaping is manual and single-pass.** Most output is `ParseMode.HTML` built by
 string concatenation, so every interpolated name/description needs `html.escape()`.
 Stored state (e.g. `/schall` player names) is kept **unescaped** and escaped only at
@@ -782,7 +875,7 @@ dropped. Player names may themselves start with `-`, which is why `_ACHV_ROW` re
 a dash *plus* whitespace and prefers indented rows.
 
 **Permissions are two-tier.** `is_superuser()` is an env-var id comparison
-(`/addadmin`, `/deladmin`, `/admins`, `/db`); `is_admin_user()` also consults the
+(`/addadmin`, `/deladmin`, `/admins`, `/db`, `/setemoji`); `is_admin_user()` also consults the
 `admins` table (`/setnote`, `/clearnote`). `db.run_sql` executes arbitrary SQL and is
 safe *only* because of its superuser gate — never call it from a new handler without one.
 

@@ -32,6 +32,12 @@ _RULES = {}
 # it gets the same in-memory treatment as the other two caches.
 _ALTS = set()
 
+# Supporter badges, keyed by user id: {user_id: (emoji, custom_emoji_id)}. Read once for
+# every name this bot renders as a mention — a sixteen-player roster is sixteen lookups per
+# edit — so it gets the same treatment again: loaded at startup, reloaded after every write,
+# and read through a synchronous accessor.
+_BADGES = {}
+
 _SCHEMA = r"""
 CREATE TABLE IF NOT EXISTS achievements (
     id              SERIAL PRIMARY KEY,
@@ -142,6 +148,27 @@ CREATE TABLE IF NOT EXISTS player_alts (
     name       TEXT NOT NULL DEFAULT '',
     marked_by  BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A contributor's badge: one emoji their name carries wherever this bot prints it. Like an
+-- alt marking it is a fact about the person rather than about a game, so it lives here and
+-- not in a session, and it is set by the superuser alone (/setemoji).
+--
+-- Two columns for one badge, because Telegram has two kinds. An ordinary emoji is just the
+-- character. A premium one is an animated sticker addressed by id, sent as
+-- <tg-emoji emoji-id="...">X</tg-emoji> where X is the plain emoji a client falls back to —
+-- so the id needs somewhere to live and the fallback is what is stored in `emoji` either
+-- way. NULL there means "an ordinary emoji", which is also what a bot that may not send
+-- custom emoji at all ends up storing (see handlers/admin.py::set_emoji_cmd).
+CREATE TABLE IF NOT EXISTS player_badges (
+    user_id         BIGINT PRIMARY KEY,
+    emoji           TEXT NOT NULL,
+    custom_emoji_id TEXT,
+    -- Display name at the time of setting, so /db reads back as something human. The id is
+    -- what everything keys on, because names change.
+    name            TEXT NOT NULL DEFAULT '',
+    set_by          BIGINT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- What the stats API last said about a player, one row per endpoint. Written on every
@@ -457,6 +484,61 @@ async def list_alts():
     """Every marked account, newest first, for /alts."""
     async with _pool.acquire() as conn:
         return await conn.fetch("SELECT user_id, name FROM player_alts ORDER BY created_at DESC")
+
+
+# --- Supporter badges -------------------------------------------------------
+
+
+async def load_badges_cache():
+    """Reload every badge. Same contract as the other caches: call after any write."""
+    global _BADGES
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id, emoji, custom_emoji_id FROM player_badges")
+    _BADGES = {r["user_id"]: (r["emoji"], r["custom_emoji_id"]) for r in rows}
+    logger.info("badge_cache_loaded", entries=len(_BADGES))
+
+
+def badge(user_id):
+    """This player's (emoji, custom_emoji_id), or None (synchronous, hot-path accessor)."""
+    return _BADGES.get(user_id)
+
+
+async def set_badge(user_id, emoji, custom_emoji_id, name, set_by):
+    """Give a player a badge, replacing whatever they had."""
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO player_badges (user_id, emoji, custom_emoji_id, name, set_by)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id) DO UPDATE SET
+                emoji = EXCLUDED.emoji,
+                custom_emoji_id = EXCLUDED.custom_emoji_id,
+                name = CASE WHEN EXCLUDED.name = '' THEN player_badges.name ELSE EXCLUDED.name END,
+                set_by = EXCLUDED.set_by
+            """,
+            user_id,
+            emoji,
+            custom_emoji_id,
+            name or "",
+            set_by,
+        )
+    await load_badges_cache()
+
+
+async def clear_badge(user_id):
+    """Take a badge away. Returns True if there was one."""
+    async with _pool.acquire() as conn:
+        result = await conn.execute("DELETE FROM player_badges WHERE user_id = $1", user_id)
+    await load_badges_cache()
+    return result != "DELETE 0"
+
+
+async def list_badges():
+    """Every badge, newest first — for /db, and for anyone auditing who has one."""
+    async with _pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT user_id, emoji, custom_emoji_id, name FROM player_badges ORDER BY created_at DESC"
+        )
 
 
 # --- Player snapshots -------------------------------------------------------

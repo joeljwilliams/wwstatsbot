@@ -74,6 +74,7 @@ async def _post_init(application: Application):
     await db.seed_rules()
     await db.load_rules_cache()
     await db.load_alts_cache()
+    await db.load_badges_cache()
     # New achievements are noticed inside a lookup, under builders that have no `context`
     # and no business sending anything, so the bot they are announced with is handed over
     # here rather than threaded down. Nothing is posted until LOG_GROUP_ID is also set.
@@ -155,6 +156,7 @@ def build_application():
     app.add_handler(CommandHandler("admins", admin.list_admins_cmd))
     app.add_handler(CommandHandler("setnote", admin.set_note_cmd))
     app.add_handler(CommandHandler("clearnote", admin.clear_note_cmd))
+    app.add_handler(CommandHandler("setemoji", admin.set_emoji_cmd))
     app.add_handler(CommandHandler("db", admin.db_console_cmd))
     # The stand-in achievement manager. These four command words belong to the *real*
     # manager, and Telegram delivers every slash command to every bot in the group, so each

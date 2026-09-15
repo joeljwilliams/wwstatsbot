@@ -1,6 +1,6 @@
 """The two-tier permission model.
 
-* **Superuser** — an env-var id comparison: /addadmin, /deladmin, /admins, /db.
+* **Superuser** — an env-var id comparison: /addadmin, /deladmin, /admins, /db, /setemoji.
 * **Admin** — superuser *or* a row in the `admins` table: /setnote, /clearnote.
 
 `db.run_sql` executes whatever SQL it is handed. It is safe only because of its
@@ -368,3 +368,17 @@ async def test_clear_note_prob_leaves_the_memo(monkeypatch, is_an_admin, achieve
     await admin.clear_note_cmd(FakeUpdate(message=msg), FakeContext(args=["prob"]))
 
     assert written["notes"] == "\N{MEMO} Needs the drunk role."
+
+
+async def test_set_emoji_is_superuser_only(monkeypatch, outsider):
+    """A badge is arbitrary characters hung on somebody else's name in every group this bot
+    is in, so the write must not be reached — not merely refused after the fact."""
+    tripwire = Tripwire()
+    monkeypatch.setattr(db, "set_badge", tripwire)
+    monkeypatch.setattr(db, "clear_badge", tripwire)
+
+    msg = message("/setemoji 7 \N{SPARKLES}", from_user=outsider)
+    await admin.set_emoji_cmd(FakeUpdate(message=msg), FakeContext(args=["7", "\N{SPARKLES}"]))
+
+    assert "superuser" in msg.last_reply
+    assert not tripwire.called
