@@ -1124,13 +1124,29 @@ def _unrevealed(session_data):
     return [uid for uid, entry in session.players_in_order(session_data) if entry["alive"] and not entry["roles"]]
 
 
-async def _nudge_unrevealed(context, chat_id, session_data):
-    """Name whoever still has no role, once, when the first death lands.
+def _without_model(session_data):
+    """Living Wild Children and Doppelgängers nobody has named a role model for.
 
-    The roster marks them with a ❗ each, but a roster is a message people stop reading
-    after the first few rounds, and a player who never revealed costs everybody: the
-    Possible Achievements list cannot say a single thing about them, and they are the most
-    likely person in the room not to know that.
+    The same gap one step further in, and a quieter one: the role *is* on the list, so
+    nothing looks wrong, while the transform their entire game turns on can never fire. A
+    Wild Child whose model dies becomes a wolf; one with no model recorded stays a Wild
+    Child on the list for the rest of the game and is offered the wrong achievements the
+    whole way — theirs, and never the pack's.
+    """
+    return [
+        uid
+        for uid, entry in session.players_in_order(session_data)
+        if entry["alive"] and entry["model"] is None and any(r in _ROLE_MODEL_ROLES for r in entry["roles"])
+    ]
+
+
+async def _nudge_missing(context, chat_id, session_data):
+    """Name whoever the list cannot answer for, once, when the first death lands.
+
+    Two gaps, one message: a player with no role at all, and a Wild Child or Doppelgänger
+    with no role model. The roster marks the first with a ❗ each, but a roster is a message
+    people stop reading after the first few rounds, and it has nothing to say about the
+    second at all.
 
     The first death is the signal because it is the one moment both modes share — a
     followed roster in /gm auto, a typed /dead otherwise — and by then the opening night is
@@ -1145,13 +1161,23 @@ async def _nudge_unrevealed(context, chat_id, session_data):
     # bank its turn for later.
     session_data["nudged"] = True
 
+    def names(ids):
+        return ", ".join(_mention_player(session_data, uid) for uid in ids)
+
     missing = _unrevealed(session_data)
-    if not missing:
+    modelless = _without_model(session_data)
+    if not missing and not modelless:
         return
-    logger.info("standin_unrevealed_nudge", chat_id=chat_id, count=len(missing))
+
+    lines = []
+    if missing:
+        lines.append(t.STANDIN_NUDGE_NO_ROLE.format(names=names(missing)))
+    if modelless:
+        lines.append(t.STANDIN_NUDGE_NO_MODEL.format(names=names(modelless)))
+    logger.info("standin_nudge", chat_id=chat_id, no_role=len(missing), no_model=len(modelless))
     await context.bot.send_message(
         chat_id=chat_id,
-        text=t.STANDIN_UNREVEALED_NUDGE.format(names=", ".join(_mention_player(session_data, uid) for uid in missing)),
+        text="\n".join(lines),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
@@ -1196,7 +1222,7 @@ async def dead_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = t.STANDIN_DEAD_MARKED.format(name=_mention(target_id, entry["name"]))
     await message.reply_text(reply + _transform_lines(session_data, changes), parse_mode=ParseMode.HTML)
-    await _nudge_unrevealed(context, message.chat.id, session_data)
+    await _nudge_missing(context, message.chat.id, session_data)
 
 
 def _dead_rows(text):
@@ -1417,7 +1443,7 @@ async def _follow_roster(context, chat_id, session_data, roster, alive_ids):
         # The first night is over the moment somebody is out of the game. Both modes reach
         # this — a roster followed automatically, and /ad — and manual /dead reaches the
         # same call of its own.
-        await _nudge_unrevealed(context, chat_id, session_data)
+        await _nudge_missing(context, chat_id, session_data)
     return died, revived, learned, changes
 
 

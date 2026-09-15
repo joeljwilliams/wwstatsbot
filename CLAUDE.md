@@ -595,22 +595,29 @@ bot built with no job queue answers everything, because nothing would flush the 
 every confirmation after the first would vanish. Flood control puts the whole burst back and
 retries past the window, for the same reason.
 
-**A player who never set a role is marked, then named once.** Silence on a first reveal
+**What the list cannot answer for is marked, then named once.** Silence on a first reveal
 (above) costs something: nobody is told their `/role` landed, and a player who never sent
 one is invisible until somebody counts the roster. So the roster row carries a ❗ rather
 than only the italic "not revealed" it had — that row is the one thing in the message
-somebody has to act on — and the **first death** in the session names everybody still
-missing, with mentions.
+somebody has to act on — and the **first death** in the session names the gaps out loud,
+with mentions.
+
+**Two gaps, one message.** A player with no role at all, and a **Wild Child or Doppelgänger
+with no role model** — the quieter one, because the role is right there on the list while
+the transform their whole game turns on can never fire, leaving them listed as a Wild Child
+to the end and offered the wrong achievements the entire way. The roster has nothing to say
+about that one at all. One send rather than two: the point is to stop the chat scrolling,
+not to add to it.
 
 The first death is the trigger because it is the one moment both modes share: a followed
 roster under `/gm auto`, a typed `/dead` otherwise, and `_follow_roster` and `dead_cmd` each
-call `_nudge_unrevealed` for that reason. By then the opening night is over, so anybody
-still missing is missing by accident rather than because the game has not started. Three
-rules inside it: the **dead are left out**, since the game bot's death rows name their role
-already and the one person a nudge cannot help is the one who is out; it is said **once**,
-because a second telling is nagging and the ❗ stays on the roster for anyone who looks; and
-the flag is set **whether or not anybody was missing**, so a table that all revealed spends
-the moment there rather than banking it for a death three rounds later.
+call `_nudge_missing` for that reason. By then the opening night is over, so anybody still
+missing is missing by accident rather than because the game has not started. Three rules
+inside it: the **dead are left out** of both lists, since the game bot's death rows name
+their role already and the one person a nudge cannot help is the one who is out; it is said
+**once**, because a second telling is nagging and the ❗ stays on the roster for anyone who
+looks; and the flag is set **whether or not anybody was missing**, so a table with no gaps
+spends the moment there rather than banking it for a death three rounds later.
 
 **An unchanged lynch order is not sent twice in five seconds.** `/lo` is thirty-five lines
 in a thirty-five player game, and several people ask for it within seconds of each other;
