@@ -582,6 +582,15 @@ the buffer and every confirmation after the first would vanish. Flood control pu
 whole burst back and retries past the window, for the same reason — a swallowed
 confirmation is what makes somebody type `/role` again.
 
+**An unchanged lynch order is not sent twice in five seconds.** `/lo` is thirty-five lines
+in a thirty-five player game, and several people ask for it within seconds of each other;
+the third copy has scrolled the game itself out of the chat. The rendering is fingerprinted
+and a repeat inside `_LYNCH_REPEAT_SECONDS` is dropped silently — whoever asked is looking
+at the answer. Fingerprinted rather than timed alone because a death or a `/slo` between
+the two asks makes the second a *different* answer, which is worth the room; and recorded
+**before** the send rather than after, because the duplicates this is about arrive while
+that send is still in flight.
+
 **Flood control postpones the publish; it does not lose it.** A `RetryAfter` used to leave
 the loop entirely — both live messages stayed at their last successful edit until somebody
 happened to reveal a role, and the exception reached the error handler as if the bot had

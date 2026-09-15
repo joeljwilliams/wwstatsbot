@@ -2456,6 +2456,15 @@ async def _lynch_session(update, context, command):
     return session_data
 
 
+# Thirty-five players means one lynch order and several people asking for it within a few
+# seconds of each other — and at thirty-five lines, the third copy has scrolled the game
+# itself out of the chat. An order already on screen, unchanged, is therefore not sent
+# again: whoever asked is looking at it. Fingerprinted rather than timed alone, because a
+# death or a /slo between the two asks makes the second answer a different one, and that
+# one is worth the room.
+_LYNCH_REPEAT_SECONDS = 5
+
+
 async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/lo@bot` — show the lynch order in force, typed or rotating."""
     session_data = await _lynch_session(update, context, "lo")
@@ -2463,6 +2472,17 @@ async def lynch_order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg, _ = _render_lynch_order(session_data)
+    fingerprint = _fingerprint(msg, None)
+    shown, at = session_data.get("lynch_shown") or (None, 0)
+    now = _now()
+    if shown == fingerprint and now - at < _LYNCH_REPEAT_SECONDS:
+        logger.info("standin_lynch_order_repeated", chat_id=update.message.chat.id)
+        return
+
+    # Recorded before the send rather than after, because the duplicates this is about
+    # arrive while that send is still in flight — a record written afterwards would let
+    # every one of them through.
+    session_data["lynch_shown"] = [fingerprint, now]
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
