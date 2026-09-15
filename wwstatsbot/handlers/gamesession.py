@@ -1068,6 +1068,10 @@ async def keep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("callback", command="standin_keep", user_id=user.id)
     session.touch(session_data, _now())
+    # Somebody half-pressed End before this, and the table has now said the opposite. That
+    # arming must not survive to combine with a stray tap after the game carries on.
+    session_data["end_armed_by"] = None
+    session_data["end_armed_at"] = None
     # Restarts the countdown from the top — warning first, grace after it — because
     # _schedule_idle removes whatever is pending under that name, which at this moment is
     # the grace timer that was about to end the session.
@@ -1080,7 +1084,15 @@ async def keep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def end_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ "End it" on the idle warning. Ends on one press, for the same reason Keep does."""
+    """ "End it" on the idle warning. Two presses, like the roster's Stop.
+
+    Ending is the destructive answer however it is reached, so it is gated the same way
+    wherever it is offered — and these two buttons sit *side by side*, which is a better
+    target for a mis-tap than the lone Stop on the roster ever was.
+
+    Armed separately from Stop. Sharing the state would let a stray tap on one button and
+    a stray tap on the other add up to an ending, which is the thing arming exists to stop.
+    """
     query = update.callback_query
     user = query.from_user
     session_data = session.get(context.chat_data)
@@ -1092,11 +1104,24 @@ async def end_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(t.STANDIN_STOP_NOT_YOURS, show_alert=True)
         return
 
-    logger.info("callback", command="standin_end", user_id=user.id)
-    session.end(context.chat_data)
-    await _finish(context, query.message.chat.id, session_data)
-    await query.answer(t.STANDIN_ENDED)
-    await _replace_idle_warning(query, t.STANDIN_STOPPED_BY.format(name=_mention(user.id, user.first_name)))
+    armed_by = session_data.get("end_armed_by")
+    armed_at = session_data.get("end_armed_at") or 0
+    fresh = (_now() - armed_at) <= _STOP_ARM_SECONDS
+
+    logger.info("callback", command="standin_end", user_id=user.id, armed=bool(armed_by and fresh))
+
+    if armed_by == user.id and fresh:
+        session.end(context.chat_data)
+        await _finish(context, query.message.chat.id, session_data)
+        await query.answer(t.STANDIN_ENDED)
+        await _replace_idle_warning(query, t.STANDIN_STOPPED_BY.format(name=_mention(user.id, user.first_name)))
+        return
+
+    # Deliberately not activity: somebody who armed the ending and then walked away has
+    # said nothing about the game continuing, so the grace timer runs on underneath.
+    session_data["end_armed_by"] = user.id
+    session_data["end_armed_at"] = _now()
+    await query.answer(t.STANDIN_IDLE_END_ARM, show_alert=True)
 
 
 async def _replace_idle_warning(query, text):

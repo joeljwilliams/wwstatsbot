@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1619 tests; the 74 Postgres ones skip by default
+uv run pytest                     # 1624 tests; the 74 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -566,9 +566,18 @@ for ten minutes — nobody is watching it — and two minutes was short enough f
 phase, an argument or a slow lynch to use up, so the first anybody knew was a roster
 reading GAME ENDED. The warning also carries **two buttons**, Keep playing and End it,
 because the only answer it previously offered was to remember to type a command inside the
-window, and a table quiet enough to be warned is a table typing nothing. Neither button
-arms the way the roster's Stop does: they arrive on a message that has just asked this
-exact question, where Stop sits under sixteen thumbs for a whole game.
+window, and a table quiet enough to be warned is a table typing nothing.
+
+Keep playing takes one press; **End it arms like the roster's Stop**, and arms
+*separately* from it. Ending is the destructive answer however it is reached, so it is
+gated wherever it is offered — and these two buttons sit side by side, which is a better
+target for a mis-tap than the lone Stop on the roster ever was. Separately, because shared
+arming would let a stray tap on one button and a stray tap on the other add up to an
+ending, which is the thing arming exists to stop. Keep playing **disarms** a half-pressed
+End: the table has just said the opposite, and that arming must not survive to combine
+with a stray tap after the game carries on. Arming is deliberately not activity — somebody
+who half-pressed End and then walked away has said nothing about the game continuing, so
+the grace timer runs on underneath.
 
 Every ending then keeps the session for **ten minutes** and the roster carries **Restart**
 where it carried Stop. `_finish` is where that happens, because it is the single funnel

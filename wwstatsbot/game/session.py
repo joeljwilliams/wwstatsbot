@@ -79,6 +79,11 @@ def start(chat_data, user_id, players, unresolved, now):
         "pinned_message_id": None,
         "stop_armed_by": None,
         "stop_armed_at": None,
+        # The idle warning's End button arms separately from the roster's Stop. Shared
+        # state would let a stray tap on one and a stray tap on the other add up to an
+        # ending, which is the exact thing arming exists to prevent.
+        "end_armed_by": None,
+        "end_armed_at": None,
         # What the Beholder told us. The Beholder is *shown* the real Seer at the start of
         # the game, which makes them the one player whose claim settles the Seer/Fool
         # question for everybody else — see set_no_seer/set_seer.

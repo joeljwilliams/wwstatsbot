@@ -674,16 +674,79 @@ async def test_a_non_player_cannot_keep_it_going(context, monkeypatch):
     assert "players in this game" in update.callback_query.answers[-1]["text"]
 
 
-async def test_ending_from_the_warning_ends_it_on_one_press(context):
-    """One press, unlike Stop: this button arrived on a message that just asked the
-    question, where the roster's Stop sits under sixteen thumbs for a whole game."""
+async def test_the_first_end_press_only_arms(context):
+    """Ending is gated wherever it is offered, and these two buttons sit side by side —
+    a better target for a mis-tap than the lone Stop on the roster ever was."""
     await start_session(context)
     await gamesession._idle_warning(_job_context(context))
 
-    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+    update = _warning_press(gamesession.END_CALLBACK)
+    await gamesession.end_callback(update, context)
+
+    assert session.get(context.chat_data) is not None
+    assert "again" in update.callback_query.answers[-1]["text"]
+
+
+async def test_a_second_end_press_from_the_same_player_ends_it(context):
+    await start_session(context)
+    await gamesession._idle_warning(_job_context(context))
+
+    for _ in range(2):
+        await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
 
     assert session.get(context.chat_data) is None
     assert "GAME ENDED" in context.bot.edits[-1]["text"]
+
+
+async def test_a_second_end_press_from_someone_else_only_re_arms(context):
+    """Two different mis-taps must not add up to an ending."""
+    await start_session(context)
+    await gamesession._idle_warning(_job_context(context))
+
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK, user_id=1), context)
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK, user_id=2, name="omu"), context)
+
+    assert session.get(context.chat_data) is not None
+
+
+async def test_end_arming_expires(context, monkeypatch):
+    await start_session(context)
+    await gamesession._idle_warning(_job_context(context))
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+
+    later = gamesession._now() + gamesession._STOP_ARM_SECONDS + 1
+    monkeypatch.setattr(gamesession, "_now", lambda: later)
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+
+    assert session.get(context.chat_data) is not None, "a stale arming must not end the game"
+
+
+async def test_keeping_it_going_disarms_a_half_pressed_end(context):
+    """The table has said the opposite since. That arming must not survive to combine with
+    a stray tap after the game carries on."""
+    await start_session(context)
+    await gamesession._idle_warning(_job_context(context))
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+
+    await gamesession.keep_callback(_warning_press(gamesession.KEEP_CALLBACK), context)
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+
+    assert session.get(context.chat_data) is not None, "the ending had to be armed again"
+
+
+async def test_the_stop_and_end_buttons_arm_separately(context):
+    """Sharing the state would let one stray tap on each add up to an ending."""
+    from conftest import FakeCallbackQuery
+
+    await start_session(context)
+    await gamesession._idle_warning(_job_context(context))
+
+    stop = FakeCallbackQuery(data=gamesession.STOP_CALLBACK, from_user=FakeUser(1, "Ren"))
+    stop.message = message("roster")
+    await gamesession.stop_callback(FakeUpdate(callback_query=stop), context)
+    await gamesession.end_callback(_warning_press(gamesession.END_CALLBACK), context)
+
+    assert session.get(context.chat_data) is not None
 
 
 def _warning_press(data, user_id=1, name="Ren"):

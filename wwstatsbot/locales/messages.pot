@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-15 16:59+0200\n"
+"POT-Creation-Date: 2026-09-15 17:38+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1435,24 +1435,28 @@ msgstr ""
 msgid "Keep playing"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:791
+#: wwstatsbot/render/templates.py:793
+msgid "Press \"End it\" again to end the session."
+msgstr ""
+
+#: wwstatsbot/render/templates.py:794
 msgid "End it"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:792
+#: wwstatsbot/render/templates.py:795
 #, python-brace-format
 msgid "{name} kept the stand-in session going."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:793
+#: wwstatsbot/render/templates.py:796
 msgid "Still running."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:794
+#: wwstatsbot/render/templates.py:797
 msgid "Only players in this game can keep it going."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:796
+#: wwstatsbot/render/templates.py:799
 #, python-brace-format
 msgid ""
 "Stand-in session ended — nothing happened for a while. Tap Restart on the"

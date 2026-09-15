@@ -788,6 +788,9 @@ STANDIN_IDLE_WARNING = N_(
 # does. The warning is a passing message rather than the roster, so neither button arms —
 # it was posted asking this exact question, and the answer is unambiguous.
 STANDIN_IDLE_KEEP_BUTTON = N_("Keep playing")
+# Ending arms first, exactly as the roster's Stop does. The two buttons sit side by side,
+# which is a better target for a fat-fingered tap than the lone Stop ever was.
+STANDIN_IDLE_END_ARM = N_('Press "End it" again to end the session.')
 STANDIN_IDLE_END_BUTTON = N_("End it")
 STANDIN_IDLE_KEPT = N_("{name} kept the stand-in session going.")
 STANDIN_IDLE_KEPT_TOAST = N_("Still running.")
