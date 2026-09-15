@@ -167,6 +167,23 @@ async def test_the_stop_button_unpins(context):
     assert [u["message_id"] for u in context.bot.unpins] == [pinned_id]
 
 
+async def test_a_restart_pins_the_roster_again(context):
+    """_finish unpins, and a restarted game is running again — so the roster goes back up.
+
+    Not conditional on having pinned before: the permission may have been granted in the
+    meantime, and _pin_state is attempted rather than checked either way.
+    """
+    await start_session(context)
+    await end_with_command(context)
+    context.bot.pins.clear()
+
+    query = FakeCallbackQuery(data=gamesession.RESTART_CALLBACK, from_user=FakeUser(1, "Ren"))
+    query.message = FakeMessage(text="roster")
+    await gamesession.restart_callback(FakeUpdate(callback_query=query), context)
+
+    assert context.bot.pins, "a live game's roster is pinned; a restarted one is live"
+
+
 async def test_the_idle_expiry_unpins(context):
     """The path nobody watches: a game that was simply abandoned still has to give the
     group its pin back."""

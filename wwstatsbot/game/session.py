@@ -21,6 +21,12 @@ from wwstatsbot.game import roles
 
 KEY = "standin"
 
+# Where a session goes when it ends, for as long as it can still be restarted. A separate
+# key rather than a flag on the session itself: every command in the module gates on
+# `get()`, and a dict that was still there under the live key — however it was marked —
+# is one missed check away from a dead game accepting reveals again.
+ARCHIVE_KEY = "standin_ended"
+
 
 # What a player's entry looks like before they have revealed anything. `roles` is a list
 # rather than a single id because /role sf records a Seer/Fool pair the player themselves
@@ -102,6 +108,60 @@ def end(chat_data):
 def touch(session, now):
     """Record activity, which is what the idle timer measures."""
     session["last_activity"] = now
+
+
+def archive(chat_data, session, now):
+    """Keep an ended session aside so it can be picked up again.
+
+    A game ends while the chat is looking somewhere else — the idle timer fires, or
+    somebody taps Stop a round early — and rebuilding a roster by hand costs every player
+    a `/role` they already sent. The session is therefore not thrown away at the end, it
+    is set aside with the time it ended at, and the handler decides how long that is worth
+    offering for (see `_RESTART_SECONDS`).
+
+    Stored under its own key rather than left in place, so every `get()` in the module
+    still reads "there is no session here" the moment one ends. Nothing about an archived
+    session is live: no command writes to it and no timer touches it.
+    """
+    chat_data[ARCHIVE_KEY] = {"session": session, "ended_at": now}
+
+
+def archived(chat_data, now, within):
+    """The ended session, if one ended within `within` seconds. Otherwise None.
+
+    The age is checked here rather than trusted to the expiry job, because the job is the
+    half that does not survive a restart: `chat_data` is persisted to Redis and PTB's
+    JobQueue is not, so a redeploy during the window would otherwise leave an archive that
+    nothing was ever going to clear and a Restart button that worked days later.
+    """
+    entry = chat_data.get(ARCHIVE_KEY)
+    if entry is None:
+        return None
+    if now - entry.get("ended_at", 0) > within:
+        return None
+    return entry["session"]
+
+
+def restore(chat_data, now, within):
+    """Make the archived session live again and return it, or None if it is too old.
+
+    The restored session keeps its message ids, so the roster and the list it was already
+    editing carry on being the ones it edits — a restart that posted a second roster would
+    leave the chat with two, one of them lying.
+    """
+    session = archived(chat_data, now, within)
+    if session is None:
+        return None
+    chat_data.pop(ARCHIVE_KEY, None)
+    session["last_activity"] = now
+    chat_data[KEY] = session
+    return session
+
+
+def discard(chat_data):
+    """Forget an ended session for good. Returns it, or None if there was none."""
+    entry = chat_data.pop(ARCHIVE_KEY, None)
+    return entry["session"] if entry else None
 
 
 def is_member(session, user_id):

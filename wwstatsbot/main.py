@@ -173,10 +173,14 @@ def build_application():
     app.add_handler(CommandHandler(["slo", "setlynchorder"], gamesession.set_lynch_order_cmd))
     app.add_handler(CommandHandler(["rslo", "resetlynchorder"], gamesession.reset_lynch_order_cmd))
     app.add_handler(CommandHandler("gsend", gamesession.end_session_cmd))
-    # Both patterns are exact rather than prefixes, so neither depends on being registered
-    # first: the Stop button's data is the whole string, and the pager's always has more
-    # after it. A bare "^standin:" for one of them would swallow the other's taps.
+    # Every pattern here is exact rather than a prefix, so none depends on being registered
+    # first: each button's data is the whole string, and the pager's always has more after
+    # it. A bare "^standin:" for any one of them would swallow all the others' taps.
     app.add_handler(CallbackQueryHandler(gamesession.stop_callback, pattern=r"^standin:stop$"))
+    # The idle warning's two answers, and the way back from an ending nobody wanted.
+    app.add_handler(CallbackQueryHandler(gamesession.keep_callback, pattern=r"^standin:keep$"))
+    app.add_handler(CallbackQueryHandler(gamesession.end_callback, pattern=r"^standin:end$"))
+    app.add_handler(CallbackQueryHandler(gamesession.restart_callback, pattern=r"^standin:restart$"))
     app.add_handler(CallbackQueryHandler(gamesession.full_list_callback, pattern=r"^standin:full(:|$)"))
     # Join announcements. A service message, not a command, so it arrives as an ordinary
     # message update — no allowed_updates change needed, unlike a ChatMemberHandler.

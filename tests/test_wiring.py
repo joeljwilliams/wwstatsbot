@@ -226,6 +226,29 @@ def test_the_standin_stop_button_reaches_its_handler():
     assert handler_for_callback_data(application(), data) is gamesession.stop_callback
 
 
+def test_the_restart_button_reaches_its_handler():
+    """The ended roster's button, fed through the real patterns like every other one.
+
+    All four standin buttons now share a prefix, so a pattern widened back to "^standin:"
+    for any of them would swallow the rest — which is the failure this whole section is
+    about.
+    """
+    session_data = {"order": [], "players": {}, "unresolved": [], "state_message_id": None}
+    _, keyboard = gamesession.render_state(session_data, ended=True, restartable=True)
+    data = keyboard.inline_keyboard[0][0].callback_data
+
+    assert handler_for_callback_data(application(), data) is gamesession.restart_callback
+
+
+def test_both_answers_to_the_idle_warning_reach_their_handlers():
+    """A dead button here is the shape this feature exists to prevent: the warning asks
+    whether the game is still going, and neither answer would do anything."""
+    app = application()
+
+    assert handler_for_callback_data(app, gamesession.KEEP_CALLBACK) is gamesession.keep_callback
+    assert handler_for_callback_data(app, gamesession.END_CALLBACK) is gamesession.end_callback
+
+
 def test_the_full_list_button_and_its_pager_reach_their_handler():
     """Both shapes, and both against the *narrowed* Stop pattern.
 
