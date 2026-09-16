@@ -503,10 +503,27 @@ def rotating_lynch_order(session):
 
 
 def revealed_count(session):
-    """(revealed, total) — the counter the state message carries."""
+    """(revealed, total) — the counter the Possible Achievements post carries.
+
+    The roster used to carry it too, and it was the wrong count there: see `alive_count`.
+    """
     total = len(session["order"])
     revealed = sum(1 for _, entry in players_in_order(session) if entry["roles"])
     return revealed, total
+
+
+def alive_count(session):
+    """(alive, total) — the counter the roster carries.
+
+    The roster's header sits over the living, with a Dead Players section beneath it, so a
+    count of who had *revealed* described neither of the two lists under it: a full table
+    of sixteen read "16 / 16" with half of them dead. The game bot's own roster says
+    "Players Alive: 3 / 12", which is what this mirrors — the revealed count is still the
+    right one for the achievements post, where every player is listed either way.
+    """
+    total = len(session["order"])
+    alive = sum(1 for _, entry in players_in_order(session) if entry["alive"])
+    return alive, total
 
 
 # --- Transforms ------------------------------------------------------------

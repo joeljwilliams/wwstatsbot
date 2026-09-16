@@ -346,16 +346,18 @@ def _player_row(session_data, user_id, entry):
 def render_state(session_data, ended=False, restartable=False):
     """The live roster message: (html, keyboard).
 
-    Mirrors the achievement manager's own layout — header, `Players (n / total)`, then a
-    `Dead Players` section — because a replacement that reorganised the message would be
+    Mirrors the achievement manager's own layout — header, `Players (alive / total)`, then
+    a `Dead Players` section — because a replacement that reorganised the message would be
     the first thing anyone noticed at the moment they are looking for something familiar.
+    Alive over total for the same reason: it is the count the header's own list is of, and
+    the count the game bot's roster prints.
     """
-    revealed, total = session.revealed_count(session_data)
+    alive, total = session.alive_count(session_data)
     # The roster stays in the chat after the session ends, as the record of the game, so
     # it has to stop saying "GAME RUNNING" — and stop inviting reveals into a session that
     # no longer exists.
     msg = t.STANDIN_HEADER_ENDED if ended else t.STANDIN_HEADER + t.STANDIN_INTRO
-    msg += t.STANDIN_PLAYERS_HEADER.format(revealed=revealed, total=total)
+    msg += t.STANDIN_PLAYERS_HEADER.format(alive=alive, total=total)
 
     dead = []
     for uid, entry in session.players_in_order(session_data):
@@ -754,7 +756,12 @@ def _settled_note(session_data, settled):
 async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """`/rm <model>`, `/rm <model>` in reply, or `/rm <player> <model>`.
 
-    All three forms check that the target actually has a role model. Only the Wild Child
+    A bare `/rm` in reply is a fourth form, and the one where the reply names the *model*
+    rather than the target: nothing else was said, so it reads as "they are my rolemodel" —
+    the shape bare `/love` already has, and how it gets typed at a table where the Wild
+    Child answers the message of the player they are watching.
+
+    All four forms check that the target actually has a role model. Only the Wild Child
     and the Doppelgänger do, and a role model stored against anyone else is the kind of
     mistake that hides: it never fires a transform, so the error surfaces much later as an
     achievement that failed to appear rather than as a wrong answer anyone can see.
@@ -768,16 +775,21 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("command", command="rm", user_id=user.id, user=unidecode(user.first_name), args=context.args)
 
     args = context.args
-    if not args:
-        await message.reply_text(t.STANDIN_MODEL_USAGE, parse_mode=ParseMode.HTML)
-        return
-
     typed = " ".join(args)
     replied_id = _replied_player(update, session_data)
-
     pointed, _ = _pointed_at(message, session_data)
 
-    if message.reply_to_message is not None:
+    if not args:
+        if replied_id is None:
+            # A reply to somebody outside the roster is a different mistake from no reply
+            # at all: it did say who, and the answer is that we do not know them.
+            await message.reply_text(
+                t.STANDIN_UNKNOWN_TARGET if message.reply_to_message is not None else t.STANDIN_MODEL_USAGE,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        target_id, model_id = user.id, replied_id
+    elif message.reply_to_message is not None:
         # A reply has already said whose rolemodel it is, so whoever is mentioned is the
         # model itself.
         if replied_id is None:
@@ -795,6 +807,14 @@ async def rolemodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     target = session.player(session_data, target_id)
+    if target is None:
+        # Two mentions of people outside the roster: `_pointed_at` roster-checks a bare id
+        # but not a tapped mention, so `/rm @spectator @friend` arrived here with a target
+        # this game has never heard of and read `target["roles"]` off None. Answered the
+        # way /role answers the same mistake, rather than crashing in the one command that
+        # is typed mid-game by people guessing at its arguments.
+        await message.reply_text(t.STANDIN_UNKNOWN_TARGET, parse_mode=ParseMode.HTML)
+        return
     if not target["roles"]:
         await message.reply_text(
             t.STANDIN_MODEL_NEEDS_ROLE.format(name=_mention(target_id, target["name"])),

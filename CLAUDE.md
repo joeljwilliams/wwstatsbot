@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1675 tests; the 78 Postgres ones skip by default
+uv run pytest                     # 1689 tests; the 78 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -622,6 +622,26 @@ Doppelgänger and Wild Child to have chosen, since one still to pick means the n
 could be anybody. And the facts are read for the **dead as well as the living**, unlike
 `revealed_roles`: a couple stays a couple after one of them is lynched, and dropping them
 would reopen a question the death had settled further.
+
+**A choice can also close a row no rule mentions, and `reachable_roles()` is where that
+lands.** A Doppelgänger reached the Alpha Wolf's own achievements — Strongest Alpha,
+Increase the Pack! — by being able to copy the Alpha, and those rules have no gate to write:
+the subject is `alpha_wolf` and the composition says an Alpha is playing. So a Doppelgänger
+who has named a Villager as their role model was still being offered them, which is what was
+seen in a live game after the gates above shipped. `reachable_roles()` now takes the same
+facts and narrows the copy to the model's *own* reachable set — the model's, not the role
+they revealed, because the copy lands when the model dies and a Cursed model eaten in the
+night is copied as the wolf they became. That is the one place reachability recurses, and it
+recurses exactly once: the inner reading is made without facts, so a Doppelgänger shadowing
+a Doppelgänger opens back up to the whole table rather than chaining choices.
+
+Three things it deliberately does not narrow. A **Thief** still reaches past the choice — a
+Doppelgänger is stealable, so any stealable role can still land on them whatever they
+pointed at. The **cult** is added back when the model is cultable: being recruited is not a
+role change any reachable set predicts, a Doppelgänger is cult-immune while they are one, so
+the copy was what put a cultist's achievements on their list and copying a cultable player
+is precisely what makes them recruitable. And an **unknown** narrows nothing at all — no
+model chosen, or a model who has not revealed — which is the same fail-open the gates follow.
 
 A gate also changes what **shared** means. Subject `any` used to be the whole test for the
 roleless rows summarised at the foot of the post; a gate can make "anyone can earn this"

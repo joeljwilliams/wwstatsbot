@@ -455,7 +455,10 @@ STANDIN_INTRO = N_(
     "e.g. <code>/role gunner</code> or <code>/role sk</code>. To set somebody else's, @mention them "
     'or reply to them. Hit "Stop" when the game ends.\n\n'
 )
-STANDIN_PLAYERS_HEADER = N_("<b>Players ({revealed} / {total}):</b>\n")
+# Alive over total, not a count of who has revealed: the header sits over the list of the
+# living, with a Dead Players section beneath it, so "16 / 16" above eight survivors
+# described neither of the two lists under it. See session.alive_count.
+STANDIN_PLAYERS_HEADER = N_("<b>Players ({alive} / {total}):</b>\n")
 # {name} arrives already rendered as a tg://user link (see gamesession._mention), which is
 # why nothing here escapes it: a bare display name would be plain text where every other
 # mention in the chat is tappable.
@@ -528,8 +531,9 @@ STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
 # Players are named by mention or reply — never by typing a display name, which has
 # spaces and emoji in it and cannot be told apart from the rest of the line.
 STANDIN_MODEL_USAGE = N_(
-    "Usage: <code>/rm @rolemodel</code> (yours), or the same in reply to a player, "
-    "or <code>/rm @player @rolemodel</code>."
+    "Usage: <code>/rm @rolemodel</code>, or a bare <code>/rm</code> in reply to them "
+    "(both yours); <code>/rm @rolemodel</code> in reply to a player, or "
+    "<code>/rm @player @rolemodel</code> (theirs)."
 )
 # Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
 # reported rather than stored, because a stored one would never fire a transform and the

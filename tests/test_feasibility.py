@@ -556,6 +556,125 @@ def test_a_game_with_no_models_at_all_is_not_narrowed_to_nobody():
     assert "Indestructible" in names_for(per_player, "th")
 
 
+# --- A Doppelganger who has chosen ----------------------------------------
+#
+# The gates above narrow a *rule*. This narrows what a player can become, which is the
+# other half of the same choice and the half the rules cannot reach: "Strongest Alpha" has
+# no player expression to gate, it is simply not the Doppelganger's achievement any more
+# once they have pointed at the Villager.
+
+
+def model_facts(game, **models):
+    """`feasibility.Facts` for `game`, with the named players pointing at the named models."""
+    return feasibility.Facts(facts(**{key: {"model": model} for key, model in models.items()}), game)
+
+
+ALPHA_GAME = {
+    "dg": ("doppelganger",),
+    "al": ("alpha_wolf",),
+    "cub": ("wolf_cub",),
+    "vil": ("villager",),
+    "sk": ("serial_killer",),
+}
+
+# The alpha's own achievements, which a Doppelganger reached only by being able to copy
+# them. Neither carries a player expression, so the reachable set is the whole gate.
+ALPHAS_OWN = {"Strongest Alpha", "Increase the Pack!"}
+
+
+def test_a_doppelganger_with_no_model_yet_can_still_become_anybody():
+    """The choice is what closes it, so a game that has not seen one must not narrow."""
+    per_player, _ = feasibility.feasible(ALPHA_GAME, CATALOGUE, facts(dg={"lover": True}))
+    assert ALPHAS_OWN <= names_for(per_player, "dg")
+
+
+def test_a_chosen_model_takes_the_alphas_achievements_off_the_doppelganger():
+    """The case that was seen in a live game: pointed at the Villager, offered the Alpha's."""
+    per_player, _ = feasibility.feasible(ALPHA_GAME, CATALOGUE, facts(dg={"model": "vil"}))
+    assert not ALPHAS_OWN & names_for(per_player, "dg"), "that copy is spoken for"
+    assert ALPHAS_OWN <= names_for(per_player, "al"), "and still the Alpha's own"
+
+
+def test_the_model_they_did_choose_is_reachable():
+    c = feasibility.Composition(ALPHA_GAME.values())
+    reachable = feasibility.reachable_roles(("doppelganger",), c, model_facts(ALPHA_GAME, dg="sk"), "dg")
+    assert "serial_killer" in reachable
+    assert "alpha_wolf" not in reachable
+    assert "wolf_cub" not in reachable
+
+
+def test_a_model_who_can_still_turn_is_copied_as_what_they_become():
+    """The copy lands when the model dies, and a Cursed model eaten in the night is a wolf.
+
+    So it is the model's own reachable set, not the role they revealed — which is what
+    makes this the one place reachability recurses.
+    """
+    game = {"dg": ("doppelganger",), "cu": ("cursed",), "wo": ("werewolf",), "vil": ("villager",)}
+    c = feasibility.Composition(game.values())
+    reachable = feasibility.reachable_roles(("doppelganger",), c, model_facts(game, dg="cu"), "dg")
+    assert {"cursed", "werewolf"} <= reachable
+    assert "villager" not in reachable
+
+
+def test_a_doppelganger_shadowing_a_doppelganger_is_not_narrowed_at_all():
+    """A copy of a copy could be anything, so the honest answer is the whole table.
+
+    It is also what stops the recursion: the inner reading is made without facts, so there
+    is no chain of choices to walk and no cycle to walk into.
+    """
+    game = {"a": ("doppelganger",), "b": ("doppelganger",), "seer": ("seer",), "vil": ("villager",)}
+    c = feasibility.Composition(game.values())
+    reachable = feasibility.reachable_roles(("doppelganger",), c, model_facts(game, a="b"), "a")
+    assert {"seer", "villager"} <= reachable
+
+
+def test_a_model_this_session_cannot_see_narrows_nothing():
+    """A model who has not revealed says which player, not which role — so nothing is known."""
+    game = {"dg": ("doppelganger",), "seer": ("seer",), "vil": ("villager",)}
+    c = feasibility.Composition(game.values())
+    reachable = feasibility.reachable_roles(("doppelganger",), c, model_facts(game, dg="quiet"), "dg")
+    assert {"seer", "villager"} <= reachable
+
+
+def test_a_thief_still_reaches_past_a_chosen_model():
+    """The choice is not the only thing that can still move a role.
+
+    A Doppelganger is stealable, so a Thief at the table can put any stealable role on them
+    whatever they pointed at — the narrowing is about the copy, not about the seat.
+    """
+    game = {"dg": ("doppelganger",), "th": ("thief",), "seer": ("seer",), "vil": ("villager",)}
+    c = feasibility.Composition(game.values())
+    reachable = feasibility.reachable_roles(("doppelganger",), c, model_facts(game, dg="vil"), "dg")
+    assert "seer" in reachable, "the Thief can hand them the Seer"
+
+
+CULT_GAME = {
+    "dg": ("doppelganger",),
+    "cl": ("cultist",),
+    "ch": ("cultist_hunter",),
+    "vil": ("villager",),
+    "sk": ("serial_killer",),
+}
+
+
+def test_a_model_the_cult_can_reach_keeps_the_cults_achievements_on_the_copy():
+    """Being culted is not a role change the roles predict, so it is not in a reachable set.
+
+    A Doppelganger is cult-immune while they are one, so the copy was what put a cultist's
+    achievements on their list. Narrowing to a *cultable* model must not take them away:
+    copying that model is exactly what makes them recruitable.
+    """
+    per_player, _ = feasibility.feasible(CULT_GAME, CATALOGUE, facts(dg={"model": "vil"}))
+    assert "Cultist Fodder" in names_for(per_player, "dg")
+
+
+def test_a_cult_immune_model_does_not():
+    """Copy the serial killer and the cult can never come for you."""
+    per_player, _ = feasibility.feasible(CULT_GAME, CATALOGUE, facts(dg={"model": "sk"}))
+    assert "Cultist Fodder" not in names_for(per_player, "dg")
+    assert "Cultist Fodder" in names_for(per_player, "cl"), "still the cult's own"
+
+
 def test_a_doppelganger_who_pointed_somewhere_other_than_their_lover_loses_deep_love():
     game = {"dg": ("doppelganger",), "cu": ("cupid",), "a": ("villager",), "b": ("seer",)}
     pointing_at_the_partner = facts(

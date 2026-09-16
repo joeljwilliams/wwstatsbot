@@ -526,7 +526,7 @@ async def test_a_notice_for_an_ended_session_says_nothing(context):
     assert role_notices(context) == []
 
 
-# --- /rm: three forms, one validation ---------------------------------------
+# --- /rm: four forms, one validation ----------------------------------------
 
 
 async def reveal(context, user_id, role_name):
@@ -554,6 +554,55 @@ async def test_rm_with_one_argument_in_reply_sets_the_replied_to_players(context
     await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU], reply_to=theirs)
 
     assert session_data["players"]["3"]["model"] == 2
+    assert session_data["players"]["1"]["model"] is None
+
+
+async def test_bare_rm_in_reply_makes_them_the_senders_rolemodel(context):
+    """Nothing but the reply was said, so it names the model and the sender is the target.
+
+    The opposite way round from `/rm @model` in reply, and deliberately: with an argument
+    the reply is the only thing left to say *whose* rolemodel it is, and without one the
+    reply is the only thing said at all.
+    """
+    session_data = await start_session(context)
+    await reveal(context, 1, "wc")
+
+    theirs = message("hi", from_user=FakeUser(3, "J J"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert session_data["players"]["1"]["model"] == 3
+    assert session_data["players"]["3"]["model"] is None, "the reply is the model, not the target"
+    assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(1, "Ren"), mention(3, "J J"))
+
+
+async def test_bare_rm_in_reply_still_checks_the_senders_role(context):
+    """The form is new; what it validates is not."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "villager")
+
+    theirs = message("hi", from_user=FakeUser(3, "J J"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert "no rolemodel" in msg.last_reply
+    assert session_data["players"]["1"]["model"] is None
+
+
+async def test_bare_rm_with_no_reply_says_how_to_use_it(context):
+    await start_session(context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm")
+    assert "Usage" in msg.last_reply
+
+
+async def test_bare_rm_in_reply_to_somebody_outside_the_roster_says_so(context):
+    """A reply that resolved to nobody did say who, so it is answered rather than
+    silently read as the usage message."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "wc")
+
+    theirs = message("hi", from_user=FakeUser(999, "Passer By"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert "need a player from this game" in msg.last_reply
     assert session_data["players"]["1"]["model"] is None
 
 
@@ -867,10 +916,32 @@ async def test_the_roster_mirrors_the_managers_layout(context):
     rendered, keyboard = gamesession.render_state(session_data)
 
     assert rendered.startswith("<b>GAME RUNNING!</b>")
-    assert "<b>Players (1 / 4):</b>" in rendered
+    assert "<b>Players (4 / 4):</b>" in rendered
     assert mention(1, "Ren") + ": Alpha Wolf \N{HIGH VOLTAGE SIGN}" in rendered
     assert "<b>Dead Players:</b>" in rendered
     assert keyboard.inline_keyboard[0][0].text == "Stop"
+
+
+async def test_the_roster_header_counts_the_living(context):
+    """Alive over total, not revealed over total.
+
+    The header sits over the list of the living, with a Dead Players section under it, so
+    the revealed count described neither list: a table where everybody had revealed read
+    "4 / 4" with half of them in the section below. It is also the count the game bot's
+    own roster prints.
+    """
+    session_data = await start_session(context)
+    theirs = message("hi", from_user=FakeUser(2, "omu"))
+    msg = player_message("/dead", reply_to=theirs)
+    context.args = []
+    await gamesession.dead_cmd(FakeUpdate(message=msg), context)
+
+    rendered, _ = gamesession.render_state(session_data)
+    assert "<b>Players (3 / 4):</b>" in rendered, "one of the four is dead"
+
+    await reveal(context, 1, "seer")
+    rendered, _ = gamesession.render_state(session_data)
+    assert "<b>Players (3 / 4):</b>" in rendered, "and a reveal does not change who is alive"
 
 
 async def test_an_unrevealed_player_is_shown_as_such(context):
