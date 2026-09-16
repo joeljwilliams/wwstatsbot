@@ -346,16 +346,18 @@ def _player_row(session_data, user_id, entry):
 def render_state(session_data, ended=False, restartable=False):
     """The live roster message: (html, keyboard).
 
-    Mirrors the achievement manager's own layout — header, `Players (n / total)`, then a
-    `Dead Players` section — because a replacement that reorganised the message would be
+    Mirrors the achievement manager's own layout — header, `Players (alive / total)`, then
+    a `Dead Players` section — because a replacement that reorganised the message would be
     the first thing anyone noticed at the moment they are looking for something familiar.
+    Alive over total for the same reason: it is the count the header's own list is of, and
+    the count the game bot's roster prints.
     """
-    revealed, total = session.revealed_count(session_data)
+    alive, total = session.alive_count(session_data)
     # The roster stays in the chat after the session ends, as the record of the game, so
     # it has to stop saying "GAME RUNNING" — and stop inviting reveals into a session that
     # no longer exists.
     msg = t.STANDIN_HEADER_ENDED if ended else t.STANDIN_HEADER + t.STANDIN_INTRO
-    msg += t.STANDIN_PLAYERS_HEADER.format(revealed=revealed, total=total)
+    msg += t.STANDIN_PLAYERS_HEADER.format(alive=alive, total=total)
 
     dead = []
     for uid, entry in session.players_in_order(session_data):

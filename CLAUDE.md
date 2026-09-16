@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1675 tests; the 78 Postgres ones skip by default
+uv run pytest                     # 1689 tests; the 78 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 

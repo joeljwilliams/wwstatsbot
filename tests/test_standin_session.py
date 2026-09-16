@@ -916,10 +916,32 @@ async def test_the_roster_mirrors_the_managers_layout(context):
     rendered, keyboard = gamesession.render_state(session_data)
 
     assert rendered.startswith("<b>GAME RUNNING!</b>")
-    assert "<b>Players (1 / 4):</b>" in rendered
+    assert "<b>Players (4 / 4):</b>" in rendered
     assert mention(1, "Ren") + ": Alpha Wolf \N{HIGH VOLTAGE SIGN}" in rendered
     assert "<b>Dead Players:</b>" in rendered
     assert keyboard.inline_keyboard[0][0].text == "Stop"
+
+
+async def test_the_roster_header_counts_the_living(context):
+    """Alive over total, not revealed over total.
+
+    The header sits over the list of the living, with a Dead Players section under it, so
+    the revealed count described neither list: a table where everybody had revealed read
+    "4 / 4" with half of them in the section below. It is also the count the game bot's
+    own roster prints.
+    """
+    session_data = await start_session(context)
+    theirs = message("hi", from_user=FakeUser(2, "omu"))
+    msg = player_message("/dead", reply_to=theirs)
+    context.args = []
+    await gamesession.dead_cmd(FakeUpdate(message=msg), context)
+
+    rendered, _ = gamesession.render_state(session_data)
+    assert "<b>Players (3 / 4):</b>" in rendered, "one of the four is dead"
+
+    await reveal(context, 1, "seer")
+    rendered, _ = gamesession.render_state(session_data)
+    assert "<b>Players (3 / 4):</b>" in rendered, "and a reveal does not change who is alive"
 
 
 async def test_an_unrevealed_player_is_shown_as_such(context):
