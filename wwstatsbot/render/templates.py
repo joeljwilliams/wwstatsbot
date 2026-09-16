@@ -476,6 +476,18 @@ STANDIN_STOP_ARM = N_("Press Stop again to end the session.")
 STANDIN_STOP_NOT_YOURS = N_("Only players in this game can stop it.")
 STANDIN_STOP_EXPIRED = N_("That session has already ended.")
 
+# The ended roster carries this in place of Stop while the session can still be picked up
+# again, which is most of what anybody wants when a game ends without being noticed.
+STANDIN_RESTART_BUTTON = N_("Restart")
+STANDIN_RESTARTED = N_("Stand-in session restarted.")
+# In the chat rather than only to whoever tapped: a game resuming is everybody's business,
+# and it explains why the roster went back to accepting reveals.
+STANDIN_RESTARTED_BY = N_("{name} restarted the stand-in session.")
+STANDIN_RESTART_EXPIRED = N_(
+    "That session is too old to restart. Reply to the game bot's player list with <code>/gs</code> for a new one."
+)
+STANDIN_RESTART_RUNNING = N_("A stand-in session is already running here — that button belongs to an older game.")
+
 STANDIN_ALREADY_RUNNING = N_(
     "A stand-in session is already running in this chat. Stop it first, or use <code>/gsend</code>."
 )
@@ -768,6 +780,22 @@ STANDIN_LA_NOTHING_YET = N_("Nobody has revealed a role yet — the list appears
 
 STANDIN_IDLE_WARNING = N_(
     "No updates for {minutes} minutes. I'll end the stand-in session in {grace} minutes unless "
-    "something happens — any <code>/role</code>, <code>/dead</code> or <code>/ad</code> keeps it alive."
+    "something happens — any <code>/role</code>, <code>/dead</code> or <code>/ad</code> keeps it alive, "
+    "or answer below."
 )
-STANDIN_IDLE_ENDED = N_("Stand-in session ended — nothing happened for a while.")
+# The two answers to that question, as buttons: a quiet table is the case this whole
+# warning exists for, and typing a command to say "we are still here" is the thing nobody
+# does. The warning is a passing message rather than the roster, so neither button arms —
+# it was posted asking this exact question, and the answer is unambiguous.
+STANDIN_IDLE_KEEP_BUTTON = N_("Keep playing")
+# Ending arms first, exactly as the roster's Stop does. The two buttons sit side by side,
+# which is a better target for a fat-fingered tap than the lone Stop ever was.
+STANDIN_IDLE_END_ARM = N_('Press "End it" again to end the session.')
+STANDIN_IDLE_END_BUTTON = N_("End it")
+STANDIN_IDLE_KEPT = N_("{name} kept the stand-in session going.")
+STANDIN_IDLE_KEPT_TOAST = N_("Still running.")
+STANDIN_IDLE_KEEP_NOT_YOURS = N_("Only players in this game can keep it going.")
+STANDIN_IDLE_ENDED = N_(
+    "Stand-in session ended — nothing happened for a while. Tap Restart on the roster within "
+    "{minutes} minutes to carry on where it left off."
+)

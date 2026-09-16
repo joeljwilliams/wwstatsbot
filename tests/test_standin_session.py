@@ -25,6 +25,7 @@ from conftest import (
     message,
 )
 
+from wwstatsbot.data import db
 from wwstatsbot.game import session
 from wwstatsbot.handlers import gamesession
 
@@ -644,7 +645,9 @@ async def test_gsend_ends_the_session_and_kills_the_button(context):
     assert context.bot.sent[-1]["text"] == "{} has considered the game stopped!".format(mention(1, "Ren"))
     ended = context.bot.edits[-1]
     assert "GAME ENDED" in ended["text"], "the roster must stop claiming the game is running"
-    assert ended["reply_markup"] is None, "the live button must not outlive the session"
+    assert [b.callback_data for row in ended["reply_markup"].inline_keyboard for b in row] == [
+        gamesession.RESTART_CALLBACK
+    ], "Stop must not outlive the session, and Restart takes its place for the window"
 
 
 def stop_query(user_id=1, name="Ren"):
@@ -699,6 +702,160 @@ async def test_stopping_an_already_ended_session_says_so(context):
     update = stop_query()
     await gamesession.stop_callback(update, context)
     assert "already ended" in update.callback_query.answers[-1]["text"]
+
+
+# --- The restart window ------------------------------------------------------
+#
+# A game ends while the chat is looking somewhere else — the idle timer fires mid-round, or
+# somebody taps Stop a round early — and the alternative to picking it back up is every
+# player re-sending a /role the bot already had. So an ended session is set aside rather
+# than thrown away, and the roster carries Restart where it carried Stop until the window
+# closes.
+
+
+def restart_query(user_id=1, name="Ren"):
+    query = FakeCallbackQuery(data=gamesession.RESTART_CALLBACK, from_user=FakeUser(user_id, name))
+    query.message = message("roster")
+    return FakeUpdate(callback_query=query)
+
+
+def job_context(context, chat_id=-100):
+    """A context as the JobQueue would provide it, carrying the job's chat."""
+    from conftest import FakeJob
+
+    context.job = FakeJob(None, 0, chat_id=chat_id, name="test")
+    return context
+
+
+async def test_an_ended_session_can_be_picked_back_up(context):
+    """The whole point: a restarted game knows everything it knew before."""
+    await start_session(context)
+    await reveal(context, 2, "harlot")
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    await gamesession.restart_callback(restart_query(), context)
+
+    restored = session.get(context.chat_data)
+    assert restored is not None
+    assert restored["players"]["2"]["roles"] == ["harlot"], "a restart that lost the roles is no restart"
+
+
+async def test_a_restart_brings_the_roster_back_to_life(context):
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+    context.bot.edits.clear()
+
+    await gamesession.restart_callback(restart_query(), context)
+
+    live = context.bot.edits[-1]
+    assert "GAME RUNNING" in live["text"], "the roster must stop saying the game is over"
+    assert [b.callback_data for row in live["reply_markup"].inline_keyboard for b in row] == [
+        gamesession.STOP_CALLBACK
+    ], "a running game is stopped, not restarted"
+    assert context.bot.sent[-1]["text"] == "{} restarted the stand-in session.".format(mention(1, "Ren"))
+
+
+async def test_a_restart_starts_the_idle_clock_again(context):
+    """Otherwise the session it brought back would never expire a second time."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    await gamesession.restart_callback(restart_query(), context)
+
+    assert context.job_queue.pending(gamesession._IDLE_JOB.format(-100))
+
+
+async def test_a_restart_calls_off_the_expiry(context):
+    """It would otherwise fire inside the live game and edit the roster back to GAME ENDED."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+    await gamesession.restart_callback(restart_query(), context)
+
+    assert not context.job_queue.pending(gamesession._RESTART_JOB.format(-100))
+
+    # And if one somehow fires anyway, it must leave the running game alone.
+    await gamesession._restart_expired(job_context(context))
+    assert session.get(context.chat_data) is not None
+
+
+async def test_the_window_closes_and_takes_the_button_with_it(context):
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+    context.bot.edits.clear()
+
+    await gamesession._restart_expired(job_context(context))
+
+    assert session.archived(context.chat_data, gamesession._now(), gamesession._RESTART_SECONDS) is None
+    closed = context.bot.edits[-1]
+    assert "GAME ENDED" in closed["text"]
+    assert closed["reply_markup"] is None, "a button that no longer works is worse than none"
+
+
+async def test_a_restart_after_the_window_is_refused(context, monkeypatch):
+    """The archive outlives its job when a deploy lands in the window, so the age is
+    checked here too — a Restart button that worked a day later would resurrect a game
+    into the middle of a different one."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    later = gamesession._now() + gamesession._RESTART_SECONDS + 1
+    monkeypatch.setattr(gamesession, "_now", lambda: later)
+    update = restart_query()
+    await gamesession.restart_callback(update, context)
+
+    assert session.get(context.chat_data) is None
+    assert "too old to restart" in update.callback_query.answers[-1]["text"]
+
+
+async def test_a_new_game_takes_the_old_restart_button_away(context):
+    """/gs is the moment the chat says it has moved on."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    await start_session(context)
+
+    assert session.archived(context.chat_data, gamesession._now(), gamesession._RESTART_SECONDS) is None
+
+
+async def test_a_stale_restart_cannot_land_on_a_running_game(context):
+    """The button lives on an old message, and old messages get tapped."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+    await start_session(context)
+    running = session.get(context.chat_data)
+
+    update = restart_query()
+    await gamesession.restart_callback(update, context)
+
+    assert session.get(context.chat_data) is running, "a live roster must not be replaced by an old one"
+    assert "already running" in update.callback_query.answers[-1]["text"]
+
+
+async def test_a_non_player_cannot_restart_a_game(context, monkeypatch):
+    async def not_an_admin(user_id):
+        return False
+
+    # The permission check consults the admins table; there is no database here.
+    monkeypatch.setattr(db, "is_admin", not_an_admin)
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    # Not 999: conftest makes that the superuser, who may act on any session anywhere.
+    await gamesession.restart_callback(restart_query(user_id=555, name="Passer By"), context)
+
+    assert session.get(context.chat_data) is None
+
+
+async def test_an_ended_session_is_still_ended_while_it_waits(context):
+    """Set aside, not left in place: every command in the module gates on session.get, and
+    an archive readable there would be a dead game accepting reveals."""
+    await start_session(context)
+    await gamesession.end_session_cmd(FakeUpdate(message=player_message("/gsend")), context)
+
+    assert session.get(context.chat_data) is None
+    await reveal(context, 2, "harlot")
+    ended = session.archived(context.chat_data, gamesession._now(), gamesession._RESTART_SECONDS)
+    assert ended["players"]["2"]["roles"] == [], "a reveal after the end must not reach the archive"
 
 
 # --- Rendering ---------------------------------------------------------------

@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1600 tests; the 74 Postgres ones skip by default
+uv run pytest                     # 1624 tests; the 74 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -547,13 +547,57 @@ authoritative answer anyway — so a group that has not made the bot an admin ge
 and no complaint. Pinned silently, because the notification pings every member and an
 active group starts a game every few minutes.
 
-`_unpin_state` runs from `_finish`, which is the single place all three endings funnel
-through (and from `/gm off`) (`/gsend`, the Stop button, the idle expiry). Two things it must keep doing:
+`_unpin_state` runs from `_finish`, which is the single place every ending funnels
+through (and from `/gm off`) — `/gsend`, the Stop button, the idle expiry and the game
+bot's own closing message. Two things it must keep doing:
 unpin **by message id**, never the bare call — that removes the group's most recent pin,
 which by the end of a game may be a rules post somebody else put there — and unpin only
 what `pinned_message_id` records, which is the evidence *we* pinned it. Without that
 record a session that could not pin would still try to unpin at the end and clear whatever
 the group actually has.
+
+**An ending is offered, then undoable.** Three things stand between a live game and a
+session that vanished while nobody was looking, and each exists because the one before it
+was not enough.
+
+The idle timer warns after ten minutes of silence and ends the session after a **five
+minute** grace, not two. The warning lands in a chat that has by definition said nothing
+for ten minutes — nobody is watching it — and two minutes was short enough for a night
+phase, an argument or a slow lynch to use up, so the first anybody knew was a roster
+reading GAME ENDED. The warning also carries **two buttons**, Keep playing and End it,
+because the only answer it previously offered was to remember to type a command inside the
+window, and a table quiet enough to be warned is a table typing nothing.
+
+Keep playing takes one press; **End it arms like the roster's Stop**, and arms
+*separately* from it. Ending is the destructive answer however it is reached, so it is
+gated wherever it is offered — and these two buttons sit side by side, which is a better
+target for a mis-tap than the lone Stop on the roster ever was. Separately, because shared
+arming would let a stray tap on one button and a stray tap on the other add up to an
+ending, which is the thing arming exists to stop. Keep playing **disarms** a half-pressed
+End: the table has just said the opposite, and that arming must not survive to combine
+with a stray tap after the game carries on. Arming is deliberately not activity — somebody
+who half-pressed End and then walked away has said nothing about the game continuing, so
+the grace timer runs on underneath.
+
+Every ending then keeps the session for **ten minutes** and the roster carries **Restart**
+where it carried Stop. `_finish` is where that happens, because it is the single funnel
+all four endings pass through — `/gsend`, the Stop button, the idle expiry, and the game
+bot's own closing message — and the alternative to picking a game back up is every player
+re-sending a `/role` the bot already had. The archive lives under its own `chat_data` key
+(`session.ARCHIVE_KEY`), never under the live one: every command in the module gates on
+`session.get()`, and a dict still readable there — however it was marked — is one missed
+check away from a dead game accepting reveals.
+
+Three details inside that are load-bearing. The window is checked by **age as well as by
+its job**, because `chat_data` is persisted to Redis and PTB's JobQueue is not — a deploy
+inside the window would otherwise leave an archive nothing was going to clear and a
+Restart button that worked days later. Opening any session **clears the previous
+archive**, inside `_open_session` so that `/gm auto` clears it too, since a new roster is
+the clearest statement that the chat has moved on. And a restart **cancels the expiry
+job**: left running it would fire inside the live game it just restored and edit the
+roster back to GAME ENDED. The pin is deliberately *not* held across the window — a game
+that may be over must not go on holding the chat's pin on the chance that it is not — so a
+restart re-pins.
 
 **The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
 (plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when
