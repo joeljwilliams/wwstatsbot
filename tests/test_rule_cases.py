@@ -18,6 +18,9 @@ Three tables:
   each way: a rule nothing can falsify is a rule that is not being tested.
 * `SUBJECT_CASES` — per rule, who the achievement is listed *under*. This is the
   half an expression cannot check, and where "As the X…" is either honoured or not.
+* `PLAYER_CASES` — per rule with a `player_expr`, what the game having already
+  chosen a couple or a role model does to it. Same discipline as the others: the
+  answer is read off the achievement's description, not off the expression.
 * The coverage test below, which fails if a rule has no cases at all — the same
   silent-omission guard `test_rules.py` puts on the catalogue itself.
 """
@@ -720,6 +723,153 @@ def test_the_achievement_is_listed_under_exactly_its_subject(name, game, expecte
     assert is_shared is expect_shared, "{}: {}".format(name, why)
 
 
+# --- What the game has already chosen --------------------------------------
+#
+# (game, facts, the players it is still open to, why). Every rule carrying a
+# `player_expr` is here, with at least one case where the gate narrows nothing and one
+# where it does — a gate that only ever answers yes is a gate that is not being tested.
+#
+# The games are small and the roles are whatever the subject needs; what is being
+# checked is the *narrowing*, which the composition half has already been asked about
+# above.
+
+_CUPID_GAME = {
+    "cu": ("cupid",),
+    "ta": ("tanner",),
+    "ha": ("harlot",),
+    "wo": ("werewolf",),
+    "vi": ("villager",),
+    "pa": ("pacifist",),
+    "se": ("seer",),
+    "so": ("sorcerer",),
+}
+
+# Cupid paired the Harlot and the Wolf, so every "your lover" condition is theirs and
+# nobody else's. Nothing here is about *which* of the two: the achievement's own subject
+# decides that, and these cases only say who is still in the running.
+_COUPLE = {
+    "ha": {"lover": True, "partner": "wo", "model": None},
+    "wo": {"lover": True, "partner": "ha", "model": None},
+}
+# One name, from a bare /love. The other half is still anybody.
+_ONE_LOVER = {"ha": {"lover": True, "partner": None, "model": None}}
+
+_MODEL_GAME = {
+    "dg": ("doppelganger",),
+    "wc": ("wild_child",),
+    "vi": ("villager",),
+    "se": ("seer",),
+    "th": ("thief",),
+}
+# Both have chosen, so the two players being pointed at are the only ones who can ever
+# end up as their own role model.
+_MODELS_CHOSEN = {
+    "dg": {"lover": False, "partner": None, "model": "vi"},
+    "wc": {"lover": False, "partner": None, "model": "dg"},
+}
+_ONE_MODEL_CHOSEN = {"dg": {"lover": False, "partner": None, "model": "vi"}}
+
+_DEEP_LOVE_GAME = {"dg": ("doppelganger",), "cu": ("cupid",), "a": ("villager",), "b": ("seer",)}
+_POINTED_AT_THE_PARTNER = {
+    "dg": {"lover": True, "partner": "a", "model": "a"},
+    "a": {"lover": True, "partner": "dg", "model": None},
+}
+_POINTED_ELSEWHERE = {
+    "dg": {"lover": True, "partner": "a", "model": "b"},
+    "a": {"lover": True, "partner": "dg", "model": None},
+}
+
+PLAYER_CASES = {
+    "Forbidden Love": [
+        (_CUPID_GAME, None, {"wo", "vi"}, "a wolf and a plain villager, before Cupid has chosen"),
+        (_CUPID_GAME, _COUPLE, {"wo"}, "the couple is a wolf and a harlot, so only the wolf half is in it"),
+    ],
+    "Speed Dating": [
+        (_CUPID_GAME, _ONE_LOVER, set(_CUPID_GAME), "one name leaves the other half open to everybody"),
+        (_CUPID_GAME, _COUPLE, {"ha", "wo"}, "the bot picked these two or it picked nobody"),
+    ],
+    "Self Loving": [
+        (_CUPID_GAME, None, {"cu"}, "Cupid's own choice, still to be made"),
+        (_CUPID_GAME, _COUPLE, set(), "Cupid chose two other people"),
+    ],
+    "Should've Said Something": [
+        (_CUPID_GAME, None, {"wo"}, "the pack, before anybody is in love"),
+        (_CUPID_GAME, _COUPLE, {"wo"}, "and the wolf is half of the couple"),
+        (
+            {"cu": ("cupid",), "wo": ("werewolf",), "ha": ("harlot",), "vi": ("villager",)},
+            {
+                "ha": {"lover": True, "partner": "vi", "model": None},
+                "vi": {"lover": True, "partner": "ha", "model": None},
+            },
+            set(),
+            "a couple with no wolf in it leaves the pack nobody to be sorry about",
+        ),
+    ],
+    "OH SHI-": [
+        (_CUPID_GAME, None, {"wo"}, "the only night killer here"),
+        (
+            {"cu": ("cupid",), "wo": ("werewolf",), "ha": ("harlot",), "vi": ("villager",)},
+            {
+                "ha": {"lover": True, "partner": "vi", "model": None},
+                "vi": {"lover": True, "partner": "ha", "model": None},
+            },
+            set(),
+            "the killer has to be the one in love",
+        ),
+    ],
+    "Deep Love": [
+        (_DEEP_LOVE_GAME, _POINTED_AT_THE_PARTNER, {"dg"}, "the model chosen is the partner"),
+        (_DEEP_LOVE_GAME, _POINTED_ELSEWHERE, set(), "that choice has been spent on somebody else"),
+    ],
+    "Seeing between Teams": [
+        (_CUPID_GAME, None, {"se", "so"}, "the pair Cupid would have to match"),
+        (_CUPID_GAME, _COUPLE, set(), "Cupid matched a harlot and a wolf instead"),
+    ],
+    "My Sweetie so Strong!": [
+        (_CUPID_GAME, None, set(_CUPID_GAME), "anybody could be the one in love with the pacifist"),
+        (_CUPID_GAME, _COUPLE, {"ha", "wo"}, "and then only these two"),
+    ],
+    "Affectionate": [
+        (_CUPID_GAME, None, {"ha"}, "the Harlot, with a lover still to be assigned"),
+        (
+            {"cu": ("cupid",), "ha": ("harlot",), "a": ("villager",), "b": ("seer",)},
+            {"a": {"lover": True, "partner": "b", "model": None}, "b": {"lover": True, "partner": "a", "model": None}},
+            set(),
+            "a Harlot who is not in the couple has no lover to visit",
+        ),
+    ],
+    "Indestructible": [
+        (_MODEL_GAME, _ONE_MODEL_CHOSEN, {"dg", "wc", "vi", "se", "th"}, "the Wild Child could still point anywhere"),
+        (_MODEL_GAME, _MODELS_CHOSEN, {"dg", "vi"}, "only the two being pointed at can end up their own model"),
+    ],
+    "Romeo and Juliet": [
+        (_CUPID_GAME, None, set(_CUPID_GAME), "no role gate, and no couple yet"),
+        (_CUPID_GAME, _COUPLE, {"ha", "wo"}, "being in love with the tanner means being in the couple"),
+    ],
+}
+
+
+def _open_to(game, facts, name):
+    """The players an achievement is still listed for, shared counting as everybody."""
+    per_player, shared = feasibility.feasible(game, CATALOGUE, facts)
+    if name in {entry["name"] for entry in shared}:
+        return set(game)
+    return {key for key, entries in per_player.items() if any(e["name"] == name for e in entries)}
+
+
+@pytest.mark.parametrize(
+    "name,game,facts,expected,why",
+    [
+        (name, game, facts, expected, why)
+        for name, cases in PLAYER_CASES.items()
+        for game, facts, expected, why in cases
+    ],
+    ids=["{}-{}".format(name, index) for name, cases in PLAYER_CASES.items() for index in range(len(cases))],
+)
+def test_a_choice_the_game_has_made_closes_it_for_everybody_it_did_not_name(name, game, facts, expected, why):
+    assert _open_to(game, facts, name) == expected, "{}: {}".format(name, why)
+
+
 # --- Coverage --------------------------------------------------------------
 #
 # The same guard test_rules.py puts on the catalogue, one level up: a rule with no
@@ -758,6 +908,31 @@ def test_a_rule_with_no_expression_is_covered_by_its_subject():
 def test_every_name_in_the_tables_is_a_rule_that_can_be_listed():
     """A case for an opted-out or misspelled achievement passes while testing nothing."""
     listed = {rule["name"] for rule in LISTED}
-    for table, label in ((EXPR_CASES, "EXPR_CASES"), (SUBJECT_CASES, "SUBJECT_CASES")):
+    for table, label in ((EXPR_CASES, "EXPR_CASES"), (SUBJECT_CASES, "SUBJECT_CASES"), (PLAYER_CASES, "PLAYER_CASES")):
         unknown = set(table) - listed
         assert not unknown, "{}: {}".format(label, sorted(unknown))
+
+
+def test_every_player_expression_is_shown_to_change_an_answer():
+    """A gate nothing narrows is a gate that could be deleted with every case still green.
+
+    Measured against the same game with nothing known, which is the answer the bot gave
+    before any of this existed: at least one case per rule has to differ from it, or the
+    cases are testing the subject and the composition all over again.
+    """
+    for rule in LISTED:
+        gate = rule.get("player_expr", "")
+        if not gate:
+            continue
+        cases = PLAYER_CASES.get(rule["name"])
+        assert cases, "{}: a player expression with no cases".format(rule["name"])
+        changed = [expected for game, _facts, expected, _why in cases if expected != _open_to(game, None, rule["name"])]
+        assert changed, "{}: no case where knowing something changes the answer".format(rule["name"])
+
+
+def test_a_rule_with_no_player_expression_has_no_player_cases():
+    """A case against a gate that does not exist is a case proving nothing."""
+    for rule in LISTED:
+        if rule.get("player_expr", ""):
+            continue
+        assert rule["name"] not in PLAYER_CASES, rule["name"]

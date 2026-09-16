@@ -1,12 +1,21 @@
 """Which achievements a role composition can still produce, and for whom.
 
 Takes the roles players have revealed and answers, per player, "what is still on the table
-for you". Two halves, kept apart on purpose (see rulelist.py):
+for you". Three parts, kept apart on purpose (see rulelist.py):
 
 * the rule's **expr** is evaluated once per composition — it asks about the game, not the
   player, so evaluating it per player would be the same answer computed twenty times;
 * the rule's **subject** is matched per player, against the roles they could still end up
-  as rather than only the one they reported.
+  as rather than only the one they reported;
+* the rule's **player_expr**, where it has one, asks about the player themselves — not
+  their role, but what the game has already decided about them. Most rules have none, and
+  a rule without one behaves exactly as it always did.
+
+That third part exists because roles are not the only thing a game settles. Cupid picks a
+couple and the Wild Child picks a role model, and from that moment a dozen achievements are
+closed to everybody those choices did not name — while the composition, which can only see
+that a Cupid is in play, goes on offering them to all twenty players. `Facts` below is the
+reading of those choices, and it is asked only about the rules that say they care.
 
 That second point is most of the value. A Cursed player's own achievements are thin, but
 the wolf they may become has plenty, and a list that hid those would be wrong in the
@@ -214,6 +223,99 @@ class Composition:
         return max(burnable, 0)
 
 
+class Facts:
+    """What the session knows about players, as the questions a rule may ask of one.
+
+    The composition answers "can this *game* produce it". This answers the third question,
+    the one neither a role nor a player count can reach: **has the game already decided
+    something that closes it**. Cupid picks a couple, the Wild Child picks a role model —
+    both happen inside a game that is still running, and both make achievements impossible
+    for everybody they did not name while the roles alone still say otherwise.
+
+    Deliberately optimistic in the same direction as everything else here: every question
+    is "may", and an unknown answers yes. A session that has been told nothing about the
+    couple must behave exactly as it did before any of this existed.
+    """
+
+    __slots__ = ("facts", "lovers", "models", "_models_known")
+
+    def __init__(self, facts, player_roles):
+        self.facts = facts or {}
+        self.lovers = {key for key, entry in self.facts.items() if entry.get("lover")}
+        self.models = {entry.get("model") for entry in self.facts.values() if entry.get("model") is not None}
+        self._models_known = self._all_models_set(player_roles)
+
+    def _all_models_set(self, player_roles):
+        """Whether every Doppelgänger and Wild Child we can see has named a model.
+
+        One of them still to choose means the next model could be anybody, so the question
+        is open for the whole table however many have already chosen. Read off the revealed
+        composition rather than the roster: a player who has not revealed could be a Wild
+        Child, and `player_roles` is the same "what we actually know" every other part of
+        this module is built on.
+
+        A recorded model is also required outright. Without it a game with no Doppelgänger
+        and no Wild Child at all would answer "all of them have chosen" vacuously, and
+        `may_be_own_model()` would then narrow a rule down to nobody rather than leaving it
+        as the composition found it.
+        """
+        if not self.models:
+            return False
+        for key, candidates in (player_roles or {}).items():
+            if "doppelganger" in candidates or "wild_child" in candidates:
+                if self.facts.get(key, {}).get("model") is None:
+                    return False
+        return True
+
+    # --- Love --------------------------------------------------------------
+
+    def is_lover(self, key):
+        return key in self.lovers
+
+    def couple_known(self):
+        """Whether both halves of the couple have been named.
+
+        Two, not one. `/love` takes a bare player as well as a pair — the real manager
+        marks each lover with a heart rather than announcing a couple — so one name told
+        us who one lover is and nothing at all about who the other might be. Closing the
+        question there would have taken every lover achievement off the fifteen players
+        one of whom is the other half.
+        """
+        return len(self.lovers) >= 2
+
+    def may_love(self, key):
+        return self.is_lover(key) or not self.couple_known()
+
+    def partner_known(self, key):
+        return self.facts.get(key, {}).get("partner") is not None
+
+    # --- Role models -------------------------------------------------------
+
+    def is_model(self, key):
+        return key in self.models
+
+    def models_known(self):
+        return self._models_known
+
+    def may_be_own_model(self, key):
+        return self.is_model(key) or not self.models_known()
+
+    def model_known(self, key):
+        return self.facts.get(key, {}).get("model") is not None
+
+    def may_model_partner(self, key):
+        """Whether this player's role model could still turn out to be their lover.
+
+        Both halves have to be recorded before this can answer no: a model with no partner
+        yet may be the partner-to-be, and a partner with no model chosen is a choice still
+        to be made.
+        """
+        if not self.model_known(key) or not self.partner_known(key):
+            return True
+        entry = self.facts.get(key, {})
+        return entry["model"] == entry["partner"]
+
+
 def reachable_roles(candidates, composition):
     """Every role a player could still end up as, including the one they reported.
 
@@ -309,6 +411,44 @@ def _functions(composition):
     }
 
 
+def _player_functions(facts, key):
+    """The vocabulary a player expression may use, bound to one player.
+
+    Read as questions about "you": the subject of the rule is implied, the way it is in the
+    achievement descriptions these come from ("be in love with the tanner"). Every one of
+    them is a `may` rather than an `is`, because a list that hid a row the game had not yet
+    ruled out would be the failure this module exists to prevent.
+    """
+    return {
+        "is_lover": lambda: facts.is_lover(key),
+        "couple_known": facts.couple_known,
+        "may_love": lambda: facts.may_love(key),
+        "partner_known": lambda: facts.partner_known(key),
+        "is_model": lambda: facts.is_model(key),
+        "models_known": facts.models_known,
+        "may_be_own_model": lambda: facts.may_be_own_model(key),
+        "model_known": lambda: facts.model_known(key),
+        "may_model_partner": lambda: facts.may_model_partner(key),
+    }
+
+
+def _evaluator(composition, facts=None, key=None):
+    """One sandbox, built the same way wherever an expression is evaluated.
+
+    A player expression gets the composition's vocabulary as well as its own, so a rule
+    that has to ask both questions at once ("you may be a lover, and there is a Tanner")
+    can be written as one expression instead of being split across two fields that would
+    then have to agree.
+    """
+    functions = _functions(composition)
+    if facts is not None:
+        functions.update(_player_functions(facts, key))
+    return EvalWithCompoundTypes(
+        names={"players": composition.players, "roles": composition.roles},
+        functions=functions,
+    )
+
+
 def evaluate(expr, composition):
     """Evaluate one rule expression against a composition. Never raises.
 
@@ -316,10 +456,7 @@ def evaluate(expr, composition):
     at runtime, so one bad expression is a normal operational event, and taking the whole
     Possible Achievements post down over it would be a poor trade for the other 108 rules.
     """
-    evaluator = EvalWithCompoundTypes(
-        names={"players": composition.players, "roles": composition.roles},
-        functions=_functions(composition),
-    )
+    evaluator = _evaluator(composition)
     try:
         return bool(evaluator.eval(expr))
     except Exception as exc:
@@ -333,6 +470,23 @@ def evaluate(expr, composition):
         return False
 
 
+def evaluate_for_player(expr, composition, facts, key):
+    """Evaluate a rule's player expression for one player. Never raises.
+
+    Fails **open**, unlike `evaluate`. A composition expression that blows up drops one
+    achievement from the post; this one only ever narrows a row that the subject and the
+    composition have already agreed on, so the safe answer to a broken gate is the answer
+    the bot gave before the gate existed. Failing closed here would hide a row from
+    everybody and look exactly like the achievement being impossible.
+    """
+    evaluator = _evaluator(composition, facts, key)
+    try:
+        return bool(evaluator.eval(expr))
+    except Exception as exc:
+        logger.warning("player_rule_eval_failed", expr=expr, error=str(exc))
+        return True
+
+
 def validate(expr):
     """Check an expression before storing it. Returns (ok, error_message).
 
@@ -342,12 +496,26 @@ def validate(expr):
     anything assuming players exist.
     """
     for probe in (Composition(()), Composition([("villager",)] * 3), _KITCHEN_SINK):
-        evaluator = EvalWithCompoundTypes(
-            names={"players": probe.players, "roles": probe.roles},
-            functions=_functions(probe),
-        )
         try:
-            evaluator.eval(expr)
+            _evaluator(probe).eval(expr)
+        except Exception as exc:  # noqa: BLE001 - the caller wants the message, whatever it is
+            return False, "{}: {}".format(type(exc).__name__, exc)
+    return True, ""
+
+
+def validate_player(expr):
+    """The same check for a rule's player expression. Returns (ok, error_message).
+
+    Probed against a player nothing is known about *and* one every fact has been recorded
+    for, because the two halves of every `may` question take different branches and a rule
+    naming a function that does not exist would otherwise pass on the branch that never
+    calls it.
+    """
+    probe = Composition([("doppelganger",), ("villager",), ("villager",)])
+    known = Facts({0: {"lover": True, "partner": 1, "model": 1}}, {})
+    for facts, key in ((Facts({}, {}), 0), (known, 0), (known, 9)):
+        try:
+            _evaluator(probe, facts, key).eval(expr)
         except Exception as exc:  # noqa: BLE001 - the caller wants the message, whatever it is
             return False, "{}: {}".format(type(exc).__name__, exc)
     return True, ""
@@ -368,15 +536,18 @@ def passing_rules(composition, rules):
     return passing
 
 
-def feasible(player_roles, rules):
+def feasible(player_roles, rules, facts=None):
     """What each player could still earn.
 
     `player_roles` maps a caller's own key (a Telegram user id, in practice) to that
-    player's revealed role candidates. Returns `(per_player, universal)`:
+    player's revealed role candidates. `facts` is the same keying over what the session
+    knows about each player (`session.player_facts`), and is optional: without it the
+    answer is exactly what the roles alone say, which is what this returned before any
+    player-level question existed. Returns `(per_player, shared)`:
 
     * `per_player` — key -> list of {name, swing} in the rules' own order, where `swing`
       marks a row reachable only through a role change;
-    * `shared` — the achievements whose subject is *anyone*, as {name}.
+    * `shared` — the achievements anybody at the table could still earn, as {name}.
 
     The split exists because "anyone can earn this" and "you can earn this" look identical
     once printed under a name. A rule like Sunday Bloody Sunday belongs to no role at all,
@@ -385,11 +556,32 @@ def feasible(player_roles, rules):
     is: a fact about the game.
     """
     composition = Composition(player_roles.values())
+    known = Facts(facts, player_roles)
     passing = passing_rules(composition, rules)
 
-    # Subject "any" is the whole test for shared: "no role gate" and "every role is a
-    # subject" are the same statement once the output is per player.
-    shared = [{"name": name} for name, rule in passing.items() if rule["subject"].strip() == rulelist.ANY]
+    # Whether a player passes a rule's gate, asked once per (rule, player) and remembered:
+    # the shared test below asks about every player, and the per-player loop then asks
+    # again about each of them.
+    gates = {}
+
+    def passes(name, rule, key):
+        gate = rule.get("player_expr", "")
+        if not gate:
+            return True
+        if (name, key) not in gates:
+            gates[(name, key)] = evaluate_for_player(gate, composition, known, key)
+        return gates[(name, key)]
+
+    # Subject "any" was once the whole test for shared, and a gate is what can make it stop
+    # being true: an achievement the game has narrowed to the two players in love is no
+    # longer a fact about the game, whatever its subject says. So it is shared only while
+    # it is still open to *everybody*, and drops into the per-player lists — under exactly
+    # those it is still open to — the moment it is not.
+    shared = [
+        {"name": name}
+        for name, rule in passing.items()
+        if rule["subject"].strip() == rulelist.ANY and all(passes(name, rule, key) for key in player_roles)
+    ]
     shared_names = {entry["name"] for entry in shared}
 
     per_player = {}
@@ -403,6 +595,8 @@ def feasible(player_roles, rules):
                 continue
             subject = rulelist.subject_roles(rule["subject"], roles_registry)
             if not subject.intersection(reachable):
+                continue
+            if not passes(name, rule, key):
                 continue
             entries.append(
                 {

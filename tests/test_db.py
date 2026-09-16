@@ -553,6 +553,59 @@ async def test_rules_come_back_in_achievement_order(ruled):
     assert list(db.get_rules()) == [a["name"] for a in ACHV]
 
 
+async def test_a_table_that_predates_the_player_gate_gets_the_column(ruled):
+    """The case the `ruled` fixture cannot express, and the one production actually is.
+
+    Every deployed database already has achievement_rules, so `CREATE TABLE IF NOT EXISTS`
+    is a no-op there and the column in it reaches nobody -- the same trap `tier` and
+    search_tsv each sprang. This drops the column off a table that is *not* dropped and
+    asserts ensure_schema() puts it back, seeding included.
+    """
+    async with db._pool.acquire() as conn:
+        await conn.execute("ALTER TABLE achievement_rules DROP COLUMN player_expr")
+
+    await db.ensure_schema()
+    await db.seed_rules()
+    await db.load_rules_cache()
+
+    assert db.get_rules()["Romeo and Juliet"]["player_expr"] == "may_love()"
+
+
+async def test_the_player_gate_survives_the_round_trip(ruled):
+    """A gate that seeded as empty is one that narrows nothing, silently and for ever.
+
+    The column was added to a table every deployed database already has, so it is the
+    ALTER rather than the CREATE that puts it there -- and nothing about a missing gate
+    would fail: the post would simply go on offering lover achievements to the whole
+    table, exactly as it did before.
+    """
+    rules = db.get_rules()
+    assert rules["Romeo and Juliet"]["player_expr"] == "may_love()"
+    assert rules["Indestructible"]["player_expr"] == "may_be_own_model()"
+    assert rules["Cold as Ice"]["player_expr"] == "", "most rules have no gate at all"
+
+
+async def test_a_deploy_corrects_a_player_gate_nobody_has_edited(ruled):
+    """The same half of the upsert `expr` gets, for the same reason: a fix has to land."""
+    async with db._pool.acquire() as conn:
+        await conn.execute("UPDATE achievement_rules SET player_expr = '' WHERE achievement = 'Romeo and Juliet'")
+    await db.seed_rules()
+    await db.load_rules_cache()
+    assert db.get_rules()["Romeo and Juliet"]["player_expr"] == "may_love()"
+
+
+async def test_editing_a_rule_without_a_gate_clears_the_one_it_had(ruled):
+    """Writing a rule writes the whole rule.
+
+    A gate kept from the previous version would go on narrowing a row the new expression
+    says is open to everybody -- and it would do it invisibly, since the caller never
+    mentioned it.
+    """
+    await db.update_rule("Romeo and Juliet", "any", "True", "edited live")
+    await db.load_rules_cache()
+    assert db.get_rules()["Romeo and Juliet"]["player_expr"] == ""
+
+
 async def test_a_rule_cannot_outlive_its_achievement(ruled):
     """ON DELETE CASCADE: an orphaned rule would block the delete or linger unreachable."""
     async with db._pool.acquire() as conn:

@@ -452,3 +452,167 @@ def test_i_helped_is_not_offered_to_a_cub_with_no_possible_second_wolf():
     lone = ["wolf_cub", "villager", "seer", "harlot"]
     per_player, _ = feasibility.feasible({uid: (role,) for uid, role in enumerate(lone)}, CATALOGUE)
     assert "I Helped!" not in {entry["name"] for entry in per_player[0]}
+
+
+# --- What the game has already decided -------------------------------------
+#
+# The third question, after "can this game produce it" and "whose role is it": has a
+# choice already been made that closes it. Cupid's couple and the Wild Child's role model
+# are both made mid-game, and until these existed a post went on offering "be in love with
+# the tanner" to eighteen players who provably could not be.
+
+
+def facts(**players):
+    """Session facts for the players named, each given the full shape."""
+    return {
+        key: {"lover": entry.get("lover", False), "partner": entry.get("partner"), "model": entry.get("model")}
+        for key, entry in players.items()
+    }
+
+
+LOVE_GAME = {"cupid": ("cupid",), "tanner": ("tanner",), "harlot": ("harlot",), "wolf": ("werewolf",)}
+
+
+def test_nothing_known_answers_exactly_as_it_did_before_facts_existed():
+    """The whole feature has to be invisible in a session that was told nothing."""
+    with_none, shared_none = feasibility.feasible(LOVE_GAME, CATALOGUE)
+    with_empty, shared_empty = feasibility.feasible(LOVE_GAME, CATALOGUE, {})
+    assert with_none == with_empty
+    assert shared_none == shared_empty
+    assert "Affectionate" in names_for(with_none, "harlot")
+
+
+def test_one_lover_does_not_close_the_question():
+    """`/love` takes a bare player, so one name says nothing about who the other half is."""
+    one = facts(tanner={"lover": True})
+    per_player, _ = feasibility.feasible(LOVE_GAME, CATALOGUE, one)
+    assert "Affectionate" in names_for(per_player, "harlot"), "the harlot may still be the other half"
+
+
+def test_a_named_couple_takes_the_lover_achievements_off_everybody_else():
+    couple = facts(tanner={"lover": True, "partner": "wolf"}, wolf={"lover": True, "partner": "tanner"})
+    per_player, _ = feasibility.feasible(LOVE_GAME, CATALOGUE, couple)
+    assert "Affectionate" not in names_for(per_player, "harlot"), "the harlot is not in the couple"
+    assert "Self Loving" not in names_for(per_player, "cupid"), "Cupid picked somebody else"
+    assert "Should've Said Something" in names_for(per_player, "wolf"), "the wolf is half of it"
+
+
+def test_a_shared_row_moves_under_the_couple_rather_than_disappearing():
+    """ "Anyone can earn this" stops being true the moment the game names two people.
+
+    Romeo and Juliet has no role gate at all, so it is summarised once at the foot of the
+    post. A couple makes it a fact about two players instead, and the post has somewhere
+    better to say it.
+    """
+    open_game, shared = feasibility.feasible(LOVE_GAME, CATALOGUE)
+    assert "Romeo and Juliet" in {entry["name"] for entry in shared}
+    assert "Romeo and Juliet" not in names_for(open_game, "harlot")
+
+    couple = facts(tanner={"lover": True, "partner": "wolf"}, wolf={"lover": True, "partner": "tanner"})
+    per_player, shared = feasibility.feasible(LOVE_GAME, CATALOGUE, couple)
+    assert "Romeo and Juliet" not in {entry["name"] for entry in shared}
+    assert "Romeo and Juliet" in names_for(per_player, "wolf")
+    assert "Romeo and Juliet" not in names_for(per_player, "harlot")
+
+
+# A Thief is in it so that the plain roles are subject-matched too: a Thief at the table
+# puts every stealable role within reach of everybody holding one, which is what makes
+# Indestructible a row on the Villager's list at all. Without one there would be nothing
+# for the model gate to narrow.
+MODEL_GAME = {
+    "dg": ("doppelganger",),
+    "wc": ("wild_child",),
+    "vil": ("villager",),
+    "seer": ("seer",),
+    "th": ("thief",),
+}
+
+
+def test_a_role_model_nobody_has_finished_choosing_narrows_nothing():
+    """One of the pair still to choose means the next model could be anybody."""
+    half = facts(dg={"model": "vil"})
+    per_player, _ = feasibility.feasible(MODEL_GAME, CATALOGUE, half)
+    assert "Indestructible" in names_for(per_player, "seer"), "the Wild Child may still point here"
+
+
+def test_once_every_model_is_chosen_only_the_players_pointed_at_can_be_their_own():
+    chosen = facts(dg={"model": "vil"}, wc={"model": "dg"})
+    per_player, _ = feasibility.feasible(MODEL_GAME, CATALOGUE, chosen)
+    assert "Indestructible" in names_for(per_player, "vil"), "the Doppelgänger points here"
+    assert "Indestructible" in names_for(per_player, "dg"), "and the Wild Child here"
+    assert "Indestructible" not in names_for(per_player, "wc"), "nobody is pointing at the Wild Child"
+    assert "Indestructible" not in names_for(per_player, "seer")
+    assert "Indestructible" not in names_for(per_player, "th"), "not even the Thief who could take the role"
+
+
+def test_a_game_with_no_models_at_all_is_not_narrowed_to_nobody():
+    """ "Every Doppelgänger has chosen" is vacuously true with none in the game.
+
+    Answering yes there would take Indestructible off the whole table in a game a Thief
+    could still put somebody into the role.
+    """
+    thief_game = {"th": ("thief",), "dg": ("doppelganger",), "wc": ("wild_child",)}
+    per_player, _ = feasibility.feasible(thief_game, CATALOGUE, facts(th={"lover": True}))
+    assert "Indestructible" in names_for(per_player, "th")
+
+
+def test_a_doppelganger_who_pointed_somewhere_other_than_their_lover_loses_deep_love():
+    game = {"dg": ("doppelganger",), "cu": ("cupid",), "a": ("villager",), "b": ("seer",)}
+    pointing_at_the_partner = facts(
+        dg={"lover": True, "partner": "a", "model": "a"}, a={"lover": True, "partner": "dg"}
+    )
+    per_player, _ = feasibility.feasible(game, CATALOGUE, pointing_at_the_partner)
+    assert "Deep Love" in names_for(per_player, "dg")
+
+    pointing_elsewhere = facts(dg={"lover": True, "partner": "a", "model": "b"}, a={"lover": True, "partner": "dg"})
+    per_player, _ = feasibility.feasible(game, CATALOGUE, pointing_elsewhere)
+    assert "Deep Love" not in names_for(per_player, "dg"), "that choice is spent"
+
+
+# --- The sandbox, one player at a time -------------------------------------
+
+
+def test_a_broken_player_expression_fails_open():
+    """The opposite of `evaluate`, and deliberately.
+
+    A composition expression that blows up drops one achievement. A player gate only ever
+    narrows a row two other checks have already agreed on, so a broken one must leave the
+    answer the bot gave before the gate existed rather than hiding the row from everybody.
+    """
+    composition = comp("villager")
+    known = feasibility.Facts({}, {})
+    assert feasibility.evaluate_for_player("may_love(", composition, known, "a") is True
+    assert feasibility.evaluate_for_player("no_such_function()", composition, known, "a") is True
+
+
+def test_a_player_expression_may_also_ask_about_the_composition():
+    """One expression rather than two fields that would then have to agree."""
+    composition = comp("cupid", "tanner")
+    known = feasibility.Facts({}, {})
+    assert feasibility.evaluate_for_player("may_love() and ispresent('cupid')", composition, known, "a") is True
+    assert feasibility.evaluate_for_player("may_love() and ispresent('seer')", composition, known, "a") is False
+
+
+def test_validate_player_accepts_the_vocabulary_and_rejects_nonsense():
+    assert feasibility.validate_player("may_love()")[0] is True
+    assert feasibility.validate_player("may_be_own_model() and players >= 4")[0] is True
+
+    ok, message = feasibility.validate_player("no_such_function()")
+    assert ok is False
+    assert "no_such_function" in message
+
+
+def test_validate_player_probes_both_branches_of_a_may():
+    """A player nothing is known about takes the other branch, so one probe is not enough."""
+    ok, _ = feasibility.validate_player("is_lover() and no_such_function()")
+    assert ok is False
+
+
+def test_every_catalogue_player_expression_is_valid():
+    """The same guard the composition expressions get: stored-but-never-run is the failure."""
+    for rule in RULES:
+        gate = rule.get("player_expr", "")
+        if not gate:
+            continue
+        ok, message = feasibility.validate_player(gate)
+        assert ok, "{}: {} -- {}".format(rule["name"], gate, message)

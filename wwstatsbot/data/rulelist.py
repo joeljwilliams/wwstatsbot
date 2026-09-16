@@ -15,6 +15,14 @@ exists to prevent:
   when their role is in the subject.
 * **expr** — *is the game capable of it*, evaluated against the whole role composition.
 
+A few rules carry a third field, **player_expr**, which asks a question neither of those
+can: *has this game already ruled you out*. Cupid's couple and a Wild Child's role model
+are choices made inside a running game, and a rule that only ever sees roles cannot know
+that "be in love with the tanner" stopped being available to eighteen of the twenty players
+the moment the couple was named. It defaults to empty, which is the ordinary case and means
+"the roles are the whole answer" — see `feasibility.Facts` for the vocabulary, every word of
+which is a `may`.
+
 "Cold as Ice" is subject `snow_wolf`, expr "a harlot is present": it belongs under the
 Snow Wolf and nobody else, and only when there is a harlot to freeze. A single boolean per
 achievement cannot express that, and a per-player list built from one would either show
@@ -52,8 +60,8 @@ TAG_PREFIX = "tag:"
 TEAM_PREFIX = "team:"
 
 
-def _rule(name, subject, expr, note):
-    return {"name": name, "subject": subject, "expr": expr, "note": note}
+def _rule(name, subject, expr, note, player_expr=""):
+    return {"name": name, "subject": subject, "expr": expr, "note": note, "player_expr": player_expr}
 
 
 def is_listed(rule):
@@ -189,7 +197,9 @@ RULES = [
         "villager,tag:pack",
         "all_present('cupid','villager') and max_possible_wolves() > 0",
         "'villager, not village team' is literal: the couple must be a wolf and a plain Villager, "
-        "and Cupid has to pair them.",
+        "and Cupid has to pair them — and once that couple is named, the wolves and villagers who "
+        "are not in it are out of it.",
+        player_expr="may_love()",
     ),
     _skip("Developer", "A merged pull request — not gameplay."),
     _rule("The First Stone", ANY, "True", "Voting behaviour, no role gate."),
@@ -211,7 +221,15 @@ RULES = [
         "achievement names: the Sorcerer and the Arsonist are bad roles the Detective's find is not "
         "about.",
     ),
-    _rule("Speed Dating", ANY, "ispresent('cupid')", "The bot only picks lovers when Cupid failed to."),
+    _rule(
+        "Speed Dating",
+        ANY,
+        "ispresent('cupid')",
+        "The bot only picks lovers when Cupid failed to. Anybody's, until the couple is known — at "
+        "which point it is the couple's, and the post says so under their two names instead of at "
+        "the foot of the message.",
+        player_expr="may_love()",
+    ),
     _rule("Even a Stopped Clock is Right Twice a Day", "fool", "True", "Two correct visions, by luck."),
     _rule("So Close!", "tanner", "True", "A vote tie, which no composition can predict."),
     _rule(
@@ -221,8 +239,22 @@ RULES = [
         "Ten living cultists is reached by recruiting, never by dealing — and the cult-immune roles "
         "cap how large it can get.",
     ),
-    _rule("Self Loving", "cupid", "True", "Cupid's own choice."),
-    _rule("Should've Said Something", "tag:pack", "ispresent('cupid')", "The pack must have a lover to eat."),
+    _rule(
+        "Self Loving",
+        "cupid",
+        "True",
+        "Cupid's own choice — and one we can see the answer to: a couple that has been named "
+        "without Cupid in it is Cupid having chosen somebody else.",
+        player_expr="may_love()",
+    ),
+    _rule(
+        "Should've Said Something",
+        "tag:pack",
+        "ispresent('cupid')",
+        "The pack must have a lover to eat, and it has to be *your* lover — so a wolf the couple "
+        "does not name has nobody to be sorry about.",
+        player_expr="may_love()",
+    ),
     _rule("Tanner Overkill", "tanner", "True", "A unanimous lynch, which is behaviour."),
     _rule(
         "Serial Samaritan",
@@ -274,6 +306,7 @@ RULES = [
         "You must have a lover to kill on night one — and be able to kill on a night at all. The "
         "Gunner and the Hunter carry the killer tag and fire only by day, so both were being offered "
         "an achievement neither can reach.",
+        player_expr="may_love()",
     ),
     _skip("Veteran", "500 games, cumulative."),
     _rule("No Sorcery!", "tag:pack", "ispresent('sorcerer')", "There has to be a sorcerer to eat."),
@@ -340,14 +373,19 @@ RULES = [
         "Deep Love",
         "doppelganger",
         "ispresent('cupid')",
-        "Choosing your lover as your role model needs Cupid to have made you a lover first.",
+        "Choosing your lover as your role model needs Cupid to have made you a lover first — and "
+        "then needs the model you chose to be them. A Doppelgänger who has already pointed at "
+        "somebody who is not their partner has spent the only choice this asks about.",
+        player_expr="may_love() and may_model_partner()",
     ),
     _rule("Time to retire...", "sorcerer", "True", "Last alive and losing — an outcome, not a composition."),
     _rule(
         "Seeing between Teams",
         "seer,sorcerer",
         "all_present('seer','sorcerer','cupid')",
-        "A seer/sorcerer couple needs Cupid to pair them.",
+        "A seer/sorcerer couple needs Cupid to pair them, and a couple already named elsewhere is "
+        "Cupid having paired somebody else.",
+        player_expr="may_love()",
     ),
     _rule("Just a Beardy Guy..?", "wolfman", "ispresent('alpha_wolf')", "Only the Alpha's bite can turn them."),
     _rule(
@@ -371,7 +409,9 @@ RULES = [
         "My Sweetie so Strong!",
         ANY,
         "all_present('pacifist','cupid')",
-        "You must be in love with the pacifist, so Cupid has to pair you.",
+        "You must be in love with the pacifist, so Cupid has to pair you — anybody's until the "
+        "couple is known, and then only theirs.",
+        player_expr="may_love()",
     ),
     _rule(
         "Cult Leader",
@@ -395,7 +435,13 @@ RULES = [
         "ispresent('thief','alpha_wolf')",
         "Something must be able to change their role: a theft or the Alpha's bite.",
     ),
-    _rule("Affectionate", "harlot", "ispresent('cupid')", "You need a lover to visit."),
+    _rule(
+        "Affectionate",
+        "harlot",
+        "ispresent('cupid')",
+        "You need a lover to visit, which means being half of the couple rather than merely sharing a game with one.",
+        player_expr="may_love()",
+    ),
     _rule(
         "Lucky Day",
         "alpha_wolf",
@@ -410,7 +456,10 @@ RULES = [
         '"*Become* Doppelgänger or Wild Child with your role model being yourself" needs two of '
         "these roles, never one: one of the pair has to already be pointing at you when you take the "
         "other's identity. So the Doppelgänger and the Wild Child together, or a Thief who steals "
-        "either of them. A game with a lone Doppelgänger was being offered it and there is no route.",
+        "either of them. A game with a lone Doppelgänger was being offered it and there is no route. "
+        "Once every model in the game has been chosen, the players being pointed at are the only "
+        "ones who can end up being their own — the rest cannot get there from anywhere.",
+        player_expr="may_be_own_model()",
     ),
     _rule("Psychopath Killer", "serial_killer", "players >= 35", "A 35-player win."),
     _skip("Today's Special!", "An event-only role, absent from the standard /rolelist."),
@@ -418,7 +467,9 @@ RULES = [
         "Romeo and Juliet",
         ANY,
         "all_present('tanner','cupid')",
-        "Being in love with the tanner requires Cupid as well as the Tanner.",
+        "Being in love with the tanner requires Cupid as well as the Tanner, and being in the couple "
+        "rather than watching it.",
+        player_expr="may_love()",
     ),
     _rule(
         "Really bad luck",

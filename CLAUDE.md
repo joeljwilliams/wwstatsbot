@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1624 tests; the 74 Postgres ones skip by default
+uv run pytest                     # 1675 tests; the 78 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -291,6 +291,10 @@ is the rule `settings.py` has always had, generalised — see *Configuration* fo
   `achievement_rules` exactly as `achvlist.py` is for `achievements`: a fresh database is
   populated from it, and a running bot reads the table. Both seed lists live in `data/`
   beside the module that seeds from them, so the data layer never points at the game layer.
+  A rule answers up to three questions, and they are kept apart on purpose: **subject**
+  (whose achievement is it), **expr** (can this game produce it, evaluated once per
+  composition), and **player_expr** (has the game already ruled *you* out — see *A choice
+  the game has made* below).
 - **`render/templates.py`** — every user-visible string, as `str.format` templates grouped by
   parse mode. Handler code must not contain new prose; add a template. `N_()` marks each one
   for extraction, and `i18n.py` resolves the catalog at render time (stdlib `gettext`;
@@ -598,6 +602,40 @@ job**: left running it would fire inside the live game it just restored and edit
 roster back to GAME ENDED. The pin is deliberately *not* held across the window — a game
 that may be over must not go on holding the chat's pin on the chance that it is not — so a
 restart re-pins.
+
+**A choice the game has made closes an achievement, and the roles cannot see it.** Cupid
+picks a couple and the Wild Child picks a role model, both mid-game. Until `player_expr`
+existed the post went on offering "be in love with the tanner" to all twenty players at a
+table where two of them were already in love, and "your role model being yourself" to
+everybody in a game where every model had been named — the composition can see that a Cupid
+is playing and nothing else. `session.player_facts` is the reading, `feasibility.Facts` is
+the vocabulary, and eleven rules in `rulelist.py` carry a gate written in it.
+
+Four things in it are load-bearing. Every word of the vocabulary is a **may**: an unknown
+answers yes, so a session told nothing behaves byte-for-byte as it did before any of this
+existed, and `evaluate_for_player` therefore fails **open** where `evaluate` fails closed —
+a broken gate must leave the row rather than hide it from everybody. **One lover is not a
+couple**: `/love` takes a bare player, so a single name says who one lover is and nothing
+about the other, and closing the question there would have taken the lover achievements off
+the fifteen players one of whom is the other half. `models_known()` likewise wants *every*
+Doppelgänger and Wild Child to have chosen, since one still to pick means the next model
+could be anybody. And the facts are read for the **dead as well as the living**, unlike
+`revealed_roles`: a couple stays a couple after one of them is lynched, and dropping them
+would reopen a question the death had settled further.
+
+A gate also changes what **shared** means. Subject `any` used to be the whole test for the
+roleless rows summarised at the foot of the post; a gate can make "anyone can earn this"
+stop being true, so those rows are shared only while every player still passes, and drop
+into the per-player lists — under exactly the players they are still open to — the moment
+one does not. Romeo and Juliet moving under the couple's two names is the case to picture.
+
+The rule field is a **column on `achievement_rules`**, added with `ADD COLUMN IF NOT
+EXISTS` beside the `DROP COLUMN IF EXISTS tier` that is there for the same reason: every
+deployed database already has that table, so the `CREATE TABLE IF NOT EXISTS` above it
+reaches none of them. Safe as an `ADD` here, unlike `search_tsv`, because what the column
+*holds* is rewritten by `seed_rules` on every startup. `update_rule` defaults it to empty
+rather than preserving what is stored — writing a rule writes the whole rule, and a gate
+silently kept would go on narrowing a row the new expression says is open.
 
 **The lynch order has two forms and only one is stored.** `/lo`, `/slo` and `/rslo`
 (plus the spelt-out `lynchorder`/`setlynchorder`/`resetlynchorder`) answer **only when

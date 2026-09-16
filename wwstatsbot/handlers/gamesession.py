@@ -1781,7 +1781,10 @@ def list_contents(session_data):
     gone — so a renderer decides only how much of this to show, never what is true.
     """
     revealed = session.revealed_roles(session_data)
-    feasible, shared = feasibility.feasible(revealed, db.get_rules())
+    # The facts go in alongside the roles because several achievements stop being possible
+    # the moment the game names a couple or a role model, and nothing about a composition
+    # can see that -- see feasibility.Facts.
+    feasible, shared = feasibility.feasible(revealed, db.get_rules(), session.player_facts(session_data))
 
     per_player = []
     for uid, player_entry in session.players_in_order(session_data):

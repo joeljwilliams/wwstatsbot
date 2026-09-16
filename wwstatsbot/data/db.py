@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS achievement_rules (
     subject     TEXT NOT NULL DEFAULT '',
     -- Boolean expression over the composition, evaluated in a sandbox.
     expr        TEXT NOT NULL DEFAULT 'True',
+    -- Boolean expression about one player -- what the game has already decided about them,
+    -- which no role composition can see (see feasibility.Facts). Empty for most rules, and
+    -- empty means no gate: the subject and `expr` are the whole answer.
+    player_expr TEXT NOT NULL DEFAULT '',
     note        TEXT NOT NULL DEFAULT '',
     -- Set by /setrule. Deploys skip edited rows, so a live correction is not undone by
     -- the next release; /resetrule clears it and the next startup restores the canonical
@@ -136,6 +140,12 @@ CREATE TABLE IF NOT EXISTS achievement_rules (
 -- that already has the table -- which is every deployed one -- so the old NOT NULL column
 -- would survive and reject every seeded row.
 ALTER TABLE achievement_rules DROP COLUMN IF EXISTS tier;
+
+-- And spelled out for the same reason `tier` is: every deployed database already has this
+-- table, so the column added above reaches none of them. Safe as ADD COLUMN IF NOT EXISTS,
+-- unlike search_tsv, because what the column *holds* is rewritten by seed_rules on every
+-- startup -- so a column that already exists is not a column carrying a stale definition.
+ALTER TABLE achievement_rules ADD COLUMN IF NOT EXISTS player_expr TEXT NOT NULL DEFAULT '';
 
 -- Second accounts. Being somebody's alt is a fact about the account, not about a
 -- particular game: the same person brings the same spare account to every round, and
@@ -337,16 +347,17 @@ async def seed_rules():
     async with _pool.acquire() as conn:
         await conn.executemany(
             """
-            INSERT INTO achievement_rules (achievement, subject, expr, note)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO achievement_rules (achievement, subject, expr, player_expr, note)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (achievement) DO UPDATE
                 SET subject = EXCLUDED.subject,
                     expr = EXCLUDED.expr,
+                    player_expr = EXCLUDED.player_expr,
                     note = EXCLUDED.note,
                     updated_at = now()
                 WHERE achievement_rules.edited = FALSE
             """,
-            [(r["name"], r["subject"], r["expr"], r["note"]) for r in RULES],
+            [(r["name"], r["subject"], r["expr"], r.get("player_expr", ""), r["note"]) for r in RULES],
         )
     count = await _scalar("SELECT count(*) FROM achievement_rules")
     edited = await _scalar("SELECT count(*) FROM achievement_rules WHERE edited")
@@ -359,7 +370,7 @@ async def load_rules_cache():
     async with _pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT r.achievement, r.subject, r.expr, r.note, r.edited
+            SELECT r.achievement, r.subject, r.expr, r.player_expr, r.note, r.edited
             FROM achievement_rules r
             JOIN achievements a ON a.name = r.achievement
             ORDER BY a.sort_order, a.id
@@ -369,6 +380,7 @@ async def load_rules_cache():
         r["achievement"]: {
             "subject": r["subject"],
             "expr": r["expr"],
+            "player_expr": r["player_expr"],
             "note": r["note"],
             "edited": r["edited"],
         }
@@ -386,18 +398,22 @@ def get_rules():
     return _RULES
 
 
-async def update_rule(achievement, subject, expr, note):
+async def update_rule(achievement, subject, expr, note, player_expr=""):
     """Overwrite one rule and mark it hand-edited. Returns True if a row matched.
 
     The `edited` flag is the whole point: it opts this rule out of being overwritten by
     the next deploy's seed. Callers must be superuser-gated -- `expr` is evaluated at
     render time, so this is closer to /db than to /setnote.
+
+    `player_expr` defaults to empty rather than to what is already stored: a caller writing
+    a rule is writing the whole rule, and a gate silently kept from the previous version
+    would go on narrowing a row that the new expression says is open to everybody.
     """
     async with _pool.acquire() as conn:
         result = await conn.execute(
             """
             UPDATE achievement_rules
-               SET subject = $2, expr = $3, note = $4,
+               SET subject = $2, expr = $3, note = $4, player_expr = $5,
                    edited = TRUE, updated_at = now()
              WHERE achievement = $1
             """,
@@ -405,6 +421,7 @@ async def update_rule(achievement, subject, expr, note):
             subject,
             expr,
             note,
+            player_expr,
         )
     matched = result != "UPDATE 0"
     if matched:
