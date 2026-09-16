@@ -528,8 +528,9 @@ STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
 # Players are named by mention or reply — never by typing a display name, which has
 # spaces and emoji in it and cannot be told apart from the rest of the line.
 STANDIN_MODEL_USAGE = N_(
-    "Usage: <code>/rm @rolemodel</code> (yours), or the same in reply to a player, "
-    "or <code>/rm @player @rolemodel</code>."
+    "Usage: <code>/rm @rolemodel</code>, or a bare <code>/rm</code> in reply to them "
+    "(both yours); <code>/rm @rolemodel</code> in reply to a player, or "
+    "<code>/rm @player @rolemodel</code> (theirs)."
 )
 # Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
 # reported rather than stored, because a stored one would never fire a transform and the

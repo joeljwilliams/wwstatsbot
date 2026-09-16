@@ -526,7 +526,7 @@ async def test_a_notice_for_an_ended_session_says_nothing(context):
     assert role_notices(context) == []
 
 
-# --- /rm: three forms, one validation ---------------------------------------
+# --- /rm: four forms, one validation ----------------------------------------
 
 
 async def reveal(context, user_id, role_name):
@@ -554,6 +554,55 @@ async def test_rm_with_one_argument_in_reply_sets_the_replied_to_players(context
     await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[OMU], reply_to=theirs)
 
     assert session_data["players"]["3"]["model"] == 2
+    assert session_data["players"]["1"]["model"] is None
+
+
+async def test_bare_rm_in_reply_makes_them_the_senders_rolemodel(context):
+    """Nothing but the reply was said, so it names the model and the sender is the target.
+
+    The opposite way round from `/rm @model` in reply, and deliberately: with an argument
+    the reply is the only thing left to say *whose* rolemodel it is, and without one the
+    reply is the only thing said at all.
+    """
+    session_data = await start_session(context)
+    await reveal(context, 1, "wc")
+
+    theirs = message("hi", from_user=FakeUser(3, "J J"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert session_data["players"]["1"]["model"] == 3
+    assert session_data["players"]["3"]["model"] is None, "the reply is the model, not the target"
+    assert msg.last_reply == "{}'s rolemodel is now {}".format(mention(1, "Ren"), mention(3, "J J"))
+
+
+async def test_bare_rm_in_reply_still_checks_the_senders_role(context):
+    """The form is new; what it validates is not."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "villager")
+
+    theirs = message("hi", from_user=FakeUser(3, "J J"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert "no rolemodel" in msg.last_reply
+    assert session_data["players"]["1"]["model"] is None
+
+
+async def test_bare_rm_with_no_reply_says_how_to_use_it(context):
+    await start_session(context)
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm")
+    assert "Usage" in msg.last_reply
+
+
+async def test_bare_rm_in_reply_to_somebody_outside_the_roster_says_so(context):
+    """A reply that resolved to nobody did say who, so it is answered rather than
+    silently read as the usage message."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "wc")
+
+    theirs = message("hi", from_user=FakeUser(999, "Passer By"))
+    msg = await invoke(gamesession.rolemodel_cmd, context, "/rm", reply_to=theirs)
+
+    assert "need a player from this game" in msg.last_reply
     assert session_data["players"]["1"]["model"] is None
 
 
