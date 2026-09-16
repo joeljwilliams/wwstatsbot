@@ -5,8 +5,8 @@ import html
 import structlog
 from telegram import MessageEntity
 
-import db
-import settings
+from wwstatsbot.data import db
+from wwstatsbot.runtime import settings
 
 logger = structlog.get_logger(__name__)
 

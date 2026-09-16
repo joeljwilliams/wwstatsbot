@@ -17,7 +17,7 @@ the pool.
 import asyncpg
 import pytest
 
-import db
+from wwstatsbot.data import db
 
 # Railway's threshold, and the trap. asyncpg's own default for
 # max_inactive_connection_lifetime is this same 300s, so with the default the pool fell

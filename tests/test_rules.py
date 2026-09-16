@@ -17,10 +17,10 @@ opting one out is a visible decision in the catalogue rather than an omission.
 
 import pytest
 
-import roles
-import rulelist
-from achvlist import ACHV
-from rulelist import RULES
+from wwstatsbot.data import rulelist
+from wwstatsbot.data.achvlist import ACHV
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import roles
 
 ACHIEVEMENT_NAMES = [a["name"] for a in ACHV]
 RULE_NAMES = [r["name"] for r in RULES]
@@ -60,6 +60,52 @@ def test_rule_fields_are_well_formed(rule):
     assert rule["expr"], "expr must never be empty; use 'True' for no gate"
     assert rule["note"], "every rule carries its reasoning"
     assert isinstance(rule["subject"], str)
+    # Empty is the ordinary case here, and the one that means "no gate" -- the opposite of
+    # `expr`, where empty would be a rule that never runs.
+    assert isinstance(rule["player_expr"], str)
+
+
+def test_an_opted_out_rule_has_no_player_gate():
+    """A gate on a rule nothing renders is a gate nobody will ever read.
+
+    It would also be the first thing to mislead somebody turning the rule back on: the
+    subject is the switch, and a player expression sitting behind an empty one looks like
+    a decision that was made rather than one that was never reached.
+    """
+    for rule in RULES:
+        if rulelist.is_listed(rule):
+            continue
+        assert rule["player_expr"] == "", rule["name"]
+
+
+def test_the_love_achievements_are_gated_on_being_in_the_couple():
+    """The composition can only see that a Cupid is playing; the couple is the other half.
+
+    Listed out rather than derived, because the failure is an achievement *missing* from
+    this list: one that reads "your lover" and is still offered to the whole table once
+    the game has said who the lovers are.
+    """
+    for name in (
+        "Forbidden Love",
+        "Speed Dating",
+        "Self Loving",
+        "Should've Said Something",
+        "OH SHI-",
+        "Deep Love",
+        "Seeing between Teams",
+        "My Sweetie so Strong!",
+        "Affectionate",
+        "Romeo and Juliet",
+    ):
+        assert "may_love()" in _rule(name)["player_expr"], name
+
+
+def test_double_shot_is_about_the_shooter_and_is_not_gated_on_love():
+    """The Hunter shoots a couple; they are not in it. The one lover achievement that
+    belongs to somebody standing outside the couple, and gating it would have hidden the
+    row from the only player who can earn it."""
+    assert _rule("Double Shot")["player_expr"] == ""
+    assert "cupid" in _rule("Double Shot")["expr"]
 
 
 @pytest.mark.parametrize("rule", RULES, ids=[r["name"] for r in RULES])

@@ -41,11 +41,10 @@ import re
 import structlog
 from telegram.constants import ParseMode
 
-import api
-import badges
-import db
-import settings
-import templates as t
+from wwstatsbot.data import api, db
+from wwstatsbot.render import badges
+from wwstatsbot.render import templates as t
+from wwstatsbot.runtime import settings
 
 logger = structlog.get_logger(__name__)
 

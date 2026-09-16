@@ -82,7 +82,7 @@ re-point the branch afterwards.
 service is `RAILPACK`; the image was only ever built from the `Dockerfile` because
 `railway.json` overrode that at deploy time. `build.builder` in `railway.py` is what
 replaces the override, and production builds wrong without it — Railpack knows nothing
-about the uv-built venv at `/opt/venv`, the non-root user, or the `handlers/` package.
+about the uv-built venv at `/opt/venv`, the non-root user, or the `wwstatsbot/` package.
 
 **Serverless only works because the bot is quiet, and staying quiet is a code
 property.** `sleepApplication` is on for the bot in both environments, and for Postgres and

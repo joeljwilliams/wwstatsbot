@@ -24,8 +24,8 @@ import json
 import fakeredis
 import pytest
 
-import redis_persistence
-from redis_persistence import RedisPersistence
+from wwstatsbot.runtime import redis_persistence
+from wwstatsbot.runtime.redis_persistence import RedisPersistence
 
 KEY = "ptb:persistence:test"
 

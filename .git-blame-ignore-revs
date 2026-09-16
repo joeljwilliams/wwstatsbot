@@ -6,3 +6,9 @@
 
 # style: apply ruff format (whole-repo, introduced with the test suite)
 79a82baaf144b61b8277d408166ad66d1c376656
+
+# refactor: the application moves into a wwstatsbot/ package. Renames are followed by
+# blame on their own; what this hides is the import block rewritten at the top of every
+# module, which would otherwise attribute those lines to the move rather than to whoever
+# added the import.
+b8935e23b4588ad31cbe85cdd9a33ceec65774c6

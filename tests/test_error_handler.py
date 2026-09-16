@@ -18,8 +18,8 @@ differently.
 import pytest
 from conftest import FakeBot, FakeContext, FakeUpdate
 
-import settings
-from handlers import errors
+from wwstatsbot.handlers import errors
+from wwstatsbot.runtime import settings
 
 LOG_GROUP = -1001234567890
 

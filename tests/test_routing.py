@@ -25,9 +25,9 @@ from conftest import (
     message,
 )
 
-import templates as t
-from handlers import achievements as achv_handlers
-from handlers import search
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import search
+from wwstatsbot.render import templates as t
 
 
 def player_mention(user_id=1, name="Alice", offset=0, length=5):

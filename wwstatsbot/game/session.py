@@ -17,9 +17,15 @@ targeted, or die. Anyone else is not in the game, and a stand-in that let a pass
 into a live roster would be worse than one that ignored them.
 """
 
-import roles
+from wwstatsbot.game import roles
 
 KEY = "standin"
+
+# Where a session goes when it ends, for as long as it can still be restarted. A separate
+# key rather than a flag on the session itself: every command in the module gates on
+# `get()`, and a dict that was still there under the live key — however it was marked —
+# is one missed check away from a dead game accepting reveals again.
+ARCHIVE_KEY = "standin_ended"
 
 
 # What a player's entry looks like before they have revealed anything. `roles` is a list
@@ -73,6 +79,11 @@ def start(chat_data, user_id, players, unresolved, now):
         "pinned_message_id": None,
         "stop_armed_by": None,
         "stop_armed_at": None,
+        # The idle warning's End button arms separately from the roster's Stop. Shared
+        # state would let a stray tap on one and a stray tap on the other add up to an
+        # ending, which is the exact thing arming exists to prevent.
+        "end_armed_by": None,
+        "end_armed_at": None,
         # What the Beholder told us. The Beholder is *shown* the real Seer at the start of
         # the game, which makes them the one player whose claim settles the Seer/Fool
         # question for everybody else — see set_no_seer/set_seer.
@@ -102,6 +113,60 @@ def end(chat_data):
 def touch(session, now):
     """Record activity, which is what the idle timer measures."""
     session["last_activity"] = now
+
+
+def archive(chat_data, session, now):
+    """Keep an ended session aside so it can be picked up again.
+
+    A game ends while the chat is looking somewhere else — the idle timer fires, or
+    somebody taps Stop a round early — and rebuilding a roster by hand costs every player
+    a `/role` they already sent. The session is therefore not thrown away at the end, it
+    is set aside with the time it ended at, and the handler decides how long that is worth
+    offering for (see `_RESTART_SECONDS`).
+
+    Stored under its own key rather than left in place, so every `get()` in the module
+    still reads "there is no session here" the moment one ends. Nothing about an archived
+    session is live: no command writes to it and no timer touches it.
+    """
+    chat_data[ARCHIVE_KEY] = {"session": session, "ended_at": now}
+
+
+def archived(chat_data, now, within):
+    """The ended session, if one ended within `within` seconds. Otherwise None.
+
+    The age is checked here rather than trusted to the expiry job, because the job is the
+    half that does not survive a restart: `chat_data` is persisted to Redis and PTB's
+    JobQueue is not, so a redeploy during the window would otherwise leave an archive that
+    nothing was ever going to clear and a Restart button that worked days later.
+    """
+    entry = chat_data.get(ARCHIVE_KEY)
+    if entry is None:
+        return None
+    if now - entry.get("ended_at", 0) > within:
+        return None
+    return entry["session"]
+
+
+def restore(chat_data, now, within):
+    """Make the archived session live again and return it, or None if it is too old.
+
+    The restored session keeps its message ids, so the roster and the list it was already
+    editing carry on being the ones it edits — a restart that posted a second roster would
+    leave the chat with two, one of them lying.
+    """
+    session = archived(chat_data, now, within)
+    if session is None:
+        return None
+    chat_data.pop(ARCHIVE_KEY, None)
+    session["last_activity"] = now
+    chat_data[KEY] = session
+    return session
+
+
+def discard(chat_data):
+    """Forget an ended session for good. Returns it, or None if there was none."""
+    entry = chat_data.pop(ARCHIVE_KEY, None)
+    return entry["session"] if entry else None
 
 
 def is_member(session, user_id):
@@ -333,6 +398,30 @@ def revealed_roles(session, alive_only=True):
         if entry["roles"]:
             revealed[uid] = tuple(entry["roles"])
     return revealed
+
+
+def player_facts(session):
+    """user_id -> the facts about a player that no role composition can see.
+
+    Cupid's couple and a Wild Child's role model are choices made *inside* a game, and once
+    one has been made it closes achievements that the roles alone still say are open. A
+    third player is not going to be in love with the Tanner when the couple is already
+    somebody else, and "your role model being yourself" is unreachable for everybody the
+    recorded model does not name. `feasibility.Facts` is what turns these into an answer;
+    this is only the reading.
+
+    **Every player, alive or not**, unlike `revealed_roles`. A couple stays a couple after
+    one of them dies, so counting only the living would reopen the question for the whole
+    table the moment a lover was lynched — which is the opposite of what the death told us.
+    """
+    facts = {}
+    for uid, entry in players_in_order(session):
+        facts[uid] = {
+            "lover": bool(entry["lover"]),
+            "partner": entry["partner"],
+            "model": entry["model"],
+        }
+    return facts
 
 
 # --- Lynch order -----------------------------------------------------------

@@ -18,12 +18,8 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import badges
-import builders
-import db
-import playerdata
-import templates as t
-from handlers.common import (
+from wwstatsbot.data import db, playerdata
+from wwstatsbot.handlers.common import (
     PLAYERS_TTL,
     describe_age,
     is_admin_user,
@@ -32,6 +28,8 @@ from handlers.common import (
     remember_players,
     resolve_target,
 )
+from wwstatsbot.render import badges, builders
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

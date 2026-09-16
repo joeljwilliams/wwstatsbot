@@ -4,7 +4,7 @@ import structlog
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-import settings
+from wwstatsbot.runtime import settings
 
 logger = structlog.get_logger(__name__)
 

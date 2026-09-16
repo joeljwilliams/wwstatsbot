@@ -20,9 +20,9 @@ import pytest
 from conftest import SUPERUSER_ID, FakeContext, FakeEntity, FakeUpdate, FakeUser, message
 from telegram.error import BadRequest
 
-import badges
-import db
-from handlers import admin, gamesession, search
+from wwstatsbot.data import db
+from wwstatsbot.handlers import admin, gamesession, search
+from wwstatsbot.render import badges
 
 PREMIUM_ID = "5368324170671202286"
 

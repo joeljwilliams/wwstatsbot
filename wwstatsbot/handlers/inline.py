@@ -12,8 +12,8 @@ from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-import builders
-import templates as t
+from wwstatsbot.render import builders
+from wwstatsbot.render import templates as t
 
 
 def _article(result_id, title, html_text, description=None):

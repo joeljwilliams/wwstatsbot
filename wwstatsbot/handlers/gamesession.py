@@ -36,14 +36,9 @@ from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 from unidecode import unidecode
 
-import badges
-import db
-import feasibility
-import playerdata
-import roles
-import session
-import templates as t
-from handlers.common import (
+from wwstatsbot.data import db, playerdata
+from wwstatsbot.game import feasibility, roles, session
+from wwstatsbot.handlers.common import (
     is_admin_user,
     is_chat_admin,
     mentioned_usernames,
@@ -52,10 +47,19 @@ from handlers.common import (
     utf16_piece,
     utf16_units,
 )
+from wwstatsbot.render import badges
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 
 STOP_CALLBACK = "standin:stop"
+
+# The two answers to the idle warning, and the way back from an ending nobody wanted.
+# Separate callbacks rather than one carrying an argument: each is registered against its
+# own exact pattern in main.py, so a button can only ever reach the handler it names.
+KEEP_CALLBACK = "standin:keep"
+END_CALLBACK = "standin:end"
+RESTART_CALLBACK = "standin:restart"
 
 # The full-list pager. The chat id rides in the callback data because the *later* taps
 # happen on a message in the tapper's PM, where context.chat_data is that private chat's
@@ -339,7 +343,7 @@ def _player_row(session_data, user_id, entry):
     return t.STANDIN_PLAYER_ROW.format(name=name, role=label)
 
 
-def render_state(session_data, ended=False):
+def render_state(session_data, ended=False, restartable=False):
     """The live roster message: (html, keyboard).
 
     Mirrors the achievement manager's own layout — header, `Players (n / total)`, then a
@@ -368,7 +372,15 @@ def render_state(session_data, ended=False):
         msg += t.STANDIN_UNRESOLVED.format(names=", ".join(html.escape(n) for n in session_data["unresolved"]))
 
     if ended:
-        return msg, None
+        # Restart takes Stop's place rather than sitting beside it, and only while the
+        # session can still be picked up (see _RESTART_SECONDS). The roster is the record
+        # of the game afterwards, and a button on it that no longer does anything is worse
+        # than no button: somebody taps it at the start of the *next* game.
+        if not restartable:
+            return msg, None
+        return msg, InlineKeyboardMarkup(
+            [[InlineKeyboardButton(t.STANDIN_RESTART_BUTTON, callback_data=RESTART_CALLBACK)]]
+        )
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(t.STANDIN_STOP_BUTTON, callback_data=STOP_CALLBACK)]])
     return msg, keyboard
 
@@ -507,6 +519,14 @@ async def _open_session(context, chat_id, starter_id, roster):
     players, unresolved = mentioned_users(roster)
     if not players:
         return None
+
+    # A previous game still inside its restart window loses it here — both ways in, since
+    # `/gm auto` opens sessions off the game bot's own roster with nobody typing anything.
+    # Its Restart button would otherwise sit on the old roster offering to drag a finished
+    # game over this one, and a new roster is the clearest statement that the chat has
+    # moved on. After the no-players guard: a list we could not read starts nothing, and
+    # must therefore end nothing either.
+    await _clear_restart(context, chat_id)
 
     session_data = session.start(context.chat_data, starter_id, players, unresolved, _now())
     # The roster's mentions carry whole User objects, so this is where every player's
@@ -944,16 +964,24 @@ async def _unpin_state(context, chat_id, session_data):
 
 
 async def _finish(context, chat_id, session_data):
-    """Close the roster message out: ended header, no instructions, no live button.
+    """Close the roster message out: ended header, no instructions, Restart in Stop's place.
+
+    The single funnel every ending passes through — /gsend, the Stop button, the idle
+    expiry and the game bot's own closing message — which is why the archive is written
+    here rather than at each of them.
 
     The pin goes first, and outside the early return below: a pinned roster outliving its
-    game is exactly what somebody scrolling to the top of the chat would be misled by.
+    game is exactly what somebody scrolling to the top of the chat would be misled by. The
+    pin is *not* kept across the restart window; a game that may be over must not go on
+    holding the chat's pin on the chance that it is not.
     """
     await _unpin_state(context, chat_id, session_data)
+    session.archive(context.chat_data, session_data, _now())
+    _schedule_restart_expiry(context, chat_id)
     message_id = session_data.get("state_message_id")
     if message_id is None:
         return
-    msg, _ = render_state(session_data, ended=True)
+    msg, keyboard = render_state(session_data, ended=True, restartable=True)
     await _edit_live_message(
         context,
         "standin_roster_close_failed",
@@ -962,7 +990,7 @@ async def _finish(context, chat_id, session_data):
         chat_id=chat_id,
         message_id=message_id,
         text=msg,
-        reply_markup=None,
+        reply_markup=keyboard,
     )
 
 
@@ -1018,6 +1046,143 @@ async def stop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_data["stop_armed_by"] = user.id
     session_data["stop_armed_at"] = _now()
     await query.answer(t.STANDIN_STOP_ARM, show_alert=True)
+
+
+async def keep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ "Keep playing" on the idle warning: push the whole countdown back.
+
+    One press, unlike Stop. This button arrives on a message that has just asked whether
+    the game is still going, it is answered within minutes, and the cost of a mis-tap is
+    a session that lives ten minutes longer — where a mis-tapped Stop costs the game.
+    """
+    query = update.callback_query
+    user = query.from_user
+    session_data = session.get(context.chat_data)
+
+    if session_data is None:
+        await query.answer(t.STANDIN_STOP_EXPIRED, show_alert=True)
+        return
+    if not await _may_manage(context, query.message.chat.id, session_data, user.id):
+        await query.answer(t.STANDIN_IDLE_KEEP_NOT_YOURS, show_alert=True)
+        return
+
+    logger.info("callback", command="standin_keep", user_id=user.id)
+    session.touch(session_data, _now())
+    # Somebody half-pressed End before this, and the table has now said the opposite. That
+    # arming must not survive to combine with a stray tap after the game carries on.
+    session_data["end_armed_by"] = None
+    session_data["end_armed_at"] = None
+    # Restarts the countdown from the top — warning first, grace after it — because
+    # _schedule_idle removes whatever is pending under that name, which at this moment is
+    # the grace timer that was about to end the session.
+    _schedule_idle(context, query.message.chat.id)
+    await query.answer(t.STANDIN_IDLE_KEPT_TOAST)
+    # The warning is edited rather than left standing with its buttons: it says the session
+    # is about to end, which is no longer true, and the next person to scroll past it would
+    # otherwise answer a question that has been answered.
+    await _replace_idle_warning(query, t.STANDIN_IDLE_KEPT.format(name=_mention(user.id, user.first_name)))
+
+
+async def end_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ "End it" on the idle warning. Two presses, like the roster's Stop.
+
+    Ending is the destructive answer however it is reached, so it is gated the same way
+    wherever it is offered — and these two buttons sit *side by side*, which is a better
+    target for a mis-tap than the lone Stop on the roster ever was.
+
+    Armed separately from Stop. Sharing the state would let a stray tap on one button and
+    a stray tap on the other add up to an ending, which is the thing arming exists to stop.
+    """
+    query = update.callback_query
+    user = query.from_user
+    session_data = session.get(context.chat_data)
+
+    if session_data is None:
+        await query.answer(t.STANDIN_STOP_EXPIRED, show_alert=True)
+        return
+    if not await _may_stop(context, query.message.chat.id, session_data, user.id):
+        await query.answer(t.STANDIN_STOP_NOT_YOURS, show_alert=True)
+        return
+
+    armed_by = session_data.get("end_armed_by")
+    armed_at = session_data.get("end_armed_at") or 0
+    fresh = (_now() - armed_at) <= _STOP_ARM_SECONDS
+
+    logger.info("callback", command="standin_end", user_id=user.id, armed=bool(armed_by and fresh))
+
+    if armed_by == user.id and fresh:
+        session.end(context.chat_data)
+        await _finish(context, query.message.chat.id, session_data)
+        await query.answer(t.STANDIN_ENDED)
+        await _replace_idle_warning(query, t.STANDIN_STOPPED_BY.format(name=_mention(user.id, user.first_name)))
+        return
+
+    # Deliberately not activity: somebody who armed the ending and then walked away has
+    # said nothing about the game continuing, so the grace timer runs on underneath.
+    session_data["end_armed_by"] = user.id
+    session_data["end_armed_at"] = _now()
+    await query.answer(t.STANDIN_IDLE_END_ARM, show_alert=True)
+
+
+async def _replace_idle_warning(query, text):
+    """Rewrite the idle warning as the answer it got, with its buttons gone.
+
+    Best effort. The warning is a passing message and both callbacks have already done the
+    thing that matters by the time this runs, so a failure to tidy it up is logged and
+    swallowed rather than surfaced to whoever tapped.
+    """
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+    except (BadRequest, Forbidden, RetryAfter) as err:
+        logger.info("standin_idle_warning_edit_failed", error=str(err))
+
+
+async def restart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Restart on the ended roster: put the session back exactly as it was.
+
+    The case this exists for is a game that ended while nobody was looking — the idle
+    timer firing mid-round, or a Stop a round early — where the alternative is every
+    player re-sending a `/role` the bot already had.
+    """
+    query = update.callback_query
+    user = query.from_user
+    chat_id = query.message.chat.id
+
+    if session.get(context.chat_data) is not None:
+        # A new /gs since. Restoring over it would replace a live roster with an older one.
+        await query.answer(t.STANDIN_RESTART_RUNNING, show_alert=True)
+        return
+
+    ended = session.archived(context.chat_data, _now(), _RESTART_SECONDS)
+    if ended is None:
+        await query.answer(t.STANDIN_RESTART_EXPIRED, show_alert=True)
+        return
+    if not await _may_manage(context, chat_id, ended, user.id):
+        await query.answer(t.STANDIN_STOP_NOT_YOURS, show_alert=True)
+        return
+
+    session_data = session.restore(context.chat_data, _now(), _RESTART_SECONDS)
+    logger.info("callback", command="standin_restart", user_id=user.id, chat_id=chat_id)
+    # The expiry job would otherwise fire inside a live game and edit the roster back to
+    # GAME ENDED. It re-checks for a session as well, but cancelling is what stops the
+    # clock, and this is the only place that knows the window has been used.
+    _cancel_restart_expiry(context, chat_id)
+
+    state_message_id = session_data.get("state_message_id")
+    if state_message_id is not None:
+        # Re-pinned rather than assumed: _finish unpinned it, and the game is running again.
+        await _pin_state(context, chat_id, session_data, state_message_id)
+    _schedule_idle(context, chat_id)
+    # The roster is the message the button sits on, so it is brought back immediately
+    # rather than on the debounce: whoever tapped is looking straight at it.
+    await _refresh_state(context, chat_id, session_data)
+    _schedule_publish(context, chat_id)
+    await query.answer(t.STANDIN_RESTARTED)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t.STANDIN_RESTARTED_BY.format(name=_mention(user.id, user.first_name)),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def alt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1616,7 +1781,10 @@ def list_contents(session_data):
     gone — so a renderer decides only how much of this to show, never what is true.
     """
     revealed = session.revealed_roles(session_data)
-    feasible, shared = feasibility.feasible(revealed, db.get_rules())
+    # The facts go in alongside the roles because several achievements stop being possible
+    # the moment the game names a couple or a role model, and nothing about a composition
+    # can see that -- see feasibility.Facts.
+    feasible, shared = feasibility.feasible(revealed, db.get_rules(), session.player_facts(session_data))
 
     per_player = []
     for uid, player_entry in session.players_in_order(session_data):
@@ -1956,8 +2124,20 @@ _PUBLISH_JOB = "standin_publish:{}"
 # has come back online, which is worse than one that ended early — so it expires on
 # silence, with a warning first so a quiet stretch mid-game is survivable.
 _IDLE_WARNING_SECONDS = 10 * 60
-_IDLE_GRACE_SECONDS = 2 * 60
+# Five minutes rather than two. The warning lands in a chat that by definition has said
+# nothing for ten minutes, so nobody is watching it: two minutes was short enough that a
+# night phase, an argument or a slow lynch could use it all up, and the first anyone knew
+# was a roster reading GAME ENDED. The buttons on the warning are the other half of this —
+# a table that *is* still playing can now say so in one tap.
+_IDLE_GRACE_SECONDS = 5 * 60
 _IDLE_JOB = "standin_idle:{}"
+
+# How long an ended session can still be picked up again. Long enough to cover the case
+# this exists for — the game ended without anybody noticing, and somebody scrolls up a few
+# minutes later — and short enough that the Restart button is gone before the *next* game
+# starts, where tapping it would drag a finished roster over a live one.
+_RESTART_SECONDS = 10 * 60
+_RESTART_JOB = "standin_restart:{}"
 
 
 def _job_queue(context):
@@ -2019,6 +2199,65 @@ def _schedule_idle(context, chat_id):
     for job in queue.get_jobs_by_name(name):
         job.schedule_removal()
     queue.run_once(_idle_warning, _IDLE_WARNING_SECONDS, chat_id=chat_id, name=name)
+
+
+def _schedule_restart_expiry(context, chat_id):
+    """Start the clock on the Restart button an ending has just put up."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    name = _RESTART_JOB.format(chat_id)
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_once(_restart_expired, _RESTART_SECONDS, chat_id=chat_id, name=name)
+
+
+def _cancel_restart_expiry(context, chat_id):
+    """Stop that clock, because the window was used or a new game took its place."""
+    queue = _job_queue(context)
+    if queue is None:
+        return
+    for job in queue.get_jobs_by_name(_RESTART_JOB.format(chat_id)):
+        job.schedule_removal()
+
+
+async def _restart_expired(context):
+    """The restart window closed: forget the session and take the button away."""
+    chat_id = context.job.chat_id
+    if session.get(context.chat_data) is not None:
+        # Restarted, or a new /gs opened one. Either way this job is about a session that
+        # is no longer the chat's, and editing the roster now would say GAME ENDED over a
+        # game in progress.
+        return
+    if await _clear_restart(context, chat_id):
+        logger.info("standin_restart_expired", chat_id=chat_id)
+
+
+async def _clear_restart(context, chat_id):
+    """Drop the archived session and the Restart button. True if there was one.
+
+    The roster goes back to what it was before this feature existed: the record of a game,
+    with no button on it. Rendered from the archived session on the way out, because it is
+    about to stop existing and nothing else holds the message id.
+    """
+    _cancel_restart_expiry(context, chat_id)
+    ended = session.discard(context.chat_data)
+    if ended is None:
+        return False
+    message_id = ended.get("state_message_id")
+    if message_id is not None:
+        msg, _ = render_state(ended, ended=True)
+        await _edit_live_message(
+            context,
+            "standin_roster_close_failed",
+            ended,
+            "state_fingerprint",
+            chat_id=chat_id,
+            message_id=message_id,
+            text=msg,
+            reply_markup=None,
+        )
+    return True
 
 
 async def _changed(context, chat_id, session_data):
@@ -2201,7 +2440,12 @@ async def _role_notice(context):
 
 
 async def _idle_warning(context):
-    """Ten minutes of silence: say the session is about to end, and set the grace timer."""
+    """Ten minutes of silence: say the session is about to end, and set the grace timer.
+
+    The two buttons are the point of the message. A table that has gone quiet mid-game has
+    nobody typing commands — that is what put the warning here — so the only answer it was
+    previously offered was to remember to type one within the grace period.
+    """
     chat_id = context.job.chat_id
     if session.get(context.chat_data) is None:
         return
@@ -2209,6 +2453,14 @@ async def _idle_warning(context):
         chat_id=chat_id,
         text=t.STANDIN_IDLE_WARNING.format(minutes=_IDLE_WARNING_SECONDS // 60, grace=_IDLE_GRACE_SECONDS // 60),
         parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(t.STANDIN_IDLE_KEEP_BUTTON, callback_data=KEEP_CALLBACK),
+                    InlineKeyboardButton(t.STANDIN_IDLE_END_BUTTON, callback_data=END_CALLBACK),
+                ]
+            ]
+        ),
     )
     queue = _job_queue(context)
     if queue is not None:
@@ -2223,7 +2475,11 @@ async def _idle_end(context):
         return
     session.end(context.chat_data)
     await _finish(context, chat_id, session_data)
-    await context.bot.send_message(chat_id=chat_id, text=t.STANDIN_IDLE_ENDED, parse_mode=ParseMode.HTML)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t.STANDIN_IDLE_ENDED.format(minutes=_RESTART_SECONDS // 60),
+        parse_mode=ParseMode.HTML,
+    )
     logger.info("standin_expired", chat_id=chat_id)
 
 

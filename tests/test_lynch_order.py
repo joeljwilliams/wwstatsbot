@@ -23,9 +23,9 @@ import html
 import pytest
 from conftest import FakeBot, FakeEntity, FakeMessage, FakeUpdate, FakeUser, bot_message
 
-import db
-import session
-from handlers import gamesession
+from wwstatsbot.data import db
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
 
 ROSTER = [(1, "Ren"), (2, "omu"), (3, "J J")]
 BRACKETS = "\N{MODIFIER LETTER SMALL TURNED ALPHA}ѕнαяиαѕ <\N{CHERRY BLOSSOM}> \N{THIRD PLACE MEDAL}"

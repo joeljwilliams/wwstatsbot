@@ -21,14 +21,11 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import badges
-import builders
-import db
-import playerdata
-import templates as t
-import wwstats
-from handlers import gamesession
-from handlers.common import mention_map
+from wwstatsbot.data import db, playerdata
+from wwstatsbot.handlers import gamesession
+from wwstatsbot.handlers.common import mention_map
+from wwstatsbot.render import badges, builders, wwstats
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

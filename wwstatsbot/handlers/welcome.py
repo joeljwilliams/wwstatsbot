@@ -21,12 +21,10 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from unidecode import unidecode
 
-import api
-import badges
-import builders
-import playerdata
-import templates as t
-from handlers.common import is_admin_user, is_chat_admin
+from wwstatsbot.data import api, playerdata
+from wwstatsbot.handlers.common import is_admin_user, is_chat_admin
+from wwstatsbot.render import badges, builders
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

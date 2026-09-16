@@ -13,7 +13,7 @@ Three things are pinned here, each of which fails silently in production if it d
    breaking one makes a rule wrong somewhere far away from the edit that caused it.
 """
 
-import roles
+from wwstatsbot.game import roles
 
 # The game bot's own /rolelist, verbatim: the /about suffix and the role it names. This is
 # the authoritative vocabulary — 44 roles — and the reason the table is spelled out rather

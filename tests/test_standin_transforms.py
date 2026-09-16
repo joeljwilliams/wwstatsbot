@@ -16,8 +16,8 @@ checked before anything is written, and a disagreement changes nothing at all.
 from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
 from test_standin_session import invoke, mention, player_message, reveal, start_session
 
-import session
-from handlers import gamesession
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
 
 TEXT_MENTION = "text_mention"
 

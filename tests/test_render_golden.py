@@ -20,10 +20,10 @@ ambiguous in a diff.
 
 from conftest import assert_json_roundtrips
 
-import builders
-import templates as t
-from handlers import achievements as achv_handlers
-from handlers import admin, search
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import admin, search
+from wwstatsbot.render import builders
+from wwstatsbot.render import templates as t
 
 # --- Achievement cards -----------------------------------------------------------
 
@@ -247,7 +247,7 @@ def test_every_role_the_api_can_send_has_an_emoji():
     roles.py holds — so every one of them must come back adorned. A role added to the
     registry under a name the API does not use would pass unnoticed; one the API sends
     and the registry has never heard of is what this catches."""
-    import roles
+    from wwstatsbot.game import roles
 
     plain = [name for name in (r["name"] for r in roles.ROLES.values()) if builders.role_label(name) == name]
     assert not plain, "no emoji resolved for: {}".format(plain)

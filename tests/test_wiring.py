@@ -19,10 +19,10 @@ import re
 
 from telegram.ext import CallbackQueryHandler, CommandHandler, InlineQueryHandler
 
-import main
-import settings
-from handlers import achievements as achv_handlers
-from handlers import admin, errors, gamesession, inline, misc, search, stats
+from wwstatsbot import main
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import admin, errors, gamesession, inline, misc, search, stats
+from wwstatsbot.runtime import settings
 
 # Commands advertised in Telegram's "/" menu. Sourced from main so the test tracks the
 # real list rather than a copy that could drift out of step with it.
@@ -226,6 +226,29 @@ def test_the_standin_stop_button_reaches_its_handler():
     assert handler_for_callback_data(application(), data) is gamesession.stop_callback
 
 
+def test_the_restart_button_reaches_its_handler():
+    """The ended roster's button, fed through the real patterns like every other one.
+
+    All four standin buttons now share a prefix, so a pattern widened back to "^standin:"
+    for any of them would swallow the rest — which is the failure this whole section is
+    about.
+    """
+    session_data = {"order": [], "players": {}, "unresolved": [], "state_message_id": None}
+    _, keyboard = gamesession.render_state(session_data, ended=True, restartable=True)
+    data = keyboard.inline_keyboard[0][0].callback_data
+
+    assert handler_for_callback_data(application(), data) is gamesession.restart_callback
+
+
+def test_both_answers_to_the_idle_warning_reach_their_handlers():
+    """A dead button here is the shape this feature exists to prevent: the warning asks
+    whether the game is still going, and neither answer would do anything."""
+    app = application()
+
+    assert handler_for_callback_data(app, gamesession.KEEP_CALLBACK) is gamesession.keep_callback
+    assert handler_for_callback_data(app, gamesession.END_CALLBACK) is gamesession.end_callback
+
+
 def test_the_full_list_button_and_its_pager_reach_their_handler():
     """Both shapes, and both against the *narrowed* Stop pattern.
 
@@ -312,8 +335,8 @@ def test_persistence_is_disabled_without_redis(monkeypatch):
 
 def test_persistence_is_enabled_with_redis(monkeypatch):
     """The durable path: /allinfo and /sch buttons survive a restart."""
-    import redis_persistence
-    from redis_persistence import RedisPersistence
+    from wwstatsbot.runtime import redis_persistence
+    from wwstatsbot.runtime.redis_persistence import RedisPersistence
 
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
     # from_url is lazy, but stub it anyway so nothing can attempt a connection.
