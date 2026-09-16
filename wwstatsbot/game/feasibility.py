@@ -17,6 +17,11 @@ closed to everybody those choices did not name — while the composition, which 
 that a Cupid is in play, goes on offering them to all twenty players. `Facts` below is the
 reading of those choices, and it is asked only about the rules that say they care.
 
+A choice can also close an achievement no rule mentions, and then there is nothing to gate:
+a Doppelgänger reached the Alpha's own achievements by being able to *copy* the Alpha, so
+once they have named a Villager as their model the row goes away by itself —
+`reachable_roles()` reads the same facts to say what a copy can still turn them into.
+
 That second point is most of the value. A Cursed player's own achievements are thin, but
 the wolf they may become has plenty, and a list that hid those would be wrong in the
 direction that matters — it would tell someone nothing is possible when a great deal is.
@@ -237,10 +242,13 @@ class Facts:
     couple must behave exactly as it did before any of this existed.
     """
 
-    __slots__ = ("facts", "lovers", "models", "_models_known")
+    __slots__ = ("facts", "lovers", "models", "player_roles", "_models_known")
 
     def __init__(self, facts, player_roles):
         self.facts = facts or {}
+        # Kept, not just counted: `model_roles()` has to answer *which* role a
+        # recorded model is, and the model is stored as a player key.
+        self.player_roles = {key: tuple(candidates) for key, candidates in (player_roles or {}).items()}
         self.lovers = {key for key, entry in self.facts.items() if entry.get("lover")}
         self.models = {entry.get("model") for entry in self.facts.values() if entry.get("model") is not None}
         self._models_known = self._all_models_set(player_roles)
@@ -303,6 +311,20 @@ class Facts:
     def model_known(self, key):
         return self.facts.get(key, {}).get("model") is not None
 
+    def model_roles(self, key):
+        """The roles this player's recorded model holds, or None while that is still open.
+
+        Not a `may` question like the rest of this class, because it is not asked by a rule:
+        `reachable_roles()` asks it to find out what a Doppelgänger can still turn into.
+        None for every reason the copy cannot be pinned down — no model chosen, a model who
+        has not revealed, a model no longer in the composition — and None means "anything",
+        which is what a Doppelgänger with nothing recorded has always meant.
+        """
+        model = self.facts.get(key, {}).get("model")
+        if model is None:
+            return None
+        return self.player_roles.get(model) or None
+
     def may_model_partner(self, key):
         """Whether this player's role model could still turn out to be their lover.
 
@@ -316,7 +338,7 @@ class Facts:
         return entry["model"] == entry["partner"]
 
 
-def reachable_roles(candidates, composition):
+def reachable_roles(candidates, composition, facts=None, key=None):
     """Every role a player could still end up as, including the one they reported.
 
     This is what stops a Cursed player's list from being nearly empty. Conversions are
@@ -327,6 +349,11 @@ def reachable_roles(candidates, composition):
     Deliberately narrow in two places, both from the game's own rules: a Cursed or Wild
     Child becomes a plain Werewolf and never an Alpha, and the Thief cannot rob a wolf, the
     serial killer or a cultist — but *can* rob the Arsonist or the Sorcerer.
+
+    `facts`/`key` are optional, and without them the answer is the one the roles alone give
+    — which is what this returned before a session could say who had already chosen what.
+    They narrow one thing: a Doppelgänger who has *named* their role model can only become
+    that player, not anybody at the table.
     """
     reachable = set(candidates)
 
@@ -344,9 +371,16 @@ def reachable_roles(candidates, composition):
     if (turns or composition.present("alpha_wolf")) and composition.max_possible_wolves():
         reachable.add("werewolf")
 
-    # The Doppelgänger copies whoever it shadowed.
+    # The Doppelgänger copies whoever it shadowed — every role at the table until the
+    # choice is made, and then exactly one of them.
+    #
+    # Narrowing it needs the session, because the composition can only see that a
+    # Doppelgänger is playing. Unnarrowed it offered "Strongest Alpha" and "Increase the
+    # Pack!" to a Doppelgänger who had picked a Villager as their role model, which the
+    # game had already ruled out — and a chosen model is the *whole* of the choice: this is
+    # not a `may` like the gates in `Facts`, it is the role they are going to copy.
     if "doppelganger" in candidates:
-        reachable.update(composition.roles)
+        reachable.update(_shadowable_roles(composition, facts, key))
 
     # A Thief in the game puts every stealable role within reach of everybody holding one,
     # not just of the Thief. The theft moves an identity between two players and neither
@@ -370,6 +404,36 @@ def reachable_roles(candidates, composition):
         reachable.add("drunk")
 
     return frozenset(reachable)
+
+
+def _shadowable_roles(composition, facts, key):
+    """What a Doppelgänger's copy could turn them into: the whole table, or one player's lot.
+
+    Once a model is named the copy is that player — but it is *their* whole lot, not the
+    role they revealed, because the copy lands when the model dies and by then the model
+    may have turned: a Cursed model eaten in the night is copied as the wolf they became.
+    So the answer is the model's own reachable set, which is why this is the one place that
+    recurses.
+
+    It recurses **once**, deliberately: the inner call is made without facts, so a model
+    who is themselves a Doppelgänger opens back up to the whole composition rather than
+    chaining choices — the honest answer for a copy of a copy, and no cycle to walk into.
+
+    The cult is the one conversion not in a reachable set, because it is not a role change
+    the roles predict: anybody the cult can reach can be recruited. A Doppelgänger is
+    cult-immune while they are one, so the composition's expansion was what put a cultist's
+    achievements on their list; narrowing to a *cultable* model must not take them away,
+    since copying that model makes them recruitable in turn.
+    """
+    shadowed = facts.model_roles(key) if facts is not None else None
+    if shadowed is None:
+        return composition.roles
+    copied = set(reachable_roles(shadowed, composition))
+    if composition.present("cultist") and any(
+        not roles_registry.has_tag(role, roles_registry.CULT_IMMUNE) for role in copied
+    ):
+        copied.add("cultist")
+    return copied
 
 
 def _functions(composition):
@@ -587,7 +651,7 @@ def feasible(player_roles, rules, facts=None):
     per_player = {}
     for key, candidates in player_roles.items():
         candidates = tuple(candidates)
-        reachable = reachable_roles(candidates, composition)
+        reachable = reachable_roles(candidates, composition, known, key)
         own = set(candidates)
         entries = []
         for name, rule in passing.items():
