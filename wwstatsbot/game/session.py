@@ -400,6 +400,30 @@ def revealed_roles(session, alive_only=True):
     return revealed
 
 
+def player_facts(session):
+    """user_id -> the facts about a player that no role composition can see.
+
+    Cupid's couple and a Wild Child's role model are choices made *inside* a game, and once
+    one has been made it closes achievements that the roles alone still say are open. A
+    third player is not going to be in love with the Tanner when the couple is already
+    somebody else, and "your role model being yourself" is unreachable for everybody the
+    recorded model does not name. `feasibility.Facts` is what turns these into an answer;
+    this is only the reading.
+
+    **Every player, alive or not**, unlike `revealed_roles`. A couple stays a couple after
+    one of them dies, so counting only the living would reopen the question for the whole
+    table the moment a lover was lynched — which is the opposite of what the death told us.
+    """
+    facts = {}
+    for uid, entry in players_in_order(session):
+        facts[uid] = {
+            "lover": bool(entry["lover"]),
+            "partner": entry["partner"],
+            "model": entry["model"],
+        }
+    return facts
+
+
 # --- Lynch order -----------------------------------------------------------
 #
 # Two orders exist and only one is stored. The rotating order is computed from the living

@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 
 import pytest
 from conftest import FakeUpdate, FakeUser, message
-from test_standin_session import player_message, reveal, start_session
+from test_standin_session import JJ, REN, ROSTER, invoke, player_message, reveal, start_session
 
 from wwstatsbot.data import api, db
 from wwstatsbot.data.rulelist import RULES
@@ -821,6 +821,23 @@ async def test_feasibility_sees_only_living_revealed_players(context):
     assert "Should Have Known" not in names, "no living beholder to reveal"
 
 
+async def test_the_facts_outlive_the_player_they_are_about(context):
+    """The opposite of `revealed_roles`, and deliberately.
+
+    A couple stays a couple after one of them is lynched. Dropping the dead here would
+    reopen "who is in love" for the whole table at the moment a death settled it further,
+    and the roster's own heart would go on saying otherwise.
+    """
+    session_data = await start_session(context)
+    await invoke(gamesession.love_cmd, context, "/love", mentions=[REN, JJ])
+    session.set_alive(session_data, 3, False)
+
+    facts = session.player_facts(session_data)
+    assert 3 not in session.revealed_roles(session_data)
+    assert facts[3]["lover"] is True
+    assert facts[1]["partner"] == 3
+
+
 # --- Already earned ---------------------------------------------------------
 #
 # Nobody is hunting an achievement they finished months ago. The attained lists are
@@ -1086,3 +1103,67 @@ async def test_alt_naming_somebody_unknown_marks_nobody(context, alts):
 
     assert alts == set()
     assert "Reply to the account" in msg.last_reply
+
+
+# --- What the game has already decided --------------------------------------
+#
+# The rules see roles. A game also decides things *about players* — Cupid's couple, a
+# Wild Child's role model — and until the post could read those it went on offering "be
+# in love with the tanner" to everybody at a table where two people were already in love.
+# feasibility.Facts is the machinery; these are the two commands that feed it.
+
+
+async def test_a_named_couple_takes_the_lover_rows_off_everybody_else(context):
+    """/love is the whole input: whoever it names keeps the rows, and the rest lose them."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "cupid")
+    await reveal(context, 2, "harlot")
+    await reveal(context, 3, "tanner")
+
+    before = visible(post_text(session_data))
+    assert "Affectionate" in before, "the harlot may be in love with anybody so far"
+    assert "Romeo and Juliet" in before
+
+    # The Tanner and the fourth player, so neither the Harlot nor Cupid is in the couple.
+    await invoke(gamesession.love_cmd, context, "/love", mentions=[JJ, ROSTER[3]])
+
+    after = visible(post_text(session_data))
+    assert "Affectionate" not in after, "the harlot is not one of the two in love"
+    assert "Self Loving" not in after, "and Cupid paired two other people"
+    assert "Romeo and Juliet" in after, "still on, and now under the two it is about"
+
+
+async def test_one_lover_leaves_the_other_half_open_to_the_table(context):
+    """A bare /love names one person. The second is still anybody, and the post must say so."""
+    session_data = await start_session(context)
+    await reveal(context, 1, "cupid")
+    await reveal(context, 2, "harlot")
+
+    msg = player_message("/love")
+    context.args = []
+    await gamesession.love_cmd(FakeUpdate(message=msg), context)
+
+    assert "Affectionate" in visible(post_text(session_data)), "the harlot could still be the other half"
+
+
+async def test_a_role_model_leaves_indestructible_only_with_the_players_pointed_at(context):
+    """ "Your role model being yourself" is reachable by the players somebody points at.
+
+    Both of them have to have chosen first: one Wild Child still to pick means the next
+    model could be anybody at the table.
+    """
+    session_data = await start_session(context)
+    await reveal(context, 1, "dopp")
+    await reveal(context, 2, "wc")
+    await reveal(context, 3, "thief")
+
+    await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[JJ], user_id=1)
+    assert "Indestructible" in visible(post_text(session_data)), "the Wild Child has not chosen yet"
+
+    await invoke(gamesession.rolemodel_cmd, context, "/rm", mentions=[REN], user_id=2)
+    rendered = visible(post_text(session_data))
+
+    # J J and Ren are the two being pointed at; omu the Wild Child is pointed at by nobody.
+    ren, _, rest = rendered.partition("omu (")
+    assert "Indestructible" in ren
+    assert "Indestructible" not in rest, "nobody's model is the Wild Child or the Thief"
