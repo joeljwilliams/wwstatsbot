@@ -5,8 +5,8 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-import templates as t
-import version
+from wwstatsbot import version
+from wwstatsbot.render import templates as t
 
 logger = structlog.get_logger(__name__)
 

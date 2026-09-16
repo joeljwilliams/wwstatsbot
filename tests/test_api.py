@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 
-import api
+from wwstatsbot.data import api
 
 PID = 4242
 

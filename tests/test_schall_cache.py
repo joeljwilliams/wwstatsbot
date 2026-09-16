@@ -24,8 +24,8 @@ from conftest import FakeChat, FakeContext, FakeEntity, FakeUpdate, FakeUser, bo
 from test_standin_auto import auto, roster, seen
 from test_standin_session import BRACKETS, start_session
 
-import session
-from handlers import common, gamesession, search
+from wwstatsbot.game import session
+from wwstatsbot.handlers import common, gamesession, search
 
 
 def player_mention(user_id=1, name="Alice", offset=0, length=5):
@@ -227,7 +227,7 @@ async def test_one_chats_list_never_reaches_another(achievements, no_fts, stats_
 async def test_sch_with_no_reply_still_checks_the_sender(achievements, no_fts, stats_api):
     """The whole reason only /schall reads the cache. A user asking about themselves must
     not get a group list back just because one was cached earlier in the chat."""
-    from handlers import search as search_mod
+    from wwstatsbot.handlers import search as search_mod
 
     chat_data = {}
     await reply_run({"chat_data": chat_data})

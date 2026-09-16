@@ -1,6 +1,6 @@
 [project]
 name = "wwstatsbot"
-version = "2.39.1"
+version = "2.39.2"
 description = "Werewolf for Telegram stats bot (@wwstatsbot)"
 requires-python = ">=3.12"
 # Pinned to the versions the bot is known to run on today. This is a snapshot of
@@ -29,8 +29,10 @@ dev = [
     "railway-sdk>=0.2.0",
 ]
 
-# The bot is an app, not an installable package: it's a flat set of modules run as
-# `python main.py`. Nothing to build, so no build-system table and no package discovery.
+# The bot is an app, not an installable package: the wwstatsbot/ package is run as
+# `python -m wwstatsbot`, never installed. Nothing to build, so no build-system table and
+# no package discovery — the Dockerfile copies the package and syncs with
+# --no-install-project.
 
 [tool.ruff]
 # 111 lines already exceed 100 chars (the longest is 348). 120 keeps new code honest
@@ -52,17 +54,19 @@ ignore = [
 ]
 # Deliberately NOT selected: "UP" (pyupgrade). It would rewrite this codebase's
 # consistent .format() style into f-strings — a large, purely cosmetic diff across
-# every module, right before a refactor that has to move that code.
+# every module.
 
 [tool.ruff.lint.per-file-ignores]
 # The seed list is one long literal; and tests bind fixtures that look "unused".
-"achvlist.py" = ["E501"]
+"wwstatsbot/data/achvlist.py" = ["E501"]
 "tests/*" = ["B011"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The bot's modules live at the repo root and aren't an installed package, so the
-# root has to be importable for `import main` / `import db` to resolve.
+# wwstatsbot/ is not an installed package, so the repo root has to be importable for
+# `from wwstatsbot.data import db` to resolve. It also puts the gitignored dev-only
+# config.py that settings.py falls back to on the path, exactly as running
+# `python -m wwstatsbot` from the root does.
 pythonpath = ["."]
 asyncio_mode = "auto"
 # Every handler/builder under test is async; auto mode avoids decorating each one.
@@ -70,14 +74,16 @@ markers = [
     "postgres: needs a real Postgres (set TEST_DATABASE_URL; skipped otherwise)",
 ]
 addopts = "-q --strict-markers"
+# Matched against the module a warning is raised in, so these are full dotted names and
+# would silently stop matching if a module moved without them.
 filterwarnings = [
-    "error::DeprecationWarning:main",
-    "error::DeprecationWarning:db",
+    "error::DeprecationWarning:wwstatsbot.main",
+    "error::DeprecationWarning:wwstatsbot.data.db",
 ]
 
 [tool.coverage.run]
-source = ["."]
-omit = ["tests/*", "achvlist.py", ".venv/*"]
+source = ["wwstatsbot"]
+omit = ["wwstatsbot/data/achvlist.py"]
 
 [tool.coverage.report]
 # Reported, never gated. A fail_under threshold before a refactor manufactures

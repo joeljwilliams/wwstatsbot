@@ -26,15 +26,11 @@ from telegram.ext import (
     filters,
 )
 
-import api
-import db
-import health
-import playerdata
-import settings
-import templates as t
-import webhook
-from handlers import achievements, admin, errors, gamesession, inline, misc, search, stats, welcome
-from logging_config import configure_logging
+from wwstatsbot.data import api, db, playerdata
+from wwstatsbot.handlers import achievements, admin, errors, gamesession, inline, misc, search, stats, welcome
+from wwstatsbot.render import templates as t
+from wwstatsbot.runtime import health, settings, webhook
+from wwstatsbot.runtime.logging_config import configure_logging
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +119,7 @@ def build_application():
     # Durable persistence for bot_data (e.g. /allinfo buttons survive restarts) when
     # a Redis backend is configured; otherwise state is in-memory only.
     if settings.REDIS_URL:
-        from redis_persistence import RedisPersistence
+        from wwstatsbot.runtime.redis_persistence import RedisPersistence
 
         builder = builder.persistence(RedisPersistence(url=settings.REDIS_URL))
         logger.info("persistence_enabled", backend="redis")

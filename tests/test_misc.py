@@ -7,8 +7,8 @@ version says what was intended, the commit says what is actually running.
 
 from conftest import FakeChat, FakeContext, FakeUpdate, FakeUser, message
 
-import version
-from handlers import misc
+from wwstatsbot import version
+from wwstatsbot.handlers import misc
 
 
 async def test_version_reports_the_release_version_and_short_commit(monkeypatch):

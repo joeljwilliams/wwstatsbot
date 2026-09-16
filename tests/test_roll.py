@@ -13,9 +13,9 @@ player, and the group sections at the bottom naming everyone who can get a rolel
 import pytest
 from conftest import FakeEntity, FakeUpdate, FakeUser, bot_message, message
 
-import builders
-import db
-from handlers import achievements as achv_handlers
+from wwstatsbot.data import db
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.render import builders
 
 # Captured before the autouse fixture below replaces it, so the one test that wants the
 # real search path can put it back.

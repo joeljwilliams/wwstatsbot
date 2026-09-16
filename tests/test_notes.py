@@ -6,7 +6,7 @@ encoders, and every read path normalises through both — so round-tripping is t
 property that actually matters here.
 """
 
-import notes
+from wwstatsbot.data import notes
 
 MEMO = "\N{MEMO}"
 DIE = "\N{GAME DIE}"

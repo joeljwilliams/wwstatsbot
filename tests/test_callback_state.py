@@ -13,8 +13,8 @@ reading a single function:
 
 from conftest import FakeContext, assert_json_roundtrips
 
-from handlers import achievements as achv_handlers
-from handlers import search
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import search
 
 
 def test_store_allinfo_returns_a_token_and_stores_under_it():

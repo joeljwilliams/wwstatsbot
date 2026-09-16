@@ -16,8 +16,8 @@ def N_(message):
     """Mark a string for extraction without translating it.
 
     gettext's standard no-op marker, and `pybabel extract` recognises `N_` by default. Every
-    constant below therefore lands in locales/messages.pot while this module goes on holding
-    plain English — translation happens at render time against the resolved locale.
+    constant below therefore lands in wwstatsbot/locales/messages.pot while this module goes on
+    holding plain English — translation happens at render time against the resolved locale.
 
     The marker has to be *here* rather than at the point of use, because extraction only sees
     literal strings at the call site: `_(t.SEARCH_HEADER)` is invisible to pybabel, which

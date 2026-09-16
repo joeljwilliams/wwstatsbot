@@ -30,8 +30,8 @@ the whole post down — one broken expression must not cost the other 108 rules.
 import structlog
 from simpleeval import EvalWithCompoundTypes
 
-import roles as roles_registry
-import rulelist
+from wwstatsbot.data import rulelist
+from wwstatsbot.game import roles as roles_registry
 
 logger = structlog.get_logger(__name__)
 

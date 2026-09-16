@@ -11,9 +11,9 @@ its owner chose.
 
 from conftest import SUPERUSER_ID, FakeCallbackQuery, FakeContext, FakeUpdate, FakeUser, bot_message, message
 
-import db
-import templates as t
-from handlers import search
+from wwstatsbot.data import db
+from wwstatsbot.handlers import search
+from wwstatsbot.render import templates as t
 
 REQUESTER = 7
 BYSTANDER = 12345

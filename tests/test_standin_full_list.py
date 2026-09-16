@@ -26,10 +26,10 @@ from conftest import FakeApplication, FakeCallbackQuery, FakeChat, FakeContext, 
 from test_standin_list import big_game, crowded_game, post_text, publish, visible
 from test_standin_session import reveal, start_session
 
-import db
-import session
-from handlers import gamesession
-from rulelist import RULES
+from wwstatsbot.data import db
+from wwstatsbot.data.rulelist import RULES
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
 
 GROUP = FakeChat().id
 

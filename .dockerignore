@@ -1,8 +1,10 @@
 # Secrets & local config — supply via env vars instead
 config.py
 
-# Python caches
+# Python caches. Both spellings: a bare `__pycache__/` matches only the top level, and
+# the image now copies a whole package tree rather than one flat directory of modules.
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/

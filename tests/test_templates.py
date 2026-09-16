@@ -15,15 +15,16 @@ import ast
 import pathlib
 import string
 
-import templates as t
+from wwstatsbot.render import templates as t
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+PKG = REPO / "wwstatsbot"
 
 
 def sources():
     """Every application module that could reference a template.
 
-    Discovered rather than listed, because `main.py` is being split into modules and a
+    Discovered rather than listed, because modules move between sub-packages and a
     hardcoded list goes stale on every slice. The two failure directions differ, and both
     are avoided by globbing:
 
@@ -31,11 +32,12 @@ def sources():
       not on the list — the templates look orphaned. Noisy but safe.
     * `test_every_referenced_template_exists` **degrades silently**: fewer sources scanned
       means fewer call sites validated, and it keeps passing while checking less.
+
+    `rglob` rather than one glob per directory, because that second failure is exactly what
+    a new sub-package would trigger: a two-level glob keeps passing while checking less of
+    the tree every time the package grows a directory.
     """
-    skip = {"conftest.py", "config.py", "configEXAMPLE.py"}
-    found = [path for path in sorted(REPO.glob("*.py")) if path.name not in skip]
-    found += sorted(REPO.glob("handlers/*.py"))
-    return found
+    return sorted(PKG.rglob("*.py"))
 
 
 def template_names():
@@ -121,14 +123,14 @@ def test_html_templates_have_balanced_simple_tags():
 # silently untranslatable — extraction would never see it and no test would fail.
 #
 # Only the modules that actually render replies are scanned. Deliberately excluded:
-#   achvlist.py   achievement seed data. Names and descriptions come from the game and stay
-#                 English; every lookup matches on them (see db.py).
-#   db.py         SQL.
-#   health.py     an HTTP header.
-#   settings.py   startup diagnostics for whoever deploys the bot. They are emitted before
-#                 any locale could be known — there is no user yet — and go to the console,
-#                 not to Telegram.
-_SCANNED = ["builders.py", "wwstats.py", "main.py"]
+#   data/achvlist.py      achievement seed data. Names and descriptions come from the game
+#                         and stay English; every lookup matches on them (see db.py).
+#   data/db.py            SQL.
+#   runtime/health.py     an HTTP header.
+#   runtime/settings.py   startup diagnostics for whoever deploys the bot. They are emitted
+#                         before any locale could be known — there is no user yet — and go
+#                         to the console, not to Telegram.
+_SCANNED = ["render/builders.py", "render/wwstats.py", "main.py"]
 
 # Strings inside the scanned modules that are not prose and must stay literal.
 _NOT_PROSE = {
@@ -151,8 +153,8 @@ _NOT_PROSE = {
 
 
 def scanned_sources():
-    paths = [REPO / name for name in _SCANNED]
-    paths += sorted((REPO / "handlers").glob("*.py"))
+    paths = [PKG / name for name in _SCANNED]
+    paths += sorted((PKG / "handlers").glob("*.py"))
     return [p for p in paths if p.exists()]
 
 
@@ -214,8 +216,8 @@ def test_every_template_is_extractable():
     """
     from babel.messages.pofile import read_po
 
-    pot = REPO / "locales" / "messages.pot"
-    assert pot.exists(), "run: uv run pybabel extract -F babel.cfg -o locales/messages.pot ."
+    pot = PKG / "locales" / "messages.pot"
+    assert pot.exists(), "run: uv run pybabel extract -F babel.cfg -o wwstatsbot/locales/messages.pot ."
     with pot.open(encoding="utf-8") as handle:
         catalog = read_po(handle)
 

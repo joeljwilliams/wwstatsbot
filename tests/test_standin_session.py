@@ -25,8 +25,8 @@ from conftest import (
     message,
 )
 
-import session
-from handlers import gamesession
+from wwstatsbot.game import session
+from wwstatsbot.handlers import gamesession
 
 # A player whose display name contains angle brackets. This is a real name from the group,
 # and it is what truncated the incumbent manager's own /love reply — everything from the
@@ -135,7 +135,7 @@ async def test_deciding_whether_a_command_is_ours_costs_no_api_call(context):
         asked.append(user_id)
         return False
 
-    import handlers.gamesession as gs
+    from wwstatsbot.handlers import gamesession as gs
 
     original = gs.is_chat_admin
     gs.is_chat_admin = tripwire

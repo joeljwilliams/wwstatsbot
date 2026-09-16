@@ -19,10 +19,10 @@ import re
 
 from telegram.ext import CallbackQueryHandler, CommandHandler, InlineQueryHandler
 
-import main
-import settings
-from handlers import achievements as achv_handlers
-from handlers import admin, errors, gamesession, inline, misc, search, stats
+from wwstatsbot import main
+from wwstatsbot.handlers import achievements as achv_handlers
+from wwstatsbot.handlers import admin, errors, gamesession, inline, misc, search, stats
+from wwstatsbot.runtime import settings
 
 # Commands advertised in Telegram's "/" menu. Sourced from main so the test tracks the
 # real list rather than a copy that could drift out of step with it.
@@ -312,8 +312,8 @@ def test_persistence_is_disabled_without_redis(monkeypatch):
 
 def test_persistence_is_enabled_with_redis(monkeypatch):
     """The durable path: /allinfo and /sch buttons survive a restart."""
-    import redis_persistence
-    from redis_persistence import RedisPersistence
+    from wwstatsbot.runtime import redis_persistence
+    from wwstatsbot.runtime.redis_persistence import RedisPersistence
 
     monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
     # from_url is lazy, but stub it anyway so nothing can attempt a connection.
