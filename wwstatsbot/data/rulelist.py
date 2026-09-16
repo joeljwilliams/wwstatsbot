@@ -108,7 +108,15 @@ RULES = [
     _rule("Inconspicuous", ANY, "players >= 20", "Player count gates it; the rest is behaviour."),
     _skip("Survivalist", "Survive 100 games, cumulative."),
     _skip("Black Sheep", "Inactive, and a streak across games."),
-    _rule("Promiscuous", "harlot", "True", "Also needs a 5+ night game, which roles cannot predict."),
+    _rule(
+        "Promiscuous",
+        "harlot",
+        "players >= 6",
+        "Five nights of never visiting the same person twice needs five different people to "
+        "visit, so the Harlot and five others. It was `True`, which offered it in a "
+        "four-player endgame where the Harlot has nobody left to be promiscuous with. How "
+        "many nights the game actually runs is still the game's to decide.",
+    ),
     _rule(
         "Mason Brother",
         "mason",

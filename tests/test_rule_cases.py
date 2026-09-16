@@ -71,6 +71,10 @@ EXPR_CASES = {
         (pad(20), True, "twenty"),
         (pad(19), False, "nineteen"),
     ],
+    "Promiscuous": [
+        (["harlot"] + pad(5), True, "five other houses is five nights of somebody new"),
+        (["harlot"] + pad(4), False, "four leaves the fifth night a repeat"),
+    ],
     "Mason Brother": [
         (["mason", "mason"] + pad(3), True, "two dealt"),
         (["mason", "doppelganger"] + pad(3), True, "a Doppelganger copying the one makes the second"),
@@ -519,7 +523,14 @@ SUBJECT_CASES = {
         ({"t": ("tanner",), "v": ("villager",)}, {"t"}, False, "likewise"),
     ],
     "Promiscuous": [
-        ({"h": ("harlot",), "v": ("villager",)}, {"h"}, False, "the Harlot's"),
+        # Six players, because the expression now gates on there being five other
+        # houses to visit -- the subject is still the whole question here.
+        (
+            {"h": ("harlot",), "a": ("villager",), "b": ("seer",), "c": ("prince",), "d": ("chef",), "e": ("mason",)},
+            {"h"},
+            False,
+            "the Harlot's",
+        ),
     ],
     "I See a Lack of Trust": [
         ({"s": ("seer",), "v": ("villager",)}, {"s"}, False, "the Seer's"),
