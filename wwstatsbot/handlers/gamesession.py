@@ -2746,12 +2746,13 @@ _AUTO_SEEN_KEY = "game_bot_seen_message_id"
 # everybody until now.
 _GAME_STARTING = re.compile(r"Game\s+is\s+starting", re.IGNORECASE)
 
-# How long a reveal is held for a roster that has not come. Under `/gm auto` it is seconds;
-# by hand it is however long somebody takes to notice and type `/gs`, which is why this is
-# minutes rather than tighter. Past it, a buffer is more likely the wreckage of a game
-# nobody ever opened a session for than anything the next roster should be told — and role
-# claims go stale in a running game, which is the thing this must not quietly reintroduce.
-_EARLY_ROLE_SECONDS = 5 * 60
+# How long a reveal is held for a roster that has not come. The gap this exists to cover is
+# five to ten seconds, so a minute is generous rather than tight — and everything past it is
+# risk with nothing to show for it: role claims go stale in a running game, and a buffer
+# nobody ever opened a session for is the wreckage of a game that is long over. A chat that
+# opens its sessions by hand and takes longer than this to type `/gs` loses nothing it had
+# before: the reveals are dropped exactly as they always were.
+_EARLY_ROLE_SECONDS = 60
 
 
 class _SenderIsBot(filters.MessageFilter):

@@ -10,7 +10,7 @@ in the moment one arrives. Two properties carry the whole feature and most of th
 below are about one of them: **nothing is said** while the buffer is filling, because the
 roster is seconds from saying it to everybody; and **nothing is trusted** — only
 self-reveals, only in a chat that asked this bot to manage its games, only for players the
-roster turns out to name, and only for a few minutes.
+roster turns out to name, and only for the minute the gap it covers fits inside.
 """
 
 import pytest

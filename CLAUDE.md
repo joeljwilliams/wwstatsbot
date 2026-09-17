@@ -820,8 +820,9 @@ What it will not do is the point of it. Only **self**-reveals — there is no ro
 resolve anybody else against, so a `/role` carrying a mention or sent as a reply is
 dropped rather than recorded against whoever typed it. Only players the roster turns out
 to name, which `session.set_roles` answers by returning None for everybody else. Only for
-`_EARLY_ROLE_SECONDS`, because role claims go stale in a running game and a buffer nobody
-ever opened a session for is the wreckage of a game that is long over — and it is emptied
+`_EARLY_ROLE_SECONDS` — sixty seconds, against a gap of five to ten — because role claims
+go stale in a running game and a buffer nobody ever opened a session for is the wreckage of
+a game that is long over — and it is emptied
 by a session opening whether or not it was still fresh, since that is the chat moving on.
 Opening it is idempotent while it is fresh: the game bot editing the message this is read
 from would otherwise throw away the reveals it caused.
