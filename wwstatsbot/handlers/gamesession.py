@@ -535,6 +535,7 @@ async def _open_session(context, chat_id, starter_id, roster):
     # @handle is learned — after which a plain "@someone" in a later command resolves.
     for handle, uid in mentioned_usernames(roster).items():
         session.set_username(session_data, uid, handle)
+    early = _apply_early_roles(context, session_data)
     await _load_attained(session_data, players)
     _remember_table(context, session_data)
     msg, keyboard = render_state(session_data)
@@ -555,8 +556,26 @@ async def _open_session(context, chat_id, starter_id, roster):
     # A session nobody ever touches still has to expire, so the idle clock starts here
     # rather than on the first reveal.
     _schedule_idle(context, chat_id)
-    logger.info("standin_started", chat_id=chat_id, players=len(players), unresolved=len(unresolved))
+    logger.info("standin_started", chat_id=chat_id, players=len(players), unresolved=len(unresolved), early_roles=early)
     return session_data
+
+
+def _apply_early_roles(context, session_data):
+    """Fold in whatever was revealed before this roster arrived. Returns how many landed.
+
+    Applied before the roster message is rendered, so a player who typed `/role` into the
+    gap sees it on the list the moment the list appears — which is also the only
+    confirmation they get, since a first reveal is answered with silence either way.
+
+    Anybody the buffer holds who is not on this roster is dropped by `set_roles` returning
+    None: they were watching rather than playing, or the game they typed into is not the
+    one that opened.
+    """
+    applied = 0
+    for user_id, role_ids in session.take_early(context.chat_data, _now(), _EARLY_ROLE_SECONDS).items():
+        if session.set_roles(session_data, user_id, role_ids) is not None:
+            applied += 1
+    return applied
 
 
 async def start_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -637,6 +656,9 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     session_data = _session_for(update, context)
     if session_data is None:
+        # No session — which, in the seconds after a game starts, means the roster has not
+        # arrived yet rather than that nothing is happening here.
+        await _early_role(update, context)
         return
 
     message = update.message
@@ -691,6 +713,80 @@ async def role_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settled = list(entry["roles"]) != list(resolved)
     if revealed_before or target_id != user.id or settled:
         await _confirm_role(context, message, session_data, target_id)
+
+
+async def _early_role(update, context):
+    """A `/role` typed in the gap between the game starting and its roster arriving.
+
+    The game bot deals roles, tells every player in PM, and posts its player list five to
+    ten seconds later — and players answer their PM at once. Every one of those reveals
+    used to go nowhere: there was no session yet, so the command returned in silence and
+    the player had no way to know it had not landed.
+
+    They are held instead, and folded into the roster the moment one arrives (see
+    `_apply_early_roles`). Silent on success for the same reason a first reveal always is:
+    the roster is seconds away and about to say it to the whole table.
+
+    Only **self**-reveals, and only in a chat that has already asked this bot to manage its
+    games: there is no roster here to resolve anybody else against, so a role aimed at
+    another player could only be recorded against whoever typed it — which is worse than
+    recording nothing at all.
+    """
+    message = update.message
+    # A session the sender is not playing in. _session_for turned it down, and so does
+    # this: the game they are not in is not one they may write into by being early.
+    if session.get(context.chat_data) is not None:
+        return
+    # Asked again rather than trusted to the open buffer: a chat that switched management
+    # off in the middle of one has said which bot runs its games, and it is not this one.
+    if not is_managing(context):
+        return
+    if not session.early_open(context.chat_data, _now(), _EARLY_ROLE_SECONDS):
+        return
+    if not context.args:
+        return
+
+    typed = " ".join(context.args)
+    user = message.from_user
+
+    # The Beholder's two claim shapes settle the Seer/Fool question for the whole table,
+    # and both need a roster — one to name the Seer against, and both to tell everyone. So
+    # they are not held here, and they are not answered with "I don't know that role"
+    # either, which would be a lie about a command that works perfectly well a few seconds
+    # later. The Beholder is told to send it again instead.
+    if _is_beholder_claim(typed):
+        await message.reply_text(t.STANDIN_ROLE_TOO_EARLY, parse_mode=ParseMode.HTML)
+        return
+
+    if message.reply_to_message is not None or _named_somebody(message):
+        return
+
+    resolved = roles.resolve(typed)
+    if not resolved:
+        # Answered, unlike everything else on this path, because nothing was recorded and
+        # there is no roster row to read instead — the same reason the ordinary /role
+        # refuses a role it cannot place.
+        msg = t.STANDIN_ROLE_UNKNOWN.format(role=html.escape(typed))
+        suggestions = roles.suggest(typed)
+        if suggestions:
+            msg += t.STANDIN_ROLE_DID_YOU_MEAN.format(names=", ".join(suggestions))
+        await message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    session.record_early(context.chat_data, user.id, resolved, _now(), _EARLY_ROLE_SECONDS)
+    logger.info("standin_early_role", chat_id=message.chat.id, user_id=user.id, roles=list(resolved))
+
+
+def _is_beholder_claim(typed):
+    """Whether this is "I am the Beholder, and…" rather than a plain role.
+
+    The shapes `_beholder_claim` reads, asked without a session — which is all that can be
+    asked before one exists.
+    """
+    words = typed.split()
+    if roles.normalise(typed) in _NO_SEER_CLAIMS:
+        return True
+    return len(words) > 1 and roles.normalise(words[0]) in _WITH_SEER_CLAIMS
 
 
 async def _beholder_claim(update, context, session_data, typed):
@@ -2638,6 +2734,25 @@ _AUTO_OPEN_FLOOR_SECONDS = 60
 _AUTO_OPEN_KEY = "game_bot_opened_at"
 _AUTO_SEEN_KEY = "game_bot_seen_message_id"
 
+# The engine says this as it starts dealing, and its player list follows five to ten
+# seconds later — long enough for a table who have all just had their role in PM to type
+# it into the group, at a bot that has no roster to record it against. So this line opens
+# a buffer for those reveals rather than a session: there is nobody to open a session for
+# yet, and the roster that arrives next is what says who was playing (see session.py's
+# early-reveal section, and _early_role below).
+#
+# English only, like _GAME_OVER and _DAY_BREAKS beside it. A group playing in another
+# language keeps what it has: reveals typed before the roster are lost, as they were for
+# everybody until now.
+_GAME_STARTING = re.compile(r"Game\s+is\s+starting", re.IGNORECASE)
+
+# How long a reveal is held for a roster that has not come. Under `/gm auto` it is seconds;
+# by hand it is however long somebody takes to notice and type `/gs`, which is why this is
+# minutes rather than tighter. Past it, a buffer is more likely the wreckage of a game
+# nobody ever opened a session for than anything the next roster should be told — and role
+# claims go stale in a running game, which is the thing this must not quietly reintroduce.
+_EARLY_ROLE_SECONDS = 5 * 60
+
 
 class _SenderIsBot(filters.MessageFilter):
     """Messages another bot posted. PTB has no filter for this, because until Bot API 10.0
@@ -2677,14 +2792,18 @@ async def game_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _drive_session(update, context):
-    """Open, follow or close this chat's session from what the game bot just said."""
+    """Open, follow or close this chat's session from what the game bot just said.
+
+    Also the one thing here that happens *before* a session exists: the announcement that
+    roles are being dealt opens the buffer `_early_role` writes into.
+    """
     message = update.message
     if message is None or message.chat.type not in ("group", "supergroup"):
         return
-    # Cheapest first, and both are answered out of chat_data: a chat that has not asked for
-    # this must cost nothing to skip, because with the switch off this handler still sees
-    # every message every bot in the room posts.
-    if not is_auto(context):
+    # Cheapest first, and all of it is answered out of chat_data: a chat that has not asked
+    # for this must cost nothing to skip, because with the switch off this handler still
+    # sees every message every bot in the room posts.
+    if not is_managing(context):
         return
     sender = message.from_user
     if sender is None or sender.id == context.bot.id:
@@ -2693,12 +2812,25 @@ async def _drive_session(update, context):
         # Another bot in the room, or one nobody has pointed us at yet. A roster-shaped
         # message is not proof of anything — see _learn_game_bot.
         return
-    if context.chat_data.get(_AUTO_SEEN_KEY) == message.message_id:
-        return
-    context.chat_data[_AUTO_SEEN_KEY] = message.message_id
 
     session_data = session.get(context.chat_data)
     body = message.text or message.caption or ""
+
+    # Read under a plain `/gm on` as well as under auto, and ahead of the auto gate for
+    # that reason: a chat that opens its sessions by hand has the *longer* gap to lose
+    # reveals in, since /gs waits for somebody to notice. It costs one chat_data write per
+    # game — the buffer opening — and nothing at all thereafter, which is why the seen-id
+    # bookkeeping below stays on the auto side.
+    if session_data is None and _GAME_STARTING.search(body):
+        if session.open_early(context.chat_data, _now(), _EARLY_ROLE_SECONDS):
+            logger.info("standin_early_opened", chat_id=message.chat.id)
+        return
+
+    if not is_auto(context):
+        return
+    if context.chat_data.get(_AUTO_SEEN_KEY) == message.message_id:
+        return
+    context.chat_data[_AUTO_SEEN_KEY] = message.message_id
 
     # The ending is checked first because the closing message carries a player list of its
     # own — a "Players Alive: 3 / 12" header over every player, the dead ones mentioned too

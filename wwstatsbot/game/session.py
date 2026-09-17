@@ -169,6 +169,65 @@ def discard(chat_data):
     return entry["session"] if entry else None
 
 
+# --- Reveals typed before there is a session -------------------------------
+#
+# The game bot announces that it is assigning roles, and its player list arrives five to
+# ten seconds later — a gap in which every player has already been told their role in PM
+# and several of them have typed it into the group. Those reveals had nowhere to go: the
+# roster they belong to did not exist yet, so `get()` answered None and the command went
+# silently nowhere, and the player was left believing it had landed.
+#
+# So the announcement opens a buffer instead, and the reveals typed into the gap are held
+# here until a roster does arrive and can say who was playing. Kept out of the session
+# dict entirely, under its own chat_data key: this is not a session, nothing may be read
+# off it, and the one thing it must never do is look like one to a command that gates on
+# `get()`.
+EARLY_KEY = "standin_early"
+
+
+def open_early(chat_data, now, within):
+    """Start holding reveals for a game whose roster has not arrived. True if it opened.
+
+    Idempotent while a buffer is still fresh, because the game bot editing the message
+    this is read from would otherwise throw away everything typed since — the reveals this
+    exists to keep.
+    """
+    if early_open(chat_data, now, within):
+        return False
+    chat_data[EARLY_KEY] = {"opened_at": now, "roles": {}}
+    return True
+
+
+def early_open(chat_data, now, within):
+    """Whether a reveal typed right now would be held."""
+    entry = chat_data.get(EARLY_KEY)
+    return entry is not None and now - entry.get("opened_at", 0) <= within
+
+
+def record_early(chat_data, user_id, role_ids, now, within):
+    """Hold one player's reveal until a roster exists. True when it was kept.
+
+    Last one wins, exactly as `set_roles` does: somebody correcting what they typed in the
+    gap is saying the same thing as somebody correcting it a minute later.
+    """
+    if not early_open(chat_data, now, within):
+        return False
+    chat_data[EARLY_KEY]["roles"][str(user_id)] = list(role_ids)
+    return True
+
+
+def take_early(chat_data, now, within):
+    """Everything held for the coming roster, as {user_id: role_ids}, and forget it.
+
+    Always forgotten, even when it was too old to use: a session opening is the moment the
+    chat moved on, and a buffer left behind would be applied to the game after this one.
+    """
+    entry = chat_data.pop(EARLY_KEY, None)
+    if entry is None or now - entry.get("opened_at", 0) > within:
+        return {}
+    return {int(uid): list(role_ids) for uid, role_ids in entry["roles"].items()}
+
+
 def is_member(session, user_id):
     """Whether this user is in the roster.
 

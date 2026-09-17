@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1689 tests; the 78 Postgres ones skip by default
+uv run pytest                     # 1716 tests; the 78 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -140,7 +140,8 @@ them — most assertions are that nothing was said), `test_standin_list.py` (the
 Achievements post and the publish debounce), `test_standin_transforms.py` (deaths, /ad and
 the role changes a death sets off), `test_standin_auto.py` (everything read off the game
 bot's own messages under `/gm auto`), `test_standin_flood.py` (RetryAfter, and not sending
-an edit that would change nothing), `test_standin_replies.py`, `test_standin_full_list.py`,
+an edit that would change nothing), `test_standin_early_roles.py` (reveals typed before
+there is a session), `test_standin_replies.py`, `test_standin_full_list.py`,
 `test_standin_pin.py` and `test_lynch_order.py`.
 
 `REQUIRE_POSTGRES=1` turns a missing database from a skip into a failure — CI sets it so
@@ -801,6 +802,36 @@ row is rendered from the session **when the notice fires**, never from what was 
 bot built with no job queue answers everything, because nothing would flush the buffer and
 every confirmation after the first would vanish. Flood control puts the whole burst back and
 retries past the window, for the same reason.
+
+**A reveal can arrive before there is anything to record it against.** The game bot deals
+roles, tells every player theirs in PM, and posts its player list five to ten seconds
+later — and players answer a PM in one. Every `/role` typed into that gap used to go
+nowhere: `session.get()` answered None, the command returned in silence, and the player
+had no way to know it had not landed, because a first reveal is silent when it *does* land.
+
+So the game bot's own "Game is starting" line opens a buffer (`session.EARLY_KEY`,
+`_GAME_STARTING`), `/role` writes into it, and `_apply_early_roles` folds it into the
+roster the moment one arrives — before the roster message is rendered, so the list a player
+finally sees already carries what they typed. Read under a plain `/gm on` as well as under
+auto, and ahead of the auto gate for that reason: a chat that types `/gs` by hand has the
+*longer* gap, since nothing starts until somebody notices.
+
+What it will not do is the point of it. Only **self**-reveals — there is no roster to
+resolve anybody else against, so a `/role` carrying a mention or sent as a reply is
+dropped rather than recorded against whoever typed it. Only players the roster turns out
+to name, which `session.set_roles` answers by returning None for everybody else. Only for
+`_EARLY_ROLE_SECONDS`, because role claims go stale in a running game and a buffer nobody
+ever opened a session for is the wreckage of a game that is long over — and it is emptied
+by a session opening whether or not it was still fresh, since that is the chat moving on.
+Opening it is idempotent while it is fresh: the game bot editing the message this is read
+from would otherwise throw away the reveals it caused.
+
+Two things are still answered out loud, and both because nothing was recorded: a role
+nobody can place, exactly as the ordinary `/role` refuses one, and the **Beholder's two
+claim shapes** (`bhns`, `bhws <player>`). Those name a player and settle the Seer/Fool
+question for the whole table, neither of which is possible without a roster — and
+answering them with "I don't know that role" would be a lie about a command that works
+perfectly a few seconds later, so `STANDIN_ROLE_TOO_EARLY` says what is actually true.
 
 **What the list cannot answer for is marked, then named once.** Silence on a first reveal
 (above) costs something: nobody is told their `/role` landed, and a player who never sent

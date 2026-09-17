@@ -527,6 +527,13 @@ STANDIN_ROLE_SET_MANY_AMBIGUOUS = N_(
 STANDIN_ROLE_USAGE = N_("Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>.")
 STANDIN_ROLE_UNKNOWN = N_("I don't know a role called <b>{role}</b>.")
 STANDIN_ROLE_DID_YOU_MEAN = N_("\nDid you mean: {names}?")
+# The one thing that cannot be held over for the roster: a Beholder's claim both names a
+# player and answers the Seer/Fool question for the table, and neither is possible before
+# there is a player list. Said rather than swallowed, because "I don't know that role"
+# would be a lie about a command that works perfectly a few seconds later.
+STANDIN_ROLE_TOO_EARLY = N_(
+    "The player list isn't up yet, so I can't tell who anybody is. Send that again once I post the roster."
+)
 STANDIN_MODEL_SET = N_("{name}'s rolemodel is now {model}")
 # Players are named by mention or reply — never by typing a display name, which has
 # spaces and emoji in it and cannot be told apart from the rest of the line.
