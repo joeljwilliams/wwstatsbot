@@ -146,7 +146,7 @@ async def test_a_join_announces_games_and_achievements(stats_api):
         "<a href='{url}'>Alice</a> the Villager 👱 has "
         "<b>100</b> games played and <b>2</b> achievements unlocked.\n"
         "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
-        "<i>Please read /rules and answer the #quiz before playing</i>\n".format(url=stats_url)
+        "<i>Please read /rules@ExecutrixBot and answer the #quiz before playing</i>\n".format(url=stats_url)
     )
     assert msg.last_reply.count(stats_url) == 1, "the name and role is the only link"
 
@@ -163,7 +163,7 @@ async def test_a_player_with_no_games_is_still_greeted(stats_api):
     assert msg.last_reply == (
         "<a href='tg://user?id=7'>Alice</a> has not played any games yet.\n"
         "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
-        "<i>Please read /rules and answer the #quiz before playing</i>\n"
+        "<i>Please read /rules@ExecutrixBot and answer the #quiz before playing</i>\n"
     )
 
 
@@ -199,8 +199,8 @@ async def test_the_house_rules_line_appears_once_however_many_joined(stats_api):
     """It is addressed to the people who arrived, not to any one record — so it sits at
     the bottom once, not on every line."""
     msg = await joins(welcome_ctx(enabled=True), users=((7, "Alice"), (8, "Bob")))
-    assert msg.last_reply.count("read /rules") == 1
-    assert msg.last_reply.endswith("<i>Please read /rules and answer the #quiz before playing</i>\n")
+    assert msg.last_reply.count("read /rules@ExecutrixBot") == 1
+    assert msg.last_reply.endswith("<i>Please read /rules@ExecutrixBot and answer the #quiz before playing</i>\n")
 
 
 async def test_a_blank_line_separates_the_rules_from_the_records(stats_api):
@@ -230,7 +230,7 @@ async def test_a_refused_custom_emoji_falls_back_to_the_plain_glyph(stats_api):
 
     assert len(msg.replies) == 1, "the announcement must survive the refusal"
     assert "<tg-emoji" not in msg.last_reply
-    assert "\N{WARNING SIGN} <i>Please read /rules" in msg.last_reply
+    assert "\N{WARNING SIGN} <i>Please read /rules@ExecutrixBot" in msg.last_reply
     # Everything else about the message is untouched by the retry.
     assert "Alice</a> the Villager" in msg.last_reply
 
@@ -240,7 +240,7 @@ async def test_the_house_rules_line_comes_after_the_capped_note(stats_api):
     everyone who joined. Reversing them reads as the note qualifying the rules."""
     joined = tuple((i, "Player{}".format(i)) for i in range(1, 9))
     msg = await joins(welcome_ctx(enabled=True), users=joined)
-    assert msg.last_reply.index("more joined") < msg.last_reply.index("read /rules")
+    assert msg.last_reply.index("more joined") < msg.last_reply.index("read /rules@ExecutrixBot")
 
 
 async def test_a_silent_join_carries_no_house_rules_line(stats_api):
