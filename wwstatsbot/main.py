@@ -52,6 +52,7 @@ PUBLIC_COMMANDS = [
     BotCommand("deaths", t.CMD_DEATHS),
     BotCommand("search", t.CMD_SEARCH),
     BotCommand("achievements", t.CMD_ACHIEVEMENTS),
+    BotCommand("miss", t.CMD_MISS),
     BotCommand("info", t.CMD_INFO),
     BotCommand("about", t.CMD_ABOUT),
     BotCommand("version", t.CMD_VERSION),
@@ -142,6 +143,7 @@ def build_application():
     app.add_handler(CommandHandler("about", misc.display_about))
     app.add_handler(CommandHandler("version", misc.display_version))
     app.add_handler(CommandHandler(["achievements", "achv"], achievements.display_achv))
+    app.add_handler(CommandHandler(["miss", "missing"], achievements.display_missing))
     app.add_handler(CommandHandler(["info", "getachv"], achievements.display_achv_info))
     app.add_handler(CommandHandler("allinfo", achievements.all_info_cmd))
     app.add_handler(CommandHandler("roll", achievements.roll_cmd))

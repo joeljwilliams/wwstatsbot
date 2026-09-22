@@ -1,6 +1,6 @@
 """Inline mode (@wwstatsbot ... from any chat).
 
-An empty query returns the querying user's four stat cards; typed text becomes an
+An empty query returns the querying user's own cards; typed text becomes an
 achievement search identical to /info. Answers are is_personal because the cards are built
 from the querying user's own stats — a shared cache would leak them between users.
 """
@@ -35,14 +35,21 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(user.first_name)
 
     if not query:
-        # Empty query: 4 stat cards for the querying user, fetched in parallel.
-        stats_msg, kills_msg, killedby_msg, deaths_msg = await asyncio.gather(
+        # Empty query: the querying user's own cards, fetched in parallel.
+        #
+        # Missing achievements leads, above My Stats: it is the card somebody opens the
+        # inline menu to *post* — what they still need is an answer the room wants, where
+        # the stat cards are about the player. The order is the menu, so it decides what a
+        # tap without reading lands on.
+        missing_msg, stats_msg, kills_msg, killedby_msg, deaths_msg = await asyncio.gather(
+            builders.build_missing_msg(user.id, name),
             builders.build_stats_msg(user.id, name),
             builders.build_kills_msg(user.id, name),
             builders.build_killed_by_msg(user.id, name),
             builders.build_deaths_msg(user.id, name),
         )
         results = [
+            _article("missing", t.INLINE_MY_MISSING, missing_msg),
             _article("stats", t.INLINE_MY_STATS, stats_msg),
             _article("kills", t.INLINE_MY_KILLS, kills_msg),
             _article("killedby", t.INLINE_MY_KILLED_BY, killedby_msg),

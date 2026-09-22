@@ -252,6 +252,23 @@ ALLINFO_NO_PM = N_(
 ALLINFO_SENT_PAGER = N_("Sent the achievement info to your PM ✅")
 ALLINFO_SENT_ALL = N_("Sent {count} card{plural} to your PM ✅")
 
+# --- HTML: /miss — what a player can still earn (builders.py) ---------------
+#
+# The same list /achievements prints under "MISSING AND ATTAINABLE VIA PLAYING", rendered
+# for a chat rather than for a PM: a bulleted list of names, and nothing else. The
+# Markdown report carries every description and runs to four messages of thirty entries,
+# which is why it has to be sent privately — no use to a table deciding what somebody
+# should chase this game. One short line of header, one short line of footer, and the
+# names in between.
+
+MISS_HEADER = N_("Missing for <a href='tg://user?id={user_id}'>{name}</a>{badge} ({count}):\n")
+MISS_ROW = N_("\N{BULLET} <code>{name}</code>\n")
+# Shown only when the list was capped. A silent cut would read as "that is all of it".
+MISS_TRUNCATED = N_("<i>…and {extra} more.</i>\n")
+# Nothing left to earn. Said rather than rendered as an empty list, which would read as a
+# lookup that failed.
+MISS_NONE = N_("<a href='tg://user?id={user_id}'>{name}</a>{badge} has nothing left to earn. \N{TROPHY}")
+
 # --- Markdown: /achv achievement list (wwstats.py) -------------------------
 
 ATTAINED_HEADER = N_("*ATTAINED ({attained}/{total}):*\n")
@@ -408,6 +425,7 @@ WELCOME_ADMINS_ONLY = N_("Only this group's admins can change join announcements
 
 # --- Inline mode result titles (handlers/inline.py) ------------------------
 
+INLINE_MY_MISSING = N_("My Missing Achievements")
 INLINE_MY_STATS = N_("My Stats")
 INLINE_MY_KILLS = N_("My Kills")
 INLINE_MY_KILLED_BY = N_("My Killed By")
@@ -425,6 +443,7 @@ CMD_KILLEDBY = N_("Players who've killed you the most")
 CMD_DEATHS = N_("Your most common causes of death")
 CMD_SEARCH = N_("Search your achievements, or reply to a player list to check everyone")
 CMD_ACHIEVEMENTS = N_("List all achievements")
+CMD_MISS = N_("Achievements you can still earn (or reply to another player)")
 CMD_INFO = N_("Look up an achievement, or reply to a list to get them all")
 CMD_ABOUT = N_("About this bot")
 CMD_VERSION = N_("Show the running bot version")
