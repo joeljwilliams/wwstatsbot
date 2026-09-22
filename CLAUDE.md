@@ -76,7 +76,7 @@ uv run pybabel update -i wwstatsbot/locales/messages.pot -d wwstatsbot/locales
 uv run pybabel compile -d wwstatsbot/locales                     # .po -> .mo (not committed)
 
 # Test / lint
-uv run pytest                     # 1716 tests; the 78 Postgres ones skip by default
+uv run pytest                     # 1731 tests; the 78 Postgres ones skip by default
 uv run pytest tests/test_notes.py::test_roundtrip_is_stable   # a single test
 uv run ruff check . && uv run ruff format --check .
 
@@ -260,7 +260,7 @@ is the rule `settings.py` has always had, generalised — see *Configuration* fo
 - **`runtime/settings.py`** — every setting, resolved once (see *Configuration*).
 - **`handlers/`** — one module per command family, and where new user-facing behaviour
   lands: `stats.py` (/stats, /kills, /killedby, /deaths), `search.py` (/search, /sch,
-  /schall), `achievements.py` (/achievements, /info, /getachv, /roll and the card pager),
+  /schall), `achievements.py` (/achievements, /miss, /info, /getachv, /roll and the card pager),
   `gamesession.py` (the stand-in game manager — the largest by far, see below), `admin.py`
   (the privileged commands), `welcome.py`, `inline.py`, `misc.py` (/start, /about,
   /version), `errors.py` (the global error handler) and `common.py` (helpers shared by more
@@ -304,7 +304,9 @@ is the rule `settings.py` has always had, generalised — see *Configuration* fo
   other silently loses every catalog.
 - **`render/wwstats.py`** — the `/achievements` Markdown report (attained / missing /
   not-via-playing / inactive), chunked 30 items per message. Takes the attained list; it
-  does not fetch.
+  does not fetch. `missing()` beside it is the one definition of *still obtainable* —
+  everything not held, minus the inactive and the not-via-playing — shared with the `/miss`
+  builder so the report and the chat answer can never disagree about a player's list.
 - **`data/achvlist.py`** — the original hardcoded `ACHV` list, now only a **seed source** for
   the database. Editing it will not change a deployed bot's data (seeding is
   `ON CONFLICT DO NOTHING`); edit rows via `/setnote` or `/db` instead.

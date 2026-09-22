@@ -15,6 +15,25 @@ def _section(items, main, section_header):
     return [main + section_header + "".join(chunk) for chunk in chunks(lines, 30)]
 
 
+def missing(stats):
+    """Achievements a player has not got and can still earn by playing.
+
+    The "MISSING AND ATTAINABLE VIA PLAYING" section of the /achievements report, and the
+    whole of what /miss answers with — so what counts as *still obtainable* is decided
+    here once rather than restated by the second caller. The two exclusions are the point
+    of it: an inactive achievement can no longer be earned at all, and a not-via-playing
+    one is never won at the table, so neither is something to go after.
+
+    Takes the API's attained list, like check() below, and reads the catalogue itself.
+    """
+    attained = {each["name"] for each in stats}
+    return [
+        a
+        for a in db.get_achievements()
+        if a["name"] not in attained and not (a.get("inactive") or a.get("not_via_playing"))
+    ]
+
+
 def check(stats):
     """The /achievements report for one player, from their attained-achievement list.
 
@@ -32,9 +51,7 @@ def check(stats):
     attained_names = [each["name"] for each in stats]
     not_via_playing = [z for z in achvs if z["name"] not in attained_names and z.get("not_via_playing")]
     inactive = [z for z in achvs if z["name"] not in attained_names and z.get("inactive")]
-    missing = [
-        z for z in achvs if z["name"] not in attained_names and not (z.get("inactive") or z.get("not_via_playing"))
-    ]
+    outstanding = missing(stats)
 
     msgs = []
     attained = ""
@@ -44,7 +61,7 @@ def check(stats):
     msgs.append(t.ATTAINED_HEADER.format(attained=attained_count, total=total) + "```" + attained + "```")
 
     main = t.MISSING_MAIN.format(missing=total - attained_count, total=total)
-    msgs += _section(missing, main, t.MISSING_HEADER.format(count=len(missing), total=total))
+    msgs += _section(outstanding, main, t.MISSING_HEADER.format(count=len(outstanding), total=total))
     msgs += _section(not_via_playing, main, t.NOT_VIA_PLAYING_HEADER.format(count=len(not_via_playing), total=total))
     msgs += _section(inactive, main, t.INACTIVE_HEADER.format(count=len(inactive), total=total))
 

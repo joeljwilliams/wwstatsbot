@@ -5,7 +5,7 @@ builders and search path as the slash commands — so moving `builders.py` or `a
 during the split can break it while every command test still passes.
 
 Two distinct behaviours share the handler: an empty query returns the querying user's
-four stat cards, and typed text becomes an achievement search identical to /info.
+own cards, and typed text becomes an achievement search identical to /info.
 """
 
 from conftest import FakeContext, FakeInlineQuery, FakeUpdate, FakeUser
@@ -22,34 +22,43 @@ async def answer(query="", user=None):
     return inline
 
 
-# --- Empty query: the user's own stats ------------------------------------------
+# --- Empty query: the user's own cards ------------------------------------------
 
 
-async def test_empty_query_offers_the_four_stat_cards(stats_api):
+async def test_empty_query_offers_the_five_cards(achievements, stats_api):
+    """Missing achievements leads: it is the card somebody opens the menu to post, where
+    the stat cards are about the player. The order *is* the menu."""
     inline = await answer("")
-    assert [r.id for r in inline.results] == ["stats", "kills", "killedby", "deaths"]
+    assert [r.id for r in inline.results] == ["missing", "stats", "kills", "killedby", "deaths"]
 
 
-async def test_empty_query_titles(stats_api):
+async def test_empty_query_titles(achievements, stats_api):
     inline = await answer("")
-    assert [r.title for r in inline.results] == ["My Stats", "My Kills", "My Killed By", "My Deaths"]
+    assert [r.title for r in inline.results] == [
+        "My Missing Achievements",
+        "My Stats",
+        "My Kills",
+        "My Killed By",
+        "My Deaths",
+    ]
 
 
-async def test_empty_query_cards_carry_the_rendered_message(stats_api):
+async def test_empty_query_cards_carry_the_rendered_message(achievements, stats_api):
     inline = await answer("")
     by_id = {r.id: r.input_message_content.message_text for r in inline.results}
+    assert "Missing for" in by_id["missing"]
     assert "Alice</a> the Villager" in by_id["stats"]
     assert "most killed:" in by_id["kills"]
     assert "who killed" in by_id["killedby"]
     assert "Types of deaths" in by_id["deaths"]
 
 
-async def test_whitespace_only_query_is_treated_as_empty(stats_api):
+async def test_whitespace_only_query_is_treated_as_empty(achievements, stats_api):
     inline = await answer("   ")
-    assert [r.id for r in inline.results] == ["stats", "kills", "killedby", "deaths"]
+    assert [r.id for r in inline.results] == ["missing", "stats", "kills", "killedby", "deaths"]
 
 
-async def test_empty_query_uses_the_querying_users_id(stats_api):
+async def test_empty_query_uses_the_querying_users_id(achievements, stats_api):
     """Inline queries have no chat context, so the sender is always the subject."""
     await answer("", user=FakeUser(4242, "Bob"))
     assert all(request.url.params.get("pid") == "4242" for request in stats_api.requests)

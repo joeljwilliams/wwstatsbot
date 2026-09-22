@@ -1,4 +1,4 @@
-"""Achievement lookup: /achievements, /info, /getachv and the /info card pager.
+"""Achievement lookup: /achievements, /miss, /info, /getachv and the /info card pager.
 
 A bare /info replying to a bot means "info for everything that message lists" — the game
 bot's Possible Achievements post — so display_achv_info reroutes to all_info_cmd. That
@@ -23,7 +23,7 @@ from unidecode import unidecode
 
 from wwstatsbot.data import db, playerdata
 from wwstatsbot.handlers import gamesession
-from wwstatsbot.handlers.common import mention_map
+from wwstatsbot.handlers.common import mention_map, resolve_target
 from wwstatsbot.render import badges, builders, wwstats
 from wwstatsbot.render import templates as t
 
@@ -51,6 +51,21 @@ async def display_achv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(t.START_ME_BUTTON, url=url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(t.ACHV_NEEDS_PM, reply_markup=reply_markup)
+
+
+async def display_missing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """`/miss` — the achievements this player can still earn, answered in the chat.
+
+    /achievements is the whole report and has to go to a PM: four Markdown messages of
+    thirty entries each, which is why it replies in a group with "sent to your PM". That
+    is no answer at all to the question a table actually asks between games — what is
+    still open to this player — so this renders the one bucket that question is about,
+    short enough to belong in the room, for whoever asked or whoever they replied to.
+    """
+    user_id, name = resolve_target(update)
+    logger.info("command", command="miss", user_id=user_id, user=unidecode(name))
+    msg = await builders.build_missing_msg(user_id, name)
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def display_achv_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
