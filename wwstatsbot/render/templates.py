@@ -383,9 +383,13 @@ WELCOME_MORE = N_("<i>\N{HORIZONTAL ELLIPSIS}and {count} more joined.</i>\n")
 # that bought a username on Fragment. The glyph inside the tag is what everyone else
 # sees, and handlers/welcome.py falls back to it wholesale if the API refuses the entity —
 # a rejected parse would otherwise mean no announcement at all.
+#
+# /rules is addressed to @ExecutrixBot because the rules live on that bot, not this one:
+# Telegram sends a bare command in a group to whichever bot the tap resolves to, so a
+# newcomer tapping it here sent /rules to @wwstatsbot and got nothing back.
 WELCOME_HOUSE_RULES = N_(
     "\n<tg-emoji emoji-id='5447644880824181073'>\N{WARNING SIGN}</tg-emoji> "
-    "<i>Please read /rules and answer the #quiz before playing</i>\n"
+    "<i>Please read /rules@ExecutrixBot and answer the #quiz before playing</i>\n"
 )
 
 # The /welcome switch itself.

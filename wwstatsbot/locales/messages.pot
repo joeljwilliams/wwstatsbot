@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-17 14:50+0200\n"
+"POT-Creation-Date: 2026-09-22 10:02+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -378,7 +378,7 @@ msgstr ""
 msgid "📄 Send all {count}"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:225 wwstatsbot/render/templates.py:445
+#: wwstatsbot/render/templates.py:225 wwstatsbot/render/templates.py:449
 #, python-brace-format
 msgid "<a href='tg://user?id={user_id}'>{name}</a>{badge}"
 msgstr ""
@@ -431,7 +431,7 @@ msgid ""
 "<code>- Achievement Name</code>."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:246 wwstatsbot/render/templates.py:412
+#: wwstatsbot/render/templates.py:246 wwstatsbot/render/templates.py:416
 msgid "No matching achievements found."
 msgstr ""
 
@@ -443,7 +443,7 @@ msgstr ""
 msgid "Those achievements are no longer available."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:250 wwstatsbot/render/templates.py:786
+#: wwstatsbot/render/templates.py:250 wwstatsbot/render/templates.py:790
 msgid ""
 "I can't message you yet. Start a private chat with me first (tap my name,"
 " then Start), then tap the button again."
@@ -746,117 +746,117 @@ msgstr ""
 msgid "<i>…and {count} more joined.</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:387
+#: wwstatsbot/render/templates.py:391
 msgid ""
 "\n"
 "<tg-emoji emoji-id='5447644880824181073'>⚠</tg-emoji> <i>Please read "
-"/rules and answer the #quiz before playing</i>\n"
+"/rules@ExecutrixBot and answer the #quiz before playing</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:392
+#: wwstatsbot/render/templates.py:396
 msgid "Join announcements are <b>on</b> for this chat."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:393
+#: wwstatsbot/render/templates.py:397
 msgid "Join announcements are <b>off</b> for this chat."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:395
+#: wwstatsbot/render/templates.py:399
 #, python-brace-format
 msgid ""
 "Join announcements are currently <b>{state}</b>.\n"
 "Use <code>/welcome on</code> or <code>/welcome off</code> to change it."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:398 wwstatsbot/render/templates.py:630
+#: wwstatsbot/render/templates.py:402 wwstatsbot/render/templates.py:634
 msgid "on"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:399 wwstatsbot/render/templates.py:631
+#: wwstatsbot/render/templates.py:403 wwstatsbot/render/templates.py:635
 msgid "off"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:402
+#: wwstatsbot/render/templates.py:406
 msgid "Join announcements are a group feature — there is nobody to announce here."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:403
+#: wwstatsbot/render/templates.py:407
 msgid "Only this group's admins can change join announcements."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:407
+#: wwstatsbot/render/templates.py:411
 msgid "My Stats"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:408
+#: wwstatsbot/render/templates.py:412
 msgid "My Kills"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:409
+#: wwstatsbot/render/templates.py:413
 msgid "My Killed By"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:410
+#: wwstatsbot/render/templates.py:414
 msgid "My Deaths"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:411
+#: wwstatsbot/render/templates.py:415
 msgid "No matching achievements"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:418
+#: wwstatsbot/render/templates.py:422
 msgid "Your game stats (or reply to another player)"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:419
+#: wwstatsbot/render/templates.py:423
 msgid "Players you've killed the most"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:420
+#: wwstatsbot/render/templates.py:424
 msgid "Players who've killed you the most"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:421
+#: wwstatsbot/render/templates.py:425
 msgid "Your most common causes of death"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:422
+#: wwstatsbot/render/templates.py:426
 msgid "Search your achievements, or reply to a player list to check everyone"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:423
+#: wwstatsbot/render/templates.py:427
 msgid "List all achievements"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:424
+#: wwstatsbot/render/templates.py:428
 msgid "Look up an achievement, or reply to a list to get them all"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:425
+#: wwstatsbot/render/templates.py:429
 msgid "About this bot"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:426
+#: wwstatsbot/render/templates.py:430
 msgid "Show the running bot version"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:427
+#: wwstatsbot/render/templates.py:431
 msgid "Start the bot in a private chat"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:447
+#: wwstatsbot/render/templates.py:451
 msgid ""
 "<b>GAME RUNNING!</b>\n"
 "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:452
+#: wwstatsbot/render/templates.py:456
 msgid ""
 "<b>GAME ENDED</b>\n"
 "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:454
+#: wwstatsbot/render/templates.py:458
 msgid ""
 "Standing in for the achievement manager. Reveal your role with "
 "<code>/role &lt;role&gt;</code> — e.g. <code>/role gunner</code> or "
@@ -865,125 +865,125 @@ msgid ""
 "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:461
+#: wwstatsbot/render/templates.py:465
 #, python-brace-format
 msgid "<b>Players ({alive} / {total}):</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:465 wwstatsbot/render/templates.py:523
+#: wwstatsbot/render/templates.py:469 wwstatsbot/render/templates.py:527
 #, python-brace-format
 msgid "{name}: {role}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:466
+#: wwstatsbot/render/templates.py:470
 #, python-brace-format
 msgid "{name}: ❗ <i>not revealed</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:469
+#: wwstatsbot/render/templates.py:473
 #, python-brace-format
 msgid " ({name})"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:472
+#: wwstatsbot/render/templates.py:476
 msgid " ❤"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:473
+#: wwstatsbot/render/templates.py:477
 msgid ""
 "\n"
 "<b>Dead Players:</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:474
+#: wwstatsbot/render/templates.py:478
 #, python-brace-format
 msgid ""
 "\n"
 "<i>Not tracked (no user id): {names}</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:475
+#: wwstatsbot/render/templates.py:479
 msgid "Stop"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:478
+#: wwstatsbot/render/templates.py:482
 msgid "Press Stop again to end the session."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:479
+#: wwstatsbot/render/templates.py:483
 msgid "Only players in this game can stop it."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:480
+#: wwstatsbot/render/templates.py:484
 msgid "That session has already ended."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:484
+#: wwstatsbot/render/templates.py:488
 msgid "Restart"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:485
+#: wwstatsbot/render/templates.py:489
 msgid "Stand-in session restarted."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:488
+#: wwstatsbot/render/templates.py:492
 #, python-brace-format
 msgid "{name} restarted the stand-in session."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:490
+#: wwstatsbot/render/templates.py:494
 msgid ""
 "That session is too old to restart. Reply to the game bot's player list "
 "with <code>/gs</code> for a new one."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:492
+#: wwstatsbot/render/templates.py:496
 msgid ""
 "A stand-in session is already running here — that button belongs to an "
 "older game."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:495
+#: wwstatsbot/render/templates.py:499
 msgid ""
 "A stand-in session is already running in this chat. Stop it first, or use"
 " <code>/gsend</code>."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:498
+#: wwstatsbot/render/templates.py:502
 #, python-brace-format
 msgid ""
 "Reply to the game bot's player list with <code>/gs@{username}</code> so I"
 " know who is playing."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:501
+#: wwstatsbot/render/templates.py:505
 msgid ""
 "That message doesn't mention any players I can track. I need direct "
 "mentions — plain @username mentions carry no user id."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:504
+#: wwstatsbot/render/templates.py:508
 msgid "Stand-in session ended."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:507
+#: wwstatsbot/render/templates.py:511
 #, python-brace-format
 msgid "{name} has considered the game stopped!"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:510
+#: wwstatsbot/render/templates.py:514
 #, python-brace-format
 msgid "{name}'s role was set to: {role}"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:511
+#: wwstatsbot/render/templates.py:515
 #, python-brace-format
 msgid ""
 "{name}'s role was set to: {role}\n"
 "<i>Both are being counted until you know which.</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:513
+#: wwstatsbot/render/templates.py:517
 #, python-brace-format
 msgid ""
 "❗ <b>Still no role set:</b> {names}\n"
@@ -991,7 +991,7 @@ msgid ""
 "cannot say what you can earn.</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:519
+#: wwstatsbot/render/templates.py:523
 #, python-brace-format
 msgid ""
 "❗ <b>Still no rolemodel set:</b> {names}\n"
@@ -999,159 +999,159 @@ msgid ""
 "you turn.</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:522
+#: wwstatsbot/render/templates.py:526
 msgid "<b>Roles set:</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:525
+#: wwstatsbot/render/templates.py:529
 msgid ""
 "<i>Where two roles are listed, both are being counted until the player "
 "knows which.</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:527
+#: wwstatsbot/render/templates.py:531
 msgid "Usage: <code>/role &lt;role&gt;</code> — try <code>/role seer</code>."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:528
+#: wwstatsbot/render/templates.py:532
 #, python-brace-format
 msgid "I don't know a role called <b>{role}</b>."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:529
+#: wwstatsbot/render/templates.py:533
 #, python-brace-format
 msgid ""
 "\n"
 "Did you mean: {names}?"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:535
+#: wwstatsbot/render/templates.py:539
 msgid ""
 "The player list isn't up yet, so I can't tell who anybody is. Send that "
 "again once I post the roster."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:537
+#: wwstatsbot/render/templates.py:541
 #, python-brace-format
 msgid "{name}'s rolemodel is now {model}"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:541
+#: wwstatsbot/render/templates.py:545
 msgid ""
 "Usage: <code>/rm @rolemodel</code>, or a bare <code>/rm</code> in reply "
 "to them (both yours); <code>/rm @rolemodel</code> in reply to a player, "
 "or <code>/rm @player @rolemodel</code> (theirs)."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:549
+#: wwstatsbot/render/templates.py:553
 #, python-brace-format
 msgid ""
 "{name} is {role}, which has no rolemodel. Only the Wild Child 👶 and the "
 "Doppelgänger 🎭 do."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:552
+#: wwstatsbot/render/templates.py:556
 #, python-brace-format
 msgid "{name} hasn't revealed yet, so I can't tell if they have a rolemodel."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:553
+#: wwstatsbot/render/templates.py:557
 #, python-brace-format
 msgid "{name} is now in love."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:554
+#: wwstatsbot/render/templates.py:558
 #, python-brace-format
 msgid "{name} and {partner} are now in love."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:558
+#: wwstatsbot/render/templates.py:562
 #, python-brace-format
 msgid "{name} is the Beholder 👁 — and there is no Seer in this game."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:559
+#: wwstatsbot/render/templates.py:563
 #, python-brace-format
 msgid "{name} is the Beholder 👁, and {seer} is the Seer 👳."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:560
+#: wwstatsbot/render/templates.py:564
 #, python-brace-format
 msgid ""
 "\n"
 "Unsure seer/fool claims settled as the Fool 🃏: {names}"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:561
+#: wwstatsbot/render/templates.py:565
 #, python-brace-format
 msgid "{name} isn't in this game's player list."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:563
+#: wwstatsbot/render/templates.py:567
 msgid ""
 "I need a player from this game — reply to them, or @mention them. Typing "
 "a name won't do: I match on the mention, not the spelling."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:570
+#: wwstatsbot/render/templates.py:574
 #, python-brace-format
 msgid "{name} is dead."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:574
+#: wwstatsbot/render/templates.py:578
 #, python-brace-format
 msgid "{name} is an alt — leaving them out of the achievements list."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:575
+#: wwstatsbot/render/templates.py:579
 #, python-brace-format
 msgid "{name} is not an alt any more, and is back in the achievements list."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:577
+#: wwstatsbot/render/templates.py:581
 msgid " <i>(alt)</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:579
+#: wwstatsbot/render/templates.py:583
 msgid ""
 "Reply to the account with <code>/alt</code>, @mention it, or send "
 "<code>/alt</code> on its own to mark your own."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:581
+#: wwstatsbot/render/templates.py:585
 #, python-brace-format
 msgid "{name} is already dead."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:586
+#: wwstatsbot/render/templates.py:590
 #, python-brace-format
 msgid "<b>Doused ({count}/{alive})</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:589
+#: wwstatsbot/render/templates.py:593
 #, python-brace-format
 msgid "<b>Doused ({count})</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:590
+#: wwstatsbot/render/templates.py:594
 #, python-brace-format
 msgid "🔥 {name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:599
+#: wwstatsbot/render/templates.py:603
 msgid ""
 "Game management is <b>on</b>. I'll answer game commands without being "
 "addressed, and pin the roster while a game runs."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:603
+#: wwstatsbot/render/templates.py:607
 #, python-brace-format
 msgid ""
 "Game management is <b>off</b>. Address me directly — "
 "<code>/gs@{username}</code> — and I won't pin anything."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:612
+#: wwstatsbot/render/templates.py:616
 msgid ""
 "Game management is <b>on</b>, and automatic. I'll open the roster when "
 "the game bot posts a player list, follow it as players die, and close it "
@@ -1159,7 +1159,7 @@ msgid ""
 "<code>/gsend</code> still work if you'd rather."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:617
+#: wwstatsbot/render/templates.py:621
 msgid ""
 "Game management is <b>on</b>, and automatic — but Telegram only shows one"
 " bot's messages to another when it's a group admin, so I can't see the "
@@ -1167,7 +1167,7 @@ msgid ""
 "there."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:622
+#: wwstatsbot/render/templates.py:626
 #, python-brace-format
 msgid ""
 "Game management is <b>on</b>, and automatic — but I don't know which bot "
@@ -1175,7 +1175,7 @@ msgid ""
 "<code>/gs@{username}</code> once, and I'll follow it from then on."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:627
+#: wwstatsbot/render/templates.py:631
 #, python-brace-format
 msgid ""
 "Game management is currently <b>{state}</b>.\n"
@@ -1183,85 +1183,85 @@ msgid ""
 " change it."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:632
+#: wwstatsbot/render/templates.py:636
 msgid "automatic"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:633
+#: wwstatsbot/render/templates.py:637
 msgid "Game management is a group setting — there is no game to manage here."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:634
+#: wwstatsbot/render/templates.py:638
 msgid "Only this group's admins can switch game management."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:650
+#: wwstatsbot/render/templates.py:654
 msgid "<b>Lynchorder:</b>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:651 wwstatsbot/render/templates.py:721
+#: wwstatsbot/render/templates.py:655 wwstatsbot/render/templates.py:725
 #, python-brace-format
 msgid "{name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:652
+#: wwstatsbot/render/templates.py:656
 #, python-brace-format
 msgid "The lynchorder was set by {name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:655
+#: wwstatsbot/render/templates.py:659
 #, python-brace-format
 msgid "<i>Left out, already dead: {names}</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:656
+#: wwstatsbot/render/templates.py:660
 msgid "Everybody you named is already dead."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:660
+#: wwstatsbot/render/templates.py:664
 msgid ""
 "I don't know who that is. Name players by @handle, by tapping their name,"
 " or by user id — they have to be in this game's roster."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:663
+#: wwstatsbot/render/templates.py:667
 #, python-brace-format
 msgid "The lynchorder was reset by {name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:666
+#: wwstatsbot/render/templates.py:670
 msgid "The lynchorder was reset as night fell"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:668
+#: wwstatsbot/render/templates.py:672
 msgid "There is nobody left to lynch."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:672
+#: wwstatsbot/render/templates.py:676
 #, python-brace-format
 msgid ""
 "No game is running here. Reply to the game bot's player list with "
 "<code>/gs@{username}</code> to start one."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:674
+#: wwstatsbot/render/templates.py:678
 msgid ""
 "Only this game's players and the group's admins can change the lynch "
 "order."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:677
+#: wwstatsbot/render/templates.py:681
 #, python-brace-format
 msgid "That's too long for a lynch order ({count} characters, limit {limit})."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:679
+#: wwstatsbot/render/templates.py:683
 msgid ""
 "Reply to the game bot's player list with <code>/ad</code> and I'll follow"
 " it."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:684
+#: wwstatsbot/render/templates.py:688
 #, python-brace-format
 msgid ""
 "That roster says {claimed} of {total} alive, but I can only see {found} "
@@ -1269,168 +1269,168 @@ msgid ""
 "game, or it didn't mention everyone directly."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:687
+#: wwstatsbot/render/templates.py:691
 msgid "Roster matches what I have — nobody's status changed."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:688
+#: wwstatsbot/render/templates.py:692
 msgid "Roster followed.\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:689
+#: wwstatsbot/render/templates.py:693
 #, python-brace-format
 msgid "💀 Now dead: {names}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:690
+#: wwstatsbot/render/templates.py:694
 #, python-brace-format
 msgid "🙂 Back among the living: {names}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:691
+#: wwstatsbot/render/templates.py:695
 #, python-brace-format
 msgid "Learned from the death notices: {names}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:694
+#: wwstatsbot/render/templates.py:698
 msgid "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:696
+#: wwstatsbot/render/templates.py:700
 #, python-brace-format
 msgid "🔁 {name} is now {role} ({reason})\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:698
+#: wwstatsbot/render/templates.py:702
 #, python-brace-format
 msgid "💔 {name} dies of sorrow.\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:699
+#: wwstatsbot/render/templates.py:703
 msgid "their rolemodel died"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:700
+#: wwstatsbot/render/templates.py:704
 msgid "the seer is gone"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:701
+#: wwstatsbot/render/templates.py:705
 msgid "the wolves are gone"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:703
+#: wwstatsbot/render/templates.py:707
 msgid "Usage: <code>/steal @player</code>, or reply to them."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:704
+#: wwstatsbot/render/templates.py:708
 msgid "Only the Thief 😈 can steal a role."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:707
+#: wwstatsbot/render/templates.py:711
 #, python-brace-format
 msgid "The Thief can't steal from {name} — {role} is out of reach."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:708
+#: wwstatsbot/render/templates.py:712
 #, python-brace-format
 msgid "{thief} stole {role} from {name}, who is now the Thief 😈."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:718
+#: wwstatsbot/render/templates.py:722
 msgid ""
 "Possible Achievements:\n"
 "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:727
+#: wwstatsbot/render/templates.py:731
 #, python-brace-format
 msgid " - {name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:728
+#: wwstatsbot/render/templates.py:732
 #, python-brace-format
 msgid " - 🔁 {name}\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:732
+#: wwstatsbot/render/templates.py:736
 #, python-brace-format
 msgid "   <i>…and {count} more</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:733
+#: wwstatsbot/render/templates.py:737
 msgid "<i>Nothing yet — no roles revealed.</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:737
+#: wwstatsbot/render/templates.py:741
 msgid "<i>Nothing available yet from what has been revealed.</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:746
+#: wwstatsbot/render/templates.py:750
 #, python-brace-format
 msgid "<b>{name}</b> ({count}):\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:747
+#: wwstatsbot/render/templates.py:751
 #, python-brace-format
 msgid ""
 "{names}\n"
 "\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:750
+#: wwstatsbot/render/templates.py:754
 #, python-brace-format
 msgid ""
 "\n"
 "🕐 {revealed} of {total} revealed · 🔁 if your role changes\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:756
+#: wwstatsbot/render/templates.py:760
 #, python-brace-format
 msgid " <i>and {count} more</i>"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:761
+#: wwstatsbot/render/templates.py:765
 msgid "<i>Trimmed to fit — reply with /info for any of them.</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:765
+#: wwstatsbot/render/templates.py:769
 msgid "<i>Too long to show in full.</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:776
+#: wwstatsbot/render/templates.py:780
 msgid "📄 Show me the full list"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:777
+#: wwstatsbot/render/templates.py:781
 msgid "⏪️ Prev"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:778
+#: wwstatsbot/render/templates.py:782
 msgid "Next ⏩️"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:779
+#: wwstatsbot/render/templates.py:783
 #, python-brace-format
 msgid "<i>Page {index} of {total}</i>\n"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:780
+#: wwstatsbot/render/templates.py:784
 msgid "Sent the full list to your PM ✅"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:784
+#: wwstatsbot/render/templates.py:788
 msgid "That game has ended, so there is no list to page through."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:789
+#: wwstatsbot/render/templates.py:793
 msgid "The list is here, and updates as roles come in."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:790
+#: wwstatsbot/render/templates.py:794
 msgid "Nobody has revealed a role yet — the list appears once someone does."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:793
+#: wwstatsbot/render/templates.py:797
 #, python-brace-format
 msgid ""
 "No updates for {minutes} minutes. I'll end the stand-in session in "
@@ -1438,32 +1438,32 @@ msgid ""
 "<code>/dead</code> or <code>/ad</code> keeps it alive, or answer below."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:801
+#: wwstatsbot/render/templates.py:805
 msgid "Keep playing"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:804
+#: wwstatsbot/render/templates.py:808
 msgid "Press \"End it\" again to end the session."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:805
+#: wwstatsbot/render/templates.py:809
 msgid "End it"
 msgstr ""
 
-#: wwstatsbot/render/templates.py:806
+#: wwstatsbot/render/templates.py:810
 #, python-brace-format
 msgid "{name} kept the stand-in session going."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:807
+#: wwstatsbot/render/templates.py:811
 msgid "Still running."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:808
+#: wwstatsbot/render/templates.py:812
 msgid "Only players in this game can keep it going."
 msgstr ""
 
-#: wwstatsbot/render/templates.py:810
+#: wwstatsbot/render/templates.py:814
 #, python-brace-format
 msgid ""
 "Stand-in session ended — nothing happened for a while. Tap Restart on the"
