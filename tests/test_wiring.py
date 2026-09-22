@@ -78,7 +78,7 @@ UNADVERTISED = [
 LYNCH_ALIASES = {"lynchorder": "lo", "setlynchorder": "slo", "resetlynchorder": "rslo"}
 
 # Aliases that must keep working alongside their primary verb.
-ALIASES = ["sch", "achv", "getachv", "lynchorder", "setlynchorder", "resetlynchorder"]
+ALIASES = ["sch", "achv", "getachv", "missing", "lynchorder", "setlynchorder", "resetlynchorder"]
 
 
 def application():
@@ -128,6 +128,7 @@ def test_aliases_share_a_callback_with_their_primary_verb():
     assert registered["sch"] is registered["search"]
     assert registered["achv"] is registered["achievements"]
     assert registered["getachv"] is registered["info"]
+    assert registered["missing"] is registered["miss"]
     for alias, primary in LYNCH_ALIASES.items():
         assert registered[alias] is registered[primary], "/{} is not /{}".format(alias, primary)
 
@@ -147,6 +148,7 @@ def test_commands_are_wired_to_the_expected_callbacks():
         "about": misc.display_about,
         "version": misc.display_version,
         "achievements": achv_handlers.display_achv,
+        "miss": achv_handlers.display_missing,
         "info": achv_handlers.display_achv_info,
         "allinfo": achv_handlers.all_info_cmd,
         "addadmin": admin.add_admin_cmd,

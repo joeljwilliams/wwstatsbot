@@ -18,7 +18,7 @@ import html
 
 from wwstatsbot.data import db, notes, playerdata
 from wwstatsbot.game import roles
-from wwstatsbot.render import badges
+from wwstatsbot.render import badges, wwstats
 from wwstatsbot.render import templates as t
 
 
@@ -134,6 +134,39 @@ async def build_stats_msg(user_id, name, by_id=False):
             times=stats["mostKilledBy"]["times"], name=html.escape(stats["mostKilledBy"]["name"])
         )
     return msg + playerdata.stale_notice(reading.age, count.age)
+
+
+# Cap the /miss list. Telegram's 4096 characters is not what this is for — a bare name per
+# line, even ninety of them, is nowhere near it. It is that the answer lands in the chat
+# somebody asked in, and a player who has just started is missing nearly the whole
+# catalogue: ninety lines is a wall the rest of the room has to scroll past.
+#
+# What was left out is always counted, because a silent cut reads as "that is all of it",
+# and /achievements is still there for the whole thing with descriptions.
+_MISSING_MAX_ROWS = 50
+
+
+async def build_missing_msg(user_id, name):
+    """What a player can still earn: the /miss message, and the inline card of the same.
+
+    Names only, no descriptions — this is the list rendered for a room rather than for a
+    PM, and it is the same bucket /achievements prints under "MISSING AND ATTAINABLE VIA
+    PLAYING" (wwstats.missing decides what belongs in it, for both).
+    """
+    attained = await playerdata.get_achievements(user_id)
+    outstanding = wwstats.missing(attained.data)
+    badge = badges.of(user_id)
+    if not outstanding:
+        return t.MISS_NONE.format(user_id=user_id, name=name, badge=badge) + playerdata.stale_notice(attained.age)
+
+    msg = t.MISS_HEADER.format(user_id=user_id, name=name, badge=badge, count=len(outstanding))
+    for achv in outstanding[:_MISSING_MAX_ROWS]:
+        msg += t.MISS_ROW.format(name=html.escape(achv["name"]))
+    if len(outstanding) > _MISSING_MAX_ROWS:
+        msg += t.MISS_TRUNCATED.format(extra=len(outstanding) - _MISSING_MAX_ROWS)
+    # A list of what somebody has *not* got is a claim about them, so one built from the
+    # record has to say so — the same rule /search's ticks follow.
+    return msg + playerdata.stale_notice(attained.age)
 
 
 # At or below this length a query means an initialism and nothing else -- it never
