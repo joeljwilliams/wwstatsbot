@@ -109,13 +109,10 @@ def addressed(text, user_id=1):
     )
 
 
-async def gm(context, arg="", user_id=1, chat_admin=True, bot_admin=False):
-    """Run /gm as somebody entitled to. `bot_admin` is whether Telegram would deliver the
-    game bot's messages to us at all — the group admin the automation needs."""
+async def gm(context, arg="", user_id=1, chat_admin=True):
+    """Run /gm as somebody entitled to."""
     if chat_admin:
         context.bot.chat_admins.add(user_id)
-    if bot_admin:
-        context.bot.chat_admins.add(context.bot.id)
     msg = addressed("/gm@wwstatsbot {}".format(arg).strip(), user_id=user_id)
     context.args = msg.text.split()[1:]
     await gamesession.game_management_cmd(FakeUpdate(message=msg), context)
@@ -761,32 +758,34 @@ async def test_a_closing_message_with_no_session_does_nothing(context):
 async def test_gm_auto_is_management_on_and_automatic(context):
     context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
 
-    msg = await gm(context, "auto", bot_admin=True)
+    msg = await gm(context, "auto")
 
     assert gamesession.is_auto(context) is True
     assert gamesession.is_managing(context) is True
     assert msg.replies[0][0] == t.STANDIN_GM_AUTO
 
 
-async def test_gm_auto_says_so_when_it_cannot_see_the_game_bot(context):
-    """Telegram delivers another bot's messages to a group admin and nobody else. Silence
-    would leave a group with the switch on, nothing happening, and no way to find out why."""
+async def test_gm_auto_does_not_ask_to_be_made_an_admin(context):
+    """With Group Privacy Mode off the game bot's messages arrive without it, so a group
+    that has not promoted this bot is told the automation is on, not that it cannot work."""
+    context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
+
     msg = await gm(context, "auto")
 
     assert gamesession.is_auto(context) is True
-    assert msg.replies[0][0] == t.STANDIN_GM_AUTO_NEEDS_ADMIN
+    assert msg.replies[0][0] == t.STANDIN_GM_AUTO
 
 
 async def test_gm_auto_says_so_when_it_does_not_know_which_bot_to_follow(context):
     context.chat_data.pop(gamesession._GAME_BOT_KEY, None)
 
-    msg = await gm(context, "auto", bot_admin=True)
+    msg = await gm(context, "auto")
 
     assert t.STANDIN_GM_AUTO_UNLEARNED.format(username="wwstatsbot") == msg.replies[0][0]
 
 
 async def test_gm_on_after_auto_turns_the_automation_off(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     await gm(context, "on")
 
@@ -795,7 +794,7 @@ async def test_gm_on_after_auto_turns_the_automation_off(context):
 
 
 async def test_gm_off_after_auto_turns_everything_off(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     await gm(context, "off")
 
@@ -804,7 +803,7 @@ async def test_gm_off_after_auto_turns_everything_off(context):
 
 
 async def test_gm_reports_the_automatic_state(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     msg = await gm(context)
 
@@ -816,7 +815,7 @@ async def test_the_switch_and_the_learned_bot_survive_a_restart(context):
     about which bot runs their games must not quietly revert on a deploy."""
     from conftest import assert_json_roundtrips
 
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
     context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
 
     restored = assert_json_roundtrips(context.chat_data)

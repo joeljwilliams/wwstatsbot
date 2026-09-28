@@ -2608,14 +2608,15 @@ async def _idle_end(context):
 async def _auto_confirmation(context, chat_id):
     """What to say when a chat switches to `/gm auto`, given what can actually happen.
 
-    Three answers, because there are three states and only one of them is "it works". The
-    automation depends on Telegram delivering another bot's messages, which it does only to
-    a group admin, and on knowing which bot to follow — neither of which this command can
-    arrange. Silence would be the worst reply of the three: a group would sit there with the
-    switch on, nothing happening, and no way to find out why.
+    Two answers, because the automation depends on knowing which bot to follow, which this
+    command cannot arrange. Silence would leave a group with the switch on, nothing
+    happening, and no way to find out why.
+
+    Adminness is deliberately not checked. It was, on the belief that Telegram delivers
+    another bot's messages only to a group admin — but with Group Privacy Mode off this bot
+    sees them without being one, and the check told groups where it already worked that it
+    could not.
     """
-    if not await is_chat_admin(context, chat_id, context.bot.id):
-        return t.STANDIN_GM_AUTO_NEEDS_ADMIN
     if context.chat_data.get(_GAME_BOT_KEY) is None:
         return t.STANDIN_GM_AUTO_UNLEARNED.format(username=html.escape(context.bot.username or ""))
     return t.STANDIN_GM_AUTO

@@ -494,15 +494,16 @@ bare once on, so it is typed like everything else it governs. And switching off 
 unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
 nobody can undo without going to find the message.
 
-**`/gm auto` is a third state, and it needs three things nobody can check.** On, the game
+**`/gm auto` is a third state, and it needs things nobody can check.** On, the game
 bot's own messages drive the session: its player list opens the roster, every later one
 follows it, and its closing message closes it — `/gs`, `/ad` and `/gsend` all still work
-and a human still wins. Reaching that at all needs **all three** of Bot-to-Bot
-Communication Mode on for this bot in @BotFather, this bot an **admin** in the group, and
-its Group Privacy Mode off; Telegram says which one is missing by delivering nothing. So
-`/gm auto` answers with whichever of three replies is true, and two of them are "it can't
-work yet" — silence would leave a group with the switch on, nothing happening, and no way
-to find out why. It is a state of its own rather than the meaning of `on` so that a group
+and a human still wins. Reaching that at all needs Bot-to-Bot Communication Mode on for
+this bot in @BotFather and its Group Privacy Mode off; Telegram says which one is missing
+by delivering nothing. Being a group **admin** is *not* needed, whatever it looks like: an
+earlier version refused to confirm without it, and told groups where the automation already
+worked that it could not. `/gm auto` does still say when it does not know which bot to
+follow — silence would leave a group with the switch on, nothing happening, and no way to
+find out why. It is a state of its own rather than the meaning of `on` so that a group
 already running games this way does not silently start having its rosters opened for it by
 a deploy.
 
