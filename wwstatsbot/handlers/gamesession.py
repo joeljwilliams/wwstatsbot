@@ -2845,6 +2845,16 @@ async def _drive_session(update, context):
             logger.info("standin_auto_ended", chat_id=message.chat.id)
         return
 
+    if session_data is not None:
+        # The game bot speaking is the game still running, whatever it said. The idle timer
+        # counted only what the *table* typed and what changed the roster, so a quiet game
+        # under auto — everybody revealed, nobody dying for a few phases — was warned and
+        # then ended mid-round while the game bot announced every day and night of it. The
+        # engine posts at least once a phase, so ten minutes without a word from it is a
+        # game that has actually stopped, and the timer is still there for that.
+        session.touch(session_data, _now())
+        _schedule_idle(context, message.chat.id)
+
     if session_data is not None and _DAY_BREAKS.search(body):
         # Checked before the roster because it is cheaper and because this message is not
         # one: falling through would only reach the "could not read it" log.

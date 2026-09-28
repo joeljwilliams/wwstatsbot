@@ -575,6 +575,13 @@ reading GAME ENDED. The warning also carries **two buttons**, Keep playing and E
 because the only answer it previously offered was to remember to type a command inside the
 window, and a table quiet enough to be warned is a table typing nothing.
 
+Under **`/gm auto`** the game bot is the heartbeat as well: anything the learned bot posts
+while a session is live counts as activity, so the day and night announcements keep a game
+alive that nobody at the table is typing in. Before that, a quiet game — every role in,
+nobody dying for a few phases — was warned and ended mid-round. The timer still stands
+behind it, because ten minutes without a word from an engine that posts every phase is a
+game that has actually stopped.
+
 Keep playing takes one press; **End it arms like the roster's Stop**, and arms
 *separately* from it. Ending is the destructive answer however it is reached, so it is
 gated wherever it is offered — and these two buttons sit side by side, which is a better

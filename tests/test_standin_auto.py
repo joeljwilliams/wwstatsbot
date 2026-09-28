@@ -644,6 +644,67 @@ async def test_night_falling_with_no_session_is_ignored(context):
     assert resets(context) == []
 
 
+# --- The game bot is the heartbeat --------------------------------------------
+#
+# The idle timer used to hear only the table, so a quiet game under auto — every role in,
+# nobody dying for a few phases — was warned and then ended mid-round while the game bot
+# announced every day and night of it.
+
+
+def idle_jobs(context):
+    return context.job_queue.pending(gamesession._IDLE_JOB.format(-100))
+
+
+@pytest.mark.parametrize("announcement", [daybreak, nightfall])
+async def test_a_phase_announcement_pushes_the_idle_timer_back(context, announcement):
+    await opened(context)
+    before = idle_jobs(context)
+
+    await seen(context, announcement())
+
+    after = idle_jobs(context)
+    assert len(after) == 1
+    assert after[0] not in before, "the countdown must restart, not merely survive"
+
+
+async def test_it_also_calls_off_a_warning_already_given(context):
+    """The grace timer shares the idle job's name, so a warning the table ignored is
+    withdrawn by the next thing the game bot says."""
+    await opened(context)
+    (job,) = idle_jobs(context)
+    job.ran = True
+    context.job = job
+    await gamesession._idle_warning(context)
+    (grace,) = idle_jobs(context)
+
+    await seen(context, nightfall())
+
+    assert grace.removed
+    assert idle_jobs(context)[0].callback is gamesession._idle_warning
+
+
+async def test_another_bot_speaking_keeps_nothing_alive(context):
+    await opened(context)
+    before = idle_jobs(context)
+
+    await seen(context, nightfall(sender_id=OTHER_BOT_ID))
+
+    assert idle_jobs(context) == before
+
+
+async def test_under_plain_management_the_game_bot_is_not_heard(context):
+    """/gm on reads nothing the game bot says past the early-reveal buffer, so it cannot
+    count as activity either — the table's own commands are all that keep it alive."""
+    await start_session(context)
+    context.chat_data[gamesession._GM_KEY] = True
+    context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
+    before = idle_jobs(context)
+
+    await seen(context, nightfall())
+
+    assert idle_jobs(context) == before
+
+
 # --- Closing it out ----------------------------------------------------------
 
 
