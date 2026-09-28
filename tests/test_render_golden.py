@@ -310,13 +310,13 @@ async def test_deaths_msg_derives_approximate_totals(stats_api):
 
 
 async def test_missing_msg(achievements, stats_api):
-    """One short header line, a bullet per name, nothing else. The fixture player holds
+    """One short header line, a dash row per name, nothing else. The fixture player holds
     Welcome to Hell and Busy Night; Explorer is inactive and Here's Johnny! is not won by
     playing, so neither is something left to earn."""
     assert await builders.build_missing_msg(7, "Alice") == (
         "Missing for <a href='tg://user?id=7'>Alice</a> (2):\n"
-        "\N{BULLET} <code>O HAI DER!</code>\n"
-        "\N{BULLET} <code>Liquid Business</code>\n"
+        " - <code>O HAI DER!</code>\n"
+        " - <code>Liquid Business</code>\n"
     )
 
 
@@ -335,7 +335,7 @@ async def test_missing_msg_caps_the_list_and_counts_the_rest(monkeypatch, stats_
     monkeypatch.setattr(db, "get_achievements", lambda: many)
 
     msg = await builders.build_missing_msg(7, "Alice")
-    assert msg.startswith("Missing for <a href='tg://user?id=7'>Alice</a> (60):\n\N{BULLET} <code>Achv 0</code>\n")
+    assert msg.startswith("Missing for <a href='tg://user?id=7'>Alice</a> (60):\n - <code>Achv 0</code>\n")
     assert "<code>Achv 49</code>" in msg
     assert "<code>Achv 50</code>" not in msg
     assert msg.endswith("<i>…and 10 more.</i>\n")
@@ -344,7 +344,7 @@ async def test_missing_msg_caps_the_list_and_counts_the_rest(monkeypatch, stats_
 async def test_missing_msg_escapes_a_name(monkeypatch, stats_api):
     monkeypatch.setattr(db, "get_achievements", lambda: [{"name": "Al & Sons", "desc": "d", "notes": ""}])
     assert await builders.build_missing_msg(7, "Alice") == (
-        "Missing for <a href='tg://user?id=7'>Alice</a> (1):\n\N{BULLET} <code>Al &amp; Sons</code>\n"
+        "Missing for <a href='tg://user?id=7'>Alice</a> (1):\n - <code>Al &amp; Sons</code>\n"
     )
 
 
