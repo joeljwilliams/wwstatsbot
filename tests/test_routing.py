@@ -172,6 +172,27 @@ async def test_allinfo_in_a_pm_shows_the_pager_directly(achievements, no_fts):
     assert kwargs["reply_markup"] is not None
 
 
+async def test_allinfo_reads_a_miss_reply(achievements, no_fts, stats_api):
+    """The next thing anybody asks of a /miss list is which of them to chase, so a
+    bare /info on it has to find its rows. Telegram delivers the reply as plain text, which
+    is why the tags are stripped before it is read."""
+    import html
+    import re
+
+    from conftest import FakeChat
+
+    from wwstatsbot.render import builders
+
+    rendered = await builders.build_missing_msg(7, "Alice")
+    replied = bot_message(html.unescape(re.sub(r"<[^>]+>", "", rendered)))
+    msg = message("/info", chat=FakeChat("private", 1), reply_to_message=replied)
+    await achv_handlers.all_info_cmd(FakeUpdate(message=msg), FakeContext())
+
+    text, _kwargs = msg.replies[-1]
+    assert "<b>O HAI DER!</b>" in text
+    assert "<i>1/2</i>" in text
+
+
 async def test_allinfo_needs_a_reply():
     msg = message("/info")
     await achv_handlers.all_info_cmd(FakeUpdate(message=msg), FakeContext())
