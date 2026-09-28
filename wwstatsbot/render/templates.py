@@ -539,13 +539,12 @@ STANDIN_ROLE_SET = N_("{name}'s role was set to: {role}")
 STANDIN_ROLE_SET_AMBIGUOUS = N_("{name}'s role was set to: {role}\n<i>Both are being counted until you know which.</i>")
 STANDIN_NUDGE_NO_ROLE = N_(
     "\N{HEAVY EXCLAMATION MARK SYMBOL} <b>Still no role set:</b> {names}\n"
-    "<i>Send <code>/role &lt;your role&gt;</code> — until you do, the list cannot say what you can earn.</i>"
+    "<i>Send <code>/role &lt;your role&gt;</code>.</i>"
 )
 # A Wild Child or Doppelgänger with nobody named is the same gap one step further in: the
 # role is on the list, and the transform their whole game turns on can never fire.
 STANDIN_NUDGE_NO_MODEL = N_(
-    "\N{HEAVY EXCLAMATION MARK SYMBOL} <b>Still no rolemodel set:</b> {names}\n"
-    "<i>Send <code>/rm @rolemodel</code> — until you do, nobody can tell when you turn.</i>"
+    "\N{HEAVY EXCLAMATION MARK SYMBOL} <b>Still no rolemodel set:</b> {names}\n<i>Send <code>/rm @rolemodel</code>.</i>"
 )
 STANDIN_ROLE_SET_MANY = N_("<b>Roles set:</b>\n")
 STANDIN_ROLE_SET_MANY_ROW = N_("{name}: {role}\n")
@@ -573,10 +572,7 @@ STANDIN_MODEL_USAGE = N_(
 # Only the Wild Child and the Doppelgänger have a role model. A /rm against anyone else is
 # reported rather than stored, because a stored one would never fire a transform and the
 # mistake would only surface much later as an achievement that failed to appear.
-STANDIN_MODEL_WRONG_ROLE = N_(
-    "{name} is {role}, which has no rolemodel. Only the Wild Child \N{BABY} and the "
-    "Doppelg\N{LATIN SMALL LETTER A WITH DIAERESIS}nger \N{PERFORMING ARTS} do."
-)
+STANDIN_MODEL_WRONG_ROLE = N_("{name} is {role}, which has no rolemodel.")
 STANDIN_MODEL_NEEDS_ROLE = N_("{name} hasn't revealed yet, so I can't tell if they have a rolemodel.")
 STANDIN_LOVE_SET = N_("{name} is now in love.")
 STANDIN_LOVE_PAIR_SET = N_("{name} and {partner} are now in love.")
@@ -587,10 +583,7 @@ STANDIN_BEHOLDER_NO_SEER = N_("{name} is the Beholder \N{EYE} — and there is n
 STANDIN_BEHOLDER_SEER = N_("{name} is the Beholder \N{EYE}, and {seer} is the Seer \N{MAN WITH TURBAN}.")
 STANDIN_BEHOLDER_SETTLED = N_("\nUnsure seer/fool claims settled as the Fool \N{PLAYING CARD BLACK JOKER}: {names}")
 STANDIN_NOT_IN_GAME = N_("{name} isn't in this game's player list.")
-STANDIN_UNKNOWN_TARGET = N_(
-    "I need a player from this game — reply to them, or @mention them. "
-    "Typing a name won't do: I match on the mention, not the spelling."
-)
+STANDIN_UNKNOWN_TARGET = N_("I need a player from this game — reply to them, or @mention them.")
 
 
 # --- HTML: deaths, the roster sync and the Thief (handlers/gamesession.py) --
