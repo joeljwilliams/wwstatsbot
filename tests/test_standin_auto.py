@@ -109,13 +109,10 @@ def addressed(text, user_id=1):
     )
 
 
-async def gm(context, arg="", user_id=1, chat_admin=True, bot_admin=False):
-    """Run /gm as somebody entitled to. `bot_admin` is whether Telegram would deliver the
-    game bot's messages to us at all — the group admin the automation needs."""
+async def gm(context, arg="", user_id=1, chat_admin=True):
+    """Run /gm as somebody entitled to."""
     if chat_admin:
         context.bot.chat_admins.add(user_id)
-    if bot_admin:
-        context.bot.chat_admins.add(context.bot.id)
     msg = addressed("/gm@wwstatsbot {}".format(arg).strip(), user_id=user_id)
     context.args = msg.text.split()[1:]
     await gamesession.game_management_cmd(FakeUpdate(message=msg), context)
@@ -644,6 +641,67 @@ async def test_night_falling_with_no_session_is_ignored(context):
     assert resets(context) == []
 
 
+# --- The game bot is the heartbeat --------------------------------------------
+#
+# The idle timer used to hear only the table, so a quiet game under auto — every role in,
+# nobody dying for a few phases — was warned and then ended mid-round while the game bot
+# announced every day and night of it.
+
+
+def idle_jobs(context):
+    return context.job_queue.pending(gamesession._IDLE_JOB.format(-100))
+
+
+@pytest.mark.parametrize("announcement", [daybreak, nightfall])
+async def test_a_phase_announcement_pushes_the_idle_timer_back(context, announcement):
+    await opened(context)
+    before = idle_jobs(context)
+
+    await seen(context, announcement())
+
+    after = idle_jobs(context)
+    assert len(after) == 1
+    assert after[0] not in before, "the countdown must restart, not merely survive"
+
+
+async def test_it_also_calls_off_a_warning_already_given(context):
+    """The grace timer shares the idle job's name, so a warning the table ignored is
+    withdrawn by the next thing the game bot says."""
+    await opened(context)
+    (job,) = idle_jobs(context)
+    job.ran = True
+    context.job = job
+    await gamesession._idle_warning(context)
+    (grace,) = idle_jobs(context)
+
+    await seen(context, nightfall())
+
+    assert grace.removed
+    assert idle_jobs(context)[0].callback is gamesession._idle_warning
+
+
+async def test_another_bot_speaking_keeps_nothing_alive(context):
+    await opened(context)
+    before = idle_jobs(context)
+
+    await seen(context, nightfall(sender_id=OTHER_BOT_ID))
+
+    assert idle_jobs(context) == before
+
+
+async def test_under_plain_management_the_game_bot_is_not_heard(context):
+    """/gm on reads nothing the game bot says past the early-reveal buffer, so it cannot
+    count as activity either — the table's own commands are all that keep it alive."""
+    await start_session(context)
+    context.chat_data[gamesession._GM_KEY] = True
+    context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
+    before = idle_jobs(context)
+
+    await seen(context, nightfall())
+
+    assert idle_jobs(context) == before
+
+
 # --- Closing it out ----------------------------------------------------------
 
 
@@ -700,32 +758,34 @@ async def test_a_closing_message_with_no_session_does_nothing(context):
 async def test_gm_auto_is_management_on_and_automatic(context):
     context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
 
-    msg = await gm(context, "auto", bot_admin=True)
+    msg = await gm(context, "auto")
 
     assert gamesession.is_auto(context) is True
     assert gamesession.is_managing(context) is True
     assert msg.replies[0][0] == t.STANDIN_GM_AUTO
 
 
-async def test_gm_auto_says_so_when_it_cannot_see_the_game_bot(context):
-    """Telegram delivers another bot's messages to a group admin and nobody else. Silence
-    would leave a group with the switch on, nothing happening, and no way to find out why."""
+async def test_gm_auto_does_not_ask_to_be_made_an_admin(context):
+    """With Group Privacy Mode off the game bot's messages arrive without it, so a group
+    that has not promoted this bot is told the automation is on, not that it cannot work."""
+    context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
+
     msg = await gm(context, "auto")
 
     assert gamesession.is_auto(context) is True
-    assert msg.replies[0][0] == t.STANDIN_GM_AUTO_NEEDS_ADMIN
+    assert msg.replies[0][0] == t.STANDIN_GM_AUTO
 
 
 async def test_gm_auto_says_so_when_it_does_not_know_which_bot_to_follow(context):
     context.chat_data.pop(gamesession._GAME_BOT_KEY, None)
 
-    msg = await gm(context, "auto", bot_admin=True)
+    msg = await gm(context, "auto")
 
     assert t.STANDIN_GM_AUTO_UNLEARNED.format(username="wwstatsbot") == msg.replies[0][0]
 
 
 async def test_gm_on_after_auto_turns_the_automation_off(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     await gm(context, "on")
 
@@ -734,7 +794,7 @@ async def test_gm_on_after_auto_turns_the_automation_off(context):
 
 
 async def test_gm_off_after_auto_turns_everything_off(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     await gm(context, "off")
 
@@ -743,7 +803,7 @@ async def test_gm_off_after_auto_turns_everything_off(context):
 
 
 async def test_gm_reports_the_automatic_state(context):
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
 
     msg = await gm(context)
 
@@ -755,7 +815,7 @@ async def test_the_switch_and_the_learned_bot_survive_a_restart(context):
     about which bot runs their games must not quietly revert on a deploy."""
     from conftest import assert_json_roundtrips
 
-    await gm(context, "auto", bot_admin=True)
+    await gm(context, "auto")
     context.chat_data[gamesession._GAME_BOT_KEY] = GAME_BOT_ID
 
     restored = assert_json_roundtrips(context.chat_data)

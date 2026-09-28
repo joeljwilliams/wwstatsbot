@@ -28,6 +28,7 @@ from conftest import (
 from wwstatsbot.data import db
 from wwstatsbot.game import session
 from wwstatsbot.handlers import gamesession
+from wwstatsbot.render import templates as t
 
 # A player whose display name contains angle brackets. This is a real name from the group,
 # and it is what truncated the incumbent manager's own /love reply — everything from the
@@ -228,7 +229,7 @@ async def test_gs_without_a_reply_says_what_it_needs(context):
 async def test_gs_on_a_message_with_no_trackable_players_refuses(context):
     msg = gs_message(reply_to=bot_message("Players Alive: 0/0"))
     await gamesession.start_session_cmd(FakeUpdate(message=msg), context)
-    assert "user id" in msg.last_reply
+    assert msg.last_reply == t.STANDIN_NO_PLAYERS
     assert session.get(context.chat_data) is None
 
 

@@ -2608,14 +2608,15 @@ async def _idle_end(context):
 async def _auto_confirmation(context, chat_id):
     """What to say when a chat switches to `/gm auto`, given what can actually happen.
 
-    Three answers, because there are three states and only one of them is "it works". The
-    automation depends on Telegram delivering another bot's messages, which it does only to
-    a group admin, and on knowing which bot to follow — neither of which this command can
-    arrange. Silence would be the worst reply of the three: a group would sit there with the
-    switch on, nothing happening, and no way to find out why.
+    Two answers, because the automation depends on knowing which bot to follow, which this
+    command cannot arrange. Silence would leave a group with the switch on, nothing
+    happening, and no way to find out why.
+
+    Adminness is deliberately not checked. It was, on the belief that Telegram delivers
+    another bot's messages only to a group admin — but with Group Privacy Mode off this bot
+    sees them without being one, and the check told groups where it already worked that it
+    could not.
     """
-    if not await is_chat_admin(context, chat_id, context.bot.id):
-        return t.STANDIN_GM_AUTO_NEEDS_ADMIN
     if context.chat_data.get(_GAME_BOT_KEY) is None:
         return t.STANDIN_GM_AUTO_UNLEARNED.format(username=html.escape(context.bot.username or ""))
     return t.STANDIN_GM_AUTO
@@ -2844,6 +2845,16 @@ async def _drive_session(update, context):
             await _finish(context, message.chat.id, session_data)
             logger.info("standin_auto_ended", chat_id=message.chat.id)
         return
+
+    if session_data is not None:
+        # The game bot speaking is the game still running, whatever it said. The idle timer
+        # counted only what the *table* typed and what changed the roster, so a quiet game
+        # under auto — everybody revealed, nobody dying for a few phases — was warned and
+        # then ended mid-round while the game bot announced every day and night of it. The
+        # engine posts at least once a phase, so ten minutes without a word from it is a
+        # game that has actually stopped, and the timer is still there for that.
+        session.touch(session_data, _now())
+        _schedule_idle(context, message.chat.id)
 
     if session_data is not None and _DAY_BREAKS.search(body):
         # Checked before the roster because it is cheaper and because this message is not

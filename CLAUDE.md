@@ -494,15 +494,16 @@ bare once on, so it is typed like everything else it governs. And switching off 
 unpins the roster: the pin would otherwise outlive the permission, and it is the one thing
 nobody can undo without going to find the message.
 
-**`/gm auto` is a third state, and it needs three things nobody can check.** On, the game
+**`/gm auto` is a third state, and it needs things nobody can check.** On, the game
 bot's own messages drive the session: its player list opens the roster, every later one
 follows it, and its closing message closes it — `/gs`, `/ad` and `/gsend` all still work
-and a human still wins. Reaching that at all needs **all three** of Bot-to-Bot
-Communication Mode on for this bot in @BotFather, this bot an **admin** in the group, and
-its Group Privacy Mode off; Telegram says which one is missing by delivering nothing. So
-`/gm auto` answers with whichever of three replies is true, and two of them are "it can't
-work yet" — silence would leave a group with the switch on, nothing happening, and no way
-to find out why. It is a state of its own rather than the meaning of `on` so that a group
+and a human still wins. Reaching that at all needs Bot-to-Bot Communication Mode on for
+this bot in @BotFather and its Group Privacy Mode off; Telegram says which one is missing
+by delivering nothing. Being a group **admin** is *not* needed, whatever it looks like: an
+earlier version refused to confirm without it, and told groups where the automation already
+worked that it could not. `/gm auto` does still say when it does not know which bot to
+follow — silence would leave a group with the switch on, nothing happening, and no way to
+find out why. It is a state of its own rather than the meaning of `on` so that a group
 already running games this way does not silently start having its rosters opened for it by
 a deploy.
 
@@ -574,6 +575,13 @@ phase, an argument or a slow lynch to use up, so the first anybody knew was a ro
 reading GAME ENDED. The warning also carries **two buttons**, Keep playing and End it,
 because the only answer it previously offered was to remember to type a command inside the
 window, and a table quiet enough to be warned is a table typing nothing.
+
+Under **`/gm auto`** the game bot is the heartbeat as well: anything the learned bot posts
+while a session is live counts as activity, so the day and night announcements keep a game
+alive that nobody at the table is typing in. Before that, a quiet game — every role in,
+nobody dying for a few phases — was warned and ended mid-round. The timer still stands
+behind it, because ten minutes without a word from an engine that posts every phase is a
+game that has actually stopped.
 
 Keep playing takes one press; **End it arms like the roster's Stop**, and arms
 *separately* from it. Ending is the destructive answer however it is reached, so it is
