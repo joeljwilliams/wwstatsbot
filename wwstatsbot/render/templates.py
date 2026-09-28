@@ -260,9 +260,14 @@ ALLINFO_SENT_ALL = N_("Sent {count} card{plural} to your PM ✅")
 # which is why it has to be sent privately — no use to a table deciding what somebody
 # should chase this game. One short line of header, one short line of footer, and the
 # names in between.
+#
+# The rows are the Possible Achievements post's shape — an indented dash, then the name —
+# because a bare /info replying to a bot message reads exactly that shape
+# (achievements._ACHV_ROW), and "which of these should I chase?" is the next question
+# anybody asks of this list. A bullet glyph looked the same and gave /info nothing to read.
 
 MISS_HEADER = N_("Missing for <a href='tg://user?id={user_id}'>{name}</a>{badge} ({count}):\n")
-MISS_ROW = N_("\N{BULLET} <code>{name}</code>\n")
+MISS_ROW = N_(" - <code>{name}</code>\n")
 # Shown only when the list was capped. A silent cut would read as "that is all of it".
 MISS_TRUNCATED = N_("<i>…and {extra} more.</i>\n")
 # Nothing left to earn. Said rather than rendered as an empty list, which would read as a
