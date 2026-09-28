@@ -349,7 +349,7 @@ SEARCH_USAGE = N_("Invalid parameter! Syntax:\n<code>/search [achievement_to_sea
 INFO_USAGE = N_("Invalid parameter! Syntax:\n<code>/info [achievement_to_search]</code>\n")
 NO_MATCHES = N_("No matching achievements found!\n")
 SCHALL_NEEDS_DIRECT_MENTIONS = N_(
-    "Reply to a message that mentions players directly. I can't check plain @username mentions (they carry no user id)."
+    "Reply to a message that mentions players directly. Plain @username mentions don't work."
 )
 # Fallback when a stored payload has an owner id but no name.
 SCHALL_REQUESTER_FALLBACK = N_("the requester")
@@ -525,10 +525,7 @@ STANDIN_ALREADY_RUNNING = N_(
 STANDIN_NEEDS_ROSTER = N_(
     "Reply to the game bot's player list with <code>/gs@{username}</code> so I know who is playing."
 )
-STANDIN_NO_PLAYERS = N_(
-    "That message doesn't mention any players I can track. I need direct mentions — plain "
-    "@username mentions carry no user id."
-)
+STANDIN_NO_PLAYERS = N_("That message doesn't mention any players I can track. Plain @username mentions don't work.")
 STANDIN_ENDED = N_("Stand-in session ended.")
 # Said in the chat, not just to whoever pressed: a game ending is everybody's business, and
 # the button's toast is only ever seen by the person who tapped it.

@@ -357,4 +357,4 @@ async def test_schall_explains_when_only_usernames_were_mentioned(achievements, 
     replied = bot_message("@dave", entities=[FakeEntity("mention", 0, 5)])
     msg = message("/sch busy", reply_to_message=replied)
     await search.display_search_all(FakeUpdate(message=msg), FakeContext(args=["busy"]))
-    assert "can't check plain @username mentions" in msg.last_reply
+    assert msg.last_reply == t.SCHALL_NEEDS_DIRECT_MENTIONS
