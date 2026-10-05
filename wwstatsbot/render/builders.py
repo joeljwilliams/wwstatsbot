@@ -160,8 +160,8 @@ async def build_missing_msg(user_id, name):
         return t.MISS_NONE.format(user_id=user_id, name=name, badge=badge) + playerdata.stale_notice(attained.age)
 
     msg = t.MISS_HEADER.format(user_id=user_id, name=name, badge=badge, count=len(outstanding))
-    for achv in outstanding[:_MISSING_MAX_ROWS]:
-        msg += t.MISS_ROW.format(name=html.escape(achv["name"]))
+    rows = "".join(t.MISS_ROW.format(name=html.escape(achv["name"])) for achv in outstanding[:_MISSING_MAX_ROWS])
+    msg += t.MISS_LIST.format(rows=rows)
     if len(outstanding) > _MISSING_MAX_ROWS:
         msg += t.MISS_TRUNCATED.format(extra=len(outstanding) - _MISSING_MAX_ROWS)
     # A list of what somebody has *not* got is a claim about them, so one built from the
