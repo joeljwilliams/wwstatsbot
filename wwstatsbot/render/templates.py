@@ -268,6 +268,11 @@ ALLINFO_SENT_ALL = N_("Sent {count} card{plural} to your PM ✅")
 
 MISS_HEADER = N_("Missing for <a href='tg://user?id={user_id}'>{name}</a>{badge} ({count}):\n")
 MISS_ROW = N_(" - <code>{name}</code>\n")
+# The rows are folded into an expandable quote: a player who has just started is missing
+# fifty names, and collapsed it costs the room three lines. Only the rows go inside — the
+# header and the footers are what a reader needs to see without opening anything. The quote
+# changes entities, not text, so /info replying to this message still reads the same rows.
+MISS_LIST = N_("<blockquote expandable>{rows}</blockquote>")
 # Shown only when the list was capped. A silent cut would read as "that is all of it".
 MISS_TRUNCATED = N_("<i>…and {extra} more.</i>\n")
 # Nothing left to earn. Said rather than rendered as an empty list, which would read as a

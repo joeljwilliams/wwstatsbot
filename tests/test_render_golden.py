@@ -315,8 +315,8 @@ async def test_missing_msg(achievements, stats_api):
     playing, so neither is something left to earn."""
     assert await builders.build_missing_msg(7, "Alice") == (
         "Missing for <a href='tg://user?id=7'>Alice</a> (2):\n"
-        " - <code>O HAI DER!</code>\n"
-        " - <code>Liquid Business</code>\n"
+        "<blockquote expandable> - <code>O HAI DER!</code>\n"
+        " - <code>Liquid Business</code>\n</blockquote>"
     )
 
 
@@ -335,16 +335,19 @@ async def test_missing_msg_caps_the_list_and_counts_the_rest(monkeypatch, stats_
     monkeypatch.setattr(db, "get_achievements", lambda: many)
 
     msg = await builders.build_missing_msg(7, "Alice")
-    assert msg.startswith("Missing for <a href='tg://user?id=7'>Alice</a> (60):\n - <code>Achv 0</code>\n")
+    assert msg.startswith(
+        "Missing for <a href='tg://user?id=7'>Alice</a> (60):\n<blockquote expandable> - <code>Achv 0</code>\n"
+    )
     assert "<code>Achv 49</code>" in msg
     assert "<code>Achv 50</code>" not in msg
+    assert "</blockquote><i>…and 10 more.</i>\n" in msg
     assert msg.endswith("<i>…and 10 more.</i>\n")
 
 
 async def test_missing_msg_escapes_a_name(monkeypatch, stats_api):
     monkeypatch.setattr(db, "get_achievements", lambda: [{"name": "Al & Sons", "desc": "d", "notes": ""}])
     assert await builders.build_missing_msg(7, "Alice") == (
-        "Missing for <a href='tg://user?id=7'>Alice</a> (1):\n - <code>Al &amp; Sons</code>\n"
+        "Missing for <a href='tg://user?id=7'>Alice</a> (1):\n<blockquote expandable> - <code>Al &amp; Sons</code>\n</blockquote>"
     )
 
 
