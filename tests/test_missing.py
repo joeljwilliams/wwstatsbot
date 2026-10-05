@@ -105,3 +105,15 @@ async def test_no_descriptions_are_printed(achievements, stats_api):
     """Names only — the descriptions are what make /achievements a PM."""
     reply = await run(message("/miss", from_user=FakeUser(7, "Alice")))
     assert "Drink the potion" not in reply
+
+
+async def test_info_still_reads_a_miss_reply(achievements, stats_api):
+    """The rows sit in an expandable quote, which changes entities and not text. Telegram
+    hands /info the plain text of the message it replies to, so reduce the rendering the
+    way a client does and check the rows are still read."""
+    import html
+    import re
+
+    reply = await run(message("/miss", from_user=FakeUser(7, "Alice")))
+    plain = html.unescape(re.sub(r"<[^>]+>", "", reply))
+    assert achv_handlers._extract_possible_achievements(plain) == ["O HAI DER!", "Liquid Business"]
