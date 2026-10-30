@@ -217,15 +217,14 @@ ROLES = {
         "tags": _tags(VISITED),
         "aliases": ("bk", "bar"),
     },
-    # Halloween-only, so absent from /rolelist and from the game's published docs. All we
-    # know is what the closing message shows — "the Spumpkin 🎃", winning with the village —
-    # so it carries no tags: an unknown power advertises nothing, where a guessed one would
-    # put achievements on the list that the role may never be able to earn.
+    # Halloween-only, so absent from /rolelist. Its pumpkin explodes and it may run to
+    # somebody first, killing both — aimed like the Gunner's shot and, like it, by day, so
+    # KILLER without NIGHT_KILLER. Running to a player is not a night visit either.
     "spumpkin": {
         "name": "Spumpkin",
         "emoji": "🎃",
         "team": VILLAGE,
-        "tags": _tags(),
+        "tags": _tags(KILLER),
         "aliases": ("pumpkin", "spump"),
     },
     # --- Wolf ---
