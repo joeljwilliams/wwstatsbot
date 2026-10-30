@@ -217,6 +217,16 @@ ROLES = {
         "tags": _tags(VISITED),
         "aliases": ("bk", "bar"),
     },
+    # Halloween-only, so absent from /rolelist. Its pumpkin explodes and it may run to
+    # somebody first, killing both — aimed like the Gunner's shot and, like it, by day, so
+    # KILLER without NIGHT_KILLER. Running to a player is not a night visit either.
+    "spumpkin": {
+        "name": "Spumpkin",
+        "emoji": "🎃",
+        "team": VILLAGE,
+        "tags": _tags(KILLER),
+        "aliases": ("pumpkin", "spump"),
+    },
     # --- Wolf ---
     "werewolf": {
         "name": "Werewolf",
