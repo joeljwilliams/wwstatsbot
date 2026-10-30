@@ -217,6 +217,17 @@ ROLES = {
         "tags": _tags(VISITED),
         "aliases": ("bk", "bar"),
     },
+    # Halloween-only, so absent from /rolelist and from the game's published docs. All we
+    # know is what the closing message shows — "the Spumpkin 🎃", winning with the village —
+    # so it carries no tags: an unknown power advertises nothing, where a guessed one would
+    # put achievements on the list that the role may never be able to earn.
+    "spumpkin": {
+        "name": "Spumpkin",
+        "emoji": "🎃",
+        "team": VILLAGE,
+        "tags": _tags(),
+        "aliases": ("pumpkin", "spump"),
+    },
     # --- Wolf ---
     "werewolf": {
         "name": "Werewolf",
