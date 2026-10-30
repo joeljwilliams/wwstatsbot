@@ -65,6 +65,14 @@ ABOUT_CODES = {
     "Barkeep": "barkeep",
 }
 
+# Roles the game deals only for an event, so /rolelist never lists them. Kept apart from
+# ABOUT_CODES because that table is the game's own vocabulary verbatim; these are known
+# only from having been dealt in a live game.
+SEASONAL = {
+    # Halloween 2026, from a closing message: "🌵omu: 🙂 Alive - the Spumpkin 🎃 Won".
+    "spumpkin": "the Spumpkin 🎃",
+}
+
 
 # --- The vocabulary --------------------------------------------------------
 
@@ -76,8 +84,14 @@ def test_every_about_code_resolves():
 
 def test_registry_covers_exactly_the_published_roles():
     """No role invented, none missed. 44 is the game's count, not ours."""
-    assert set(ROLE_IDS := set(roles.ROLES)) == set(ABOUT_CODES.values())
-    assert len(ROLE_IDS) == 44
+    assert set(ROLE_IDS := set(roles.ROLES)) == set(ABOUT_CODES.values()) | set(SEASONAL)
+    assert len(ROLE_IDS - set(SEASONAL)) == 44
+
+
+def test_a_seasonal_role_resolves_as_the_game_prints_it():
+    """The game bot's own rows are what /gm auto reads, so its spelling must resolve."""
+    for role_id, printed in SEASONAL.items():
+        assert roles.resolve(printed) == (role_id,), printed
 
 
 def test_every_display_name_resolves_to_itself():

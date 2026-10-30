@@ -302,20 +302,20 @@ def test_every_catalogue_expression_is_valid():
         assert ok, "{}: {} -- {}".format(rule["name"], rule["expr"], message)
 
 
-# The kitchen sink is *one player per role*: 44 players, every role present, none of them
+# The kitchen sink is *one player per role*: every role present, none of them
 # twice. Three rules cannot fire there, and none of them is a defect — they want a game
 # shaped differently rather than a game with more in it. Listing them explicitly is what
-# keeps the check below meaningful: anything *else* that cannot fire with all 44 roles
+# keeps the check below meaningful: anything *else* that cannot fire with every role
 # present is unreachable by anybody, in any game.
 NOT_SATISFIED_BY_A_FULL_GAME = {
-    "Introvert": "wants exactly 5 players; the sink has 44",
+    "Introvert": "wants exactly 5 players; the sink has one of every role",
     "Lone Wolf": "wants exactly one wolf-team player; the sink has six",
     "Liquid Business": "wants three lowly villagers; the sink has one of everything",
 }
 
 
 def test_every_listed_rule_can_pass_in_a_game_containing_every_role():
-    """A rule that cannot fire even with all 44 roles present is unreachable by anyone."""
+    """A rule that cannot fire even with every role present is unreachable by anyone."""
     sink = feasibility.Composition([(role_id,) for role_id in roles.ROLES])
     for rule in RULES:
         if not rulelist.is_listed(rule) or rule["name"] in NOT_SATISFIED_BY_A_FULL_GAME:
