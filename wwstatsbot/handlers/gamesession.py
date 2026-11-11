@@ -552,6 +552,11 @@ async def _open_session(context, chat_id, starter_id, roster):
     if posted is not None:
         session_data["state_message_id"] = posted.message_id
         session_data["state_fingerprint"] = _fingerprint(msg, keyboard)
+        # The list goes up straight behind the roster rather than on the first publish, which
+        # is a debounce away and lands after whatever the table said in the meantime. Before
+        # the pin, because pinning leaves a service message in the chat and it would sit
+        # between the two posts this keeps together.
+        await _post_list(context, chat_id, session_data)
         await _pin_state(context, chat_id, session_data, posted.message_id)
     # A session nobody ever touches still has to expire, so the idle clock starts here
     # rather than on the first reveal.
@@ -2383,6 +2388,37 @@ async def _changed(context, chat_id, session_data):
     _schedule_idle(context, chat_id)
 
 
+async def _post_list(context, chat_id, session_data):
+    """Post the Possible Achievements list for the first time. Returns True if it landed.
+
+    The one failure that is not cosmetic: without an id every later publish posts the list
+    again instead of editing it. Reported and left unrecorded, so the next reveal retries
+    rather than editing a message that is not there.
+    """
+    msg, keyboard = render_list(session_data)
+    try:
+        posted = await context.bot.send_message(
+            chat_id=chat_id,
+            text=msg,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except RetryAfter as err:
+        seconds = _retry_seconds(err)
+        _postpone_publish(context, chat_id, seconds)
+        logger.warning("standin_list_post_failed", chat_id=chat_id, retry_after=seconds)
+        return False
+    except (BadRequest, Forbidden) as err:
+        logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
+        return False
+    if posted is None:
+        return False
+    session_data["list_message_id"] = posted.message_id
+    session_data["list_fingerprint"] = _fingerprint(msg, keyboard)
+    return True
+
+
 async def _publish(context):
     """Bring both live messages up to date. The debounce's callback."""
     chat_id = context.job.chat_id
@@ -2396,33 +2432,11 @@ async def _publish(context):
         # rescheduled; both messages catch up together when it reopens.
         return
 
-    msg, keyboard = render_list(session_data)
     message_id = session_data.get("list_message_id")
     if message_id is None:
-        # The first post, and the one failure that is not cosmetic: without an id every
-        # later publish posts the list again instead of editing it. Reported and left
-        # unrecorded, so the next reveal retries rather than editing a message that is
-        # not there.
-        try:
-            posted = await context.bot.send_message(
-                chat_id=chat_id,
-                text=msg,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-        except RetryAfter as err:
-            seconds = _retry_seconds(err)
-            _postpone_publish(context, chat_id, seconds)
-            logger.warning("standin_list_post_failed", chat_id=chat_id, retry_after=seconds)
-            return
-        except (BadRequest, Forbidden) as err:
-            logger.warning("standin_list_post_failed", chat_id=chat_id, error=str(err))
-            return
-        if posted is not None:
-            session_data["list_message_id"] = posted.message_id
-            session_data["list_fingerprint"] = _fingerprint(msg, keyboard)
+        await _post_list(context, chat_id, session_data)
         return
+    msg, keyboard = render_list(session_data)
     await _edit_live_message(
         context,
         "standin_list_edit_failed",
