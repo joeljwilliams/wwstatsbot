@@ -401,7 +401,7 @@ async def test_cutting_stops_at_a_line_boundary(context):
 async def test_a_burst_of_reveals_costs_one_publish(context):
     """Sixteen reveals in three seconds must not be sixteen edits."""
     await start_session(context)
-    context.bot.sent.clear()
+    context.bot.edits.clear()
 
     for uid in (1, 2, 3):
         await reveal(context, uid, "villager")
@@ -410,22 +410,40 @@ async def test_a_burst_of_reveals_costs_one_publish(context):
     assert len(publish_jobs) == 1, "the second and third reveals must not schedule again"
 
     await publish(context)
-    assert len(list_posts(context)) == 1, "one post, not three"
+    assert len(list_posts(context)) == 1, "the one post is the one made at the start, not one per reveal"
+    assert len(context.bot.edits) == 2, "one edit of the roster and one of the list"
 
 
-async def test_the_publish_posts_the_list_then_edits_it(context):
+async def test_the_list_is_posted_straight_behind_the_roster(context):
     session_data = await start_session(context)
+
+    assert [s["text"].startswith(t.STANDIN_LIST_HEADER) for s in context.bot.sent] == [False, True]
+    assert session_data["list_message_id"] is not None
+    assert session_data["list_message_id"] > session_data["state_message_id"]
+
+
+async def test_the_publish_edits_the_list_rather_than_reposting_it(context):
+    session_data = await start_session(context)
+
+    await reveal(context, 1, "villager")
+    await publish(context)
+    await reveal(context, 2, "seer")
+    await publish(context)
+
+    assert len(list_posts(context)) == 1
+    assert any(e["message_id"] == session_data["list_message_id"] for e in context.bot.edits)
+
+
+async def test_a_list_that_failed_to_post_at_the_start_is_posted_by_the_first_publish(context):
+    session_data = await start_session(context)
+    session_data["list_message_id"] = None
     context.bot.sent.clear()
 
     await reveal(context, 1, "villager")
     await publish(context)
+
     assert len(list_posts(context)) == 1
     assert session_data["list_message_id"] is not None
-
-    await reveal(context, 2, "seer")
-    await publish(context)
-    assert len(list_posts(context)) == 1, "the second publish edits rather than reposting"
-    assert any(e["message_id"] == session_data["list_message_id"] for e in context.bot.edits)
 
 
 async def test_the_publish_also_brings_the_roster_up_to_date(context):
@@ -492,6 +510,7 @@ async def test_a_first_post_that_failed_is_reported_and_left_unrecorded(context)
     from telegram.error import BadRequest
 
     session_data = await start_session(context)
+    session_data["list_message_id"] = None
     await reveal(context, 1, "villager")
 
     context.bot._send_error = BadRequest("Chat not found")
@@ -542,8 +561,9 @@ async def test_la_points_at_the_live_list_rather_than_reposting_it(context):
     assert "Possible Achievements" not in sent["text"], "a pointer, not a second copy"
 
 
-async def test_la_before_anyone_reveals_says_so(context):
-    await start_session(context)
+async def test_la_before_the_list_exists_says_so(context):
+    session_data = await start_session(context)
+    session_data["list_message_id"] = None
     msg = player_message("/la")
     context.args = []
     await gamesession.list_achievements_cmd(FakeUpdate(message=msg), context)

@@ -196,6 +196,8 @@ async def test_the_postponed_publish_catches_both_messages_up(context):
 async def test_flood_control_on_the_first_post_is_postponed_too(context):
     """And the message id stays unrecorded, so the retry posts rather than edits nothing."""
     session_data = await start_session(context)
+    # Opening the session posts the list; forget that it did, as if the post had been refused.
+    session_data["list_message_id"] = None
     await reveal(context, 1, "snow_wolf")
     context.bot._send_error = RetryAfter(12)
 

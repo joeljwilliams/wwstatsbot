@@ -237,8 +237,9 @@ async def test_the_learned_bots_first_roster_opens_a_session(context):
     current = session.get(context.chat_data)
     assert current is not None
     assert [name for _, name in ROSTER] == [entry["name"] for _, entry in session.players_in_order(current)]
-    # The roster message it posts is the only announcement an automatic start needs.
-    assert len(context.bot.sent) == 1
+    # The roster, and the Possible Achievements list straight behind it — nothing else.
+    assert len(context.bot.sent) == 2
+    assert context.bot.sent[1]["text"].startswith(t.STANDIN_LIST_HEADER)
 
 
 async def test_nothing_happens_when_management_is_merely_on(context):
