@@ -95,6 +95,86 @@ async def test_a_turning_wild_child_becomes_a_plain_wolf_not_an_alpha(context):
     assert session_data["players"]["3"]["roles"] == ["werewolf"]
 
 
+def row_for(session_data, user_id):
+    """The roster line for one player, as the live message prints it."""
+    return gamesession._player_row(session_data, user_id, session.player(session_data, user_id))
+
+
+async def test_a_wild_child_who_reveals_as_something_else_loses_their_rolemodel(context):
+    """The bug: the model id was left behind, so the roster went on printing
+    "Werewolf (role model)" beside somebody who was not a Wild Child any more."""
+    session_data = await start_session(context)
+    await reveal(context, 3, "wc")
+    session.set_model(session_data, 3, 2)
+    model_mention = gamesession._mention_player(session_data, 2)
+    assert model_mention in row_for(session_data, 3)
+
+    await reveal(context, 3, "werewolf")
+
+    assert session_data["players"]["3"]["model"] is None
+    assert model_mention not in row_for(session_data, 3)
+
+
+async def test_a_doppelganger_who_reveals_as_something_else_loses_their_rolemodel(context):
+    session_data = await start_session(context)
+    await reveal(context, 3, "dg")
+    session.set_model(session_data, 3, 2)
+
+    await reveal(context, 3, "seer")
+
+    assert session_data["players"]["3"]["model"] is None
+
+
+async def test_retyping_the_same_role_keeps_the_rolemodel(context):
+    """Re-sending /role is how somebody asks whether their reveal landed; it must not
+    undo the /rm they had already made."""
+    session_data = await start_session(context)
+    await reveal(context, 3, "wc")
+    session.set_model(session_data, 3, 2)
+
+    await reveal(context, 3, "wc")
+
+    assert session_data["players"]["3"]["model"] == 2
+
+
+async def test_moving_between_the_two_modelled_roles_drops_the_old_pick(context):
+    """A Wild Child's pick says nothing about whom a Doppelgänger copies."""
+    session_data = await start_session(context)
+    await reveal(context, 3, "wc")
+    session.set_model(session_data, 3, 2)
+
+    await reveal(context, 3, "dg")
+
+    assert session_data["players"]["3"]["model"] is None
+
+
+async def test_a_role_set_for_somebody_else_clears_their_rolemodel_too(context):
+    session_data = await start_session(context)
+    await reveal(context, 3, "wc")
+    session.set_model(session_data, 3, 2)
+
+    await invoke(
+        gamesession.role_cmd,
+        context,
+        "/role werewolf",
+        mentions=[player_named(context, "J J")],
+    )
+
+    assert session_data["players"]["3"]["roles"] == ["werewolf"]
+    assert session_data["players"]["3"]["model"] is None
+
+
+async def test_a_wild_child_who_turns_when_their_model_dies_drops_the_rolemodel(context):
+    session_data = await start_session(context)
+    await reveal(context, 3, "wc")
+    session.set_model(session_data, 3, 2)
+
+    await dead(context, "omu")
+
+    assert session_data["players"]["3"]["roles"] == ["werewolf"]
+    assert session_data["players"]["3"]["model"] is None
+
+
 async def test_a_doppelgangers_rolemodel_dying_copies_their_role(context):
     session_data = await start_session(context)
     await reveal(context, 2, "seer")

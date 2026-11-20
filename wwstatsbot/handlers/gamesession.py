@@ -74,7 +74,7 @@ _FULL_LIST_PREFIX = "standin:full:"
 _STOP_ARM_SECONDS = 15
 
 # Only these two roles have a role model, so only they are valid /rm targets.
-_ROLE_MODEL_ROLES = ("wild_child", "doppelganger")
+_ROLE_MODEL_ROLES = session.ROLE_MODEL_ROLES
 
 # "I am the Beholder and there is no Seer." The Beholder is shown the real Seer at the
 # start of the game, so this is the one claim that can settle the Seer/Fool question for
