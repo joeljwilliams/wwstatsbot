@@ -264,17 +264,32 @@ def name_of(session, user_id):
 # --- Writes ----------------------------------------------------------------
 
 
+# Only these two roles have a role model, so only they are valid /rm targets.
+ROLE_MODEL_ROLES = ("wild_child", "doppelganger")
+
+
 def set_roles(session, user_id, role_ids):
     """Record what a player revealed. Returns the entry, or None if not in the roster.
 
     Overwrites rather than merges, deliberately: roles change all game — the Thief steals,
     the Cursed turns, the Wild Child's model dies — so a second /role is the normal way to
     say "I am something else now", not a mistake to be rejected.
+
+    The role model goes with the role it was chosen for. A Wild Child who reveals as a
+    Werewolf has no role model any more, and leaving the id behind printed
+    "Werewolf (role model: X)" beside their name for the rest of the game. It is kept when
+    the same model role is revealed again — re-typing `/role wc` is how somebody asks
+    whether their reveal landed, and must not undo the `/rm` they already made — and
+    dropped when the player moves to a different role, including from one model role to the
+    other, since a Wild Child's pick says nothing about whom a Doppelgänger copies.
     """
     entry = player(session, user_id)
     if entry is None:
         return None
+    before = set(entry["roles"])
     entry["roles"] = _settle_seer_fool(session, user_id, role_ids)
+    if not (before & set(entry["roles"]) & set(ROLE_MODEL_ROLES)):
+        entry["model"] = None
     return entry
 
 
@@ -657,6 +672,9 @@ def apply_transforms(session):
             # Alpha; the pack gains a member, not a leader.
             if _has(entry, "wild_child"):
                 entry["roles"] = ["werewolf"]
+                # The model belonged to the Wild Child they no longer are, exactly as the
+                # Doppelgänger's is cleared below once it has been copied.
+                entry["model"] = None
                 changes.append({"user_id": uid, "roles": ["werewolf"], "reason": BY_MODEL_DEATH})
                 changed = True
             # The Doppelgänger becomes whatever their model was. Their *current* roles, so
