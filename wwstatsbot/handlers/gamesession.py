@@ -496,7 +496,7 @@ def _remember_table(context, session_data):
 
     The **whole** table, dead included. Achievements do not die with the player, and a
     list that shrank every round would look exactly like a mention having gone missing —
-    the failure /schall already names dropped alts to avoid. That is also why the session
+    the failure /schall's "Couldn't check" line already exists to avoid. That is also why the session
     is the source rather than the roster message it came from: the game bot stops linking a
     player once they are out, so its later lists name only the living, while the session
     keeps everybody and their ids for the length of the game.

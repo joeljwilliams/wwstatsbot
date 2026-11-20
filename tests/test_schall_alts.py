@@ -8,8 +8,8 @@ a roster is checked player by player.
 
 The filter runs at check time, not when the reply's mentions are remembered, so unmarking
 an alt brings them straight back to a cached roster instead of needing a fresh reply. Who
-was dropped is named in the reply, because "Checked 5 players" after six were mentioned
-otherwise reads as a mention the bot failed to see.
+was dropped is deliberately *not* named in the reply: it used to be, and a footer listing
+accounts that were never checked is information nobody asked for.
 """
 
 from conftest import FakeContext, FakeEntity, FakeUpdate, FakeUser, bot_message, message
@@ -45,44 +45,17 @@ async def test_an_alt_is_not_checked(achievements, no_fts, stats_api):
     assert "Not obtained (1)" in reply
 
 
-async def test_the_reply_names_who_was_ignored(achievements, no_fts, stats_api):
-    stats_api.set_achievements(1, [])
-    db._ALTS = {2}
-    reply, _ = await run()
-
-    assert "<i>Bob ignored as alts</i>" in reply
-
-
-async def test_several_alts_are_listed_together(achievements, no_fts, stats_api):
+async def test_the_reply_does_not_name_who_was_ignored(achievements, no_fts, stats_api):
     stats_api.set_achievements(1, [])
     db._ALTS = {2, 3}
     reply, _ = await run(users=((1, "Alice"), (2, "Bob"), (3, "Cara")))
 
-    assert "<i>Bob, Cara ignored as alts</i>" in reply
+    assert "Bob" not in reply
+    assert "Cara" not in reply
+    assert "alt" not in reply
 
 
-async def test_an_alt_name_is_escaped_once(achievements, no_fts, stats_api):
-    """Names are stored unescaped and escaped at render time, so a persistence round-trip
-    followed by a toggle re-render cannot escape them twice."""
-    from conftest import FakeCallbackQuery, assert_json_roundtrips
-
-    stats_api.set_achievements(1, [])
-    db._ALTS = {2}
-    reply, ctx = await run(users=((1, "Alice"), (2, "Bo<b>")))
-    assert "Bo&lt;b&gt; ignored as alts" in reply
-
-    restored = assert_json_roundtrips(ctx.bot_data)
-    token = next(iter(restored["schall"]))
-    query = FakeCallbackQuery(data="schall:{}:have".format(token))
-    await search.schall_callback(FakeUpdate(callback_query=query), FakeContext(bot_data=restored))
-
-    text, _ = query.edits[-1]
-    assert "Bo&lt;b&gt; ignored as alts" in text
-
-
-async def test_the_footer_survives_the_toggle(achievements, no_fts, stats_api):
-    """Both views are the same result, so the note belongs on both — flipping the list
-    must not quietly turn six mentioned players back into five checked ones."""
+async def test_the_toggled_view_does_not_name_them_either(achievements, no_fts, stats_api):
     from conftest import FakeCallbackQuery
 
     stats_api.set_achievements(1, [])
@@ -94,15 +67,19 @@ async def test_the_footer_survives_the_toggle(achievements, no_fts, stats_api):
     await search.schall_callback(FakeUpdate(callback_query=query), FakeContext(bot_data=ctx.bot_data))
 
     text, _ = query.edits[-1]
-    assert "<i>Bob ignored as alts</i>" in text
+    assert "Bob" not in text
+    assert "alt" not in text
 
 
-async def test_a_run_with_no_alts_carries_no_note(achievements, no_fts, stats_api):
+async def test_the_stored_payload_still_round_trips(achievements, no_fts, stats_api):
+    """With REDIS_URL set the payload survives a restart, so it must stay JSON-clean."""
+    from conftest import assert_json_roundtrips
+
     stats_api.set_achievements(1, [])
-    stats_api.set_achievements(2, [])
-    reply, _ = await run()
+    db._ALTS = {2}
+    _, ctx = await run()
 
-    assert "ignored as alts" not in reply
+    assert_json_roundtrips(ctx.bot_data)
 
 
 async def test_an_alt_is_not_in_the_other_view_either(achievements, no_fts, stats_api):

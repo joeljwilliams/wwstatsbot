@@ -734,7 +734,7 @@ own `_now` wrapper and no two modules have to agree about the time.
 The table rather than the game bot's latest list, and dead players included, for two
 reasons that are easy to get wrong. Achievements do not die with the player, and a list
 that shrank every round would look exactly like a mention having gone missing — the failure
-`/schall` already reports dropped alts to avoid. And the game bot *stops linking a player
+`/schall`'s "Couldn't check" line already exists to avoid. And the game bot *stops linking a player
 once they are out*, so its later lists carry ids for only the living, where the session
 keeps everybody. The record is refreshed on every list followed rather than only at the
 start, so the age reads "when this line-up was last confirmed": during a live game that is

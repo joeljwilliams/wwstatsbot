@@ -167,9 +167,6 @@ def _render_schall(payload, token, show_have):
     )
     if payload["unresolved"]:
         msg += t.SCHALL_UNRESOLVED.format(names=", ".join(html.escape(n) for n in payload["unresolved"]))
-    # Payloads stored before this field existed have no key, hence .get().
-    if payload.get("alts"):
-        msg += t.SCHALL_IGNORED_ALTS.format(names=", ".join(html.escape(n) for n in payload["alts"]))
     # Already-rendered text, not an age: some of these players may have been answered from
     # the record rather than the live API (see playerdata). Same .get() reason as above.
     msg += payload.get("stale") or ""
@@ -243,8 +240,8 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # player's — it would sit in "not obtained" for everything and read as a real gap. Same
     # reason bots never reach here (see mentioned_users). Filtered at check time rather than
     # when the list is remembered, so unmarking an alt brings them back to a cached roster.
-    # Who was dropped is carried through to the reply: silently checking fewer players than
-    # were named would look like a mention had gone missing.
+    # The reply does not name who was dropped: it used to, and a footer listing accounts that
+    # were never checked is information nobody asked for, repeated under every result.
     alts = [uname for uid, uname in users if db.is_alt_account(uid)]
     users = [(uid, uname) for uid, uname in users if not db.is_alt_account(uid)]
     if not users:
@@ -290,9 +287,6 @@ async def display_search_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "missing": missing,
         "have": have,
         "unresolved": unresolved,
-        # Named in the footer of both views. Stored unescaped, like every other name here,
-        # so a persistence round-trip cannot escape them twice.
-        "alts": alts,
         # Who may work the toggle. Stored rather than read from the callback's message,
         # because Telegram does not tell us who sent the message a button is attached to.
         "requested_by": requester_id,
