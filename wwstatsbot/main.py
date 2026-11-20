@@ -15,6 +15,7 @@ import signal
 
 import structlog
 from telegram import BotCommand, Update
+from telegram.error import NetworkError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -60,6 +61,44 @@ PUBLIC_COMMANDS = [
 ]
 
 
+# Telegram can fail to answer for a stretch at a time: on 2026-11-20 it left `getMe` hanging
+# for one bot token for about an hour while every other token, from the same network, was
+# answered at once. `initialize()` makes that call first, so the process died on a TimedOut
+# and Railway restarted it every ~6.5 seconds — a crash loop that kept hitting the same
+# wall instead of waiting for Telegram to come back.
+#
+# So the startup calls that go to Telegram are retried with a growing pause instead. The
+# last delay repeats, and the budget is finite on purpose (about two minutes of waiting
+# plus the requests' own timeouts): a bot that is never going to get through should still
+# exit and let the platform restart it rather than sit "healthy" and deaf for ever.
+# `/healthz` answers throughout, so the deploy is not failed for waiting; `/readyz` stays
+# 503 until the bot can actually serve.
+#
+# Only NetworkError (which TimedOut is a kind of). A bad token is InvalidToken, which is
+# not a network problem and will not get better by asking again, so it still fails at once.
+_STARTUP_RETRY_DELAYS = (1, 2, 4, 8, 16, 30, 30)
+_sleep = asyncio.sleep
+
+
+async def _retry_startup(step, call):
+    """Await `call()`, retrying a Telegram network failure a few times before giving up.
+
+    `call` is a zero-argument callable returning a fresh awaitable, because a coroutine
+    that has already been awaited cannot be awaited again.
+    """
+    for attempt, delay in enumerate(_STARTUP_RETRY_DELAYS, start=1):
+        try:
+            return await call()
+        except NetworkError as err:
+            logger.warning("startup_retry", step=step, attempt=attempt, retry_in=delay, error=type(err).__name__)
+            await _sleep(delay)
+    try:
+        return await call()
+    except NetworkError as err:
+        logger.error("startup_gave_up", step=step, attempts=len(_STARTUP_RETRY_DELAYS) + 1, error=type(err).__name__)
+        raise
+
+
 async def _post_init(application: Application):
     # Bring up the database before reporting ready to k8s.
     await db.init_pool(settings.DATABASE_URL)
@@ -76,7 +115,7 @@ async def _post_init(application: Application):
     # and no business sending anything, so the bot they are announced with is handed over
     # here rather than threaded down. Nothing is posted until LOG_GROUP_ID is also set.
     playerdata.set_announcer(application.bot)
-    await application.bot.set_my_commands(PUBLIC_COMMANDS)
+    await _retry_startup("set_my_commands", lambda: application.bot.set_my_commands(PUBLIC_COMMANDS))
     health.set_ready(True)
 
 
@@ -228,7 +267,7 @@ async def _serve_webhook(app):
     route answers 503 and Telegram redelivers, which is exactly what should happen to an
     update that arrives before the bot can serve it.
     """
-    await app.initialize()
+    await _retry_startup("initialize", app.initialize)
     if app.post_init:
         await app.post_init(app)
 
@@ -236,11 +275,14 @@ async def _serve_webhook(app):
         webhook.receiver(app, settings.WEBHOOK_PATH, settings.WEBHOOK_SECRET, asyncio.get_running_loop())
     )
     endpoint = settings.webhook_endpoint()
-    await app.bot.set_webhook(
-        url=endpoint,
-        secret_token=settings.WEBHOOK_SECRET,
-        # Same as polling: a restart should not replay whatever queued while we were down.
-        drop_pending_updates=True,
+    await _retry_startup(
+        "set_webhook",
+        lambda: app.bot.set_webhook(
+            url=endpoint,
+            secret_token=settings.WEBHOOK_SECRET,
+            # Same as polling: a restart should not replay whatever queued while we were down.
+            drop_pending_updates=True,
+        ),
     )
     await app.start()
     logger.info("webhook_started", endpoint=endpoint, path=settings.WEBHOOK_PATH, port=settings.HEALTH_PORT)

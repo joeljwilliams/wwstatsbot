@@ -17,6 +17,8 @@ import json
 from email.message import Message
 
 import pytest
+from structlog.testing import capture_logs
+from telegram.error import InvalidToken, TimedOut
 
 from wwstatsbot import main
 from wwstatsbot.runtime import health, settings, webhook
@@ -362,6 +364,118 @@ async def test_the_receiver_is_installed_and_then_removed(monkeypatch):
     assert len(installed) == 2
     assert callable(installed[0])
     assert installed[1] is None
+
+
+# --- Startup survives Telegram not answering -------------------------------------------
+#
+# On 2026-11-20 Telegram left getMe unanswered for one bot token for about an hour and the
+# bot crash-looped every ~6.5 seconds on the TimedOut. These pin that the calls made at
+# startup wait and try again instead, and that what cannot be cured by waiting still fails.
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    """Replace the pause between attempts with a recorder, so the suite does not wait."""
+    waited = []
+
+    async def fake_sleep(delay):
+        waited.append(delay)
+
+    monkeypatch.setattr(main, "_sleep", fake_sleep)
+    return waited
+
+
+class FlakyApp(LifecycleApp):
+    """Fails the named step with TimedOut a set number of times before it works."""
+
+    def __init__(self, step, failures):
+        super().__init__()
+        self.step = step
+        self.failures = failures
+        self.attempts = 0
+
+    async def initialize(self):
+        self.calls.append("initialize")
+        if self.step == "initialize":
+            self._maybe_fail()
+
+    async def set_webhook(self, **kwargs):
+        self.calls.append("set_webhook")
+        if self.step == "set_webhook":
+            self._maybe_fail()
+        self.webhook_kwargs = kwargs
+
+    def _maybe_fail(self):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise TimedOut("Timed out")
+
+
+async def test_a_timed_out_initialize_is_retried_until_it_answers(monkeypatch, sleeps):
+    app = await serve(monkeypatch, FlakyApp("initialize", failures=2))
+
+    assert app.calls.count("initialize") == 3
+    assert sleeps == [1, 2], "a growing pause, not a tight loop"
+    assert app.calls[3:] == [
+        "post_init",
+        "set_webhook",
+        "start",
+        "stop",
+        "post_stop",
+        "shutdown",
+        "post_shutdown",
+    ], "and once it answers the rest of the lifecycle is untouched"
+
+
+async def test_a_timed_out_set_webhook_is_retried_too(monkeypatch, sleeps):
+    app = await serve(monkeypatch, FlakyApp("set_webhook", failures=1))
+
+    assert app.calls.count("set_webhook") == 2
+    assert app.calls.count("post_init") == 1, "post_init is not run again for a later step's failure"
+    assert app.webhook_kwargs["secret_token"] == settings.WEBHOOK_SECRET
+
+
+async def test_a_healthy_startup_waits_for_nothing(monkeypatch, sleeps):
+    await serve(monkeypatch)
+    assert sleeps == []
+
+
+async def test_each_retry_is_logged_with_its_step(monkeypatch, sleeps):
+    with capture_logs() as entries:
+        await serve(monkeypatch, FlakyApp("initialize", failures=1))
+
+    retries = [e for e in entries if e["event"] == "startup_retry"]
+    assert len(retries) == 1
+    assert retries[0]["step"] == "initialize"
+    assert retries[0]["attempt"] == 1
+    assert retries[0]["error"] == "TimedOut"
+
+
+async def test_startup_gives_up_after_the_budget_so_the_platform_can_restart_it(monkeypatch, sleeps):
+    app = FlakyApp("initialize", failures=10**6)
+
+    with capture_logs() as entries, pytest.raises(TimedOut):
+        await serve(monkeypatch, app)
+
+    assert app.attempts == len(main._STARTUP_RETRY_DELAYS) + 1
+    assert sleeps == list(main._STARTUP_RETRY_DELAYS)
+    assert [e["event"] for e in entries].count("startup_gave_up") == 1
+    assert "post_init" not in app.calls, "nothing past the failed step ran"
+
+
+async def test_a_bad_token_is_not_retried(sleeps):
+    """InvalidToken is an answer, not silence: asking again cannot change it."""
+    attempts = []
+
+    async def call():
+        attempts.append(1)
+        raise InvalidToken("Unauthorized")
+
+    with pytest.raises(InvalidToken):
+        await main._retry_startup("initialize", call)
+
+    assert attempts == [1]
+    assert sleeps == []
 
 
 # --- The registered URL ------------------------------------------------------------
